@@ -11,6 +11,18 @@
   <!-- FFmpeg.js für WebM -> MP4 Konvertierung -->
   <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.7/dist/ffmpeg.min.js"></script>
 
+  <!-- three.js Importmap für bare specifier "three" -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+      }
+    }
+  </script>
+
+  <!-- Entry Point für den WebXR-Viewer -->
+  <script type="module" src="./js/webxr-app.js"></script>
+
   <style>
     :root {
       color-scheme: dark light;
@@ -277,7 +289,5 @@
     <div id="gallery-grid"></div>
   </div>
 
-  <!-- Entry Point für den WebXR-Viewer -->
-  <script type="module" src="./js/webxr-app.js"></script>
 </body>
 </html>
