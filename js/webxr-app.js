@@ -5,9 +5,10 @@ import { initAudio, toggleAudio, pauseAudioOnHide } from './audio.js';
 import { showLoading, hideLoading, showPoster, hidePoster, initUI, bindARStatus } from './ui.js';
 import { initRecording, stopRecordingOnARSessionEnd } from './recording.js';
 
-// three.js + GLTFLoader vom CDN
-import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+// three.js + GLTFLoader – three kommt aus der Importmap in webxr.html
+import * as THREE from 'three';
 import { GLTFLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
+
 
 let state = {
   cfg: null,
