@@ -1,3 +1,4 @@
+// js/recording.js
 import { getPersistentAudioElement } from './audio.js';
 
 // Konfiguration
@@ -46,6 +47,33 @@ async function ensureFFmpeg() {
   }
 }
 
+// Hilfsfunktionen: Quelle für Screenshot/Recording finden
+function getCaptureSourceElement() {
+  return document.getElementById('ar-scene-element') || null;
+}
+
+function getCaptureCanvas() {
+  const src = getCaptureSourceElement();
+  if (!src) return null;
+
+  // Canvas direkt
+  if (src instanceof HTMLCanvasElement) return src;
+
+  // model-viewer: Canvas im Shadow DOM
+  if (src.shadowRoot) {
+    const c = src.shadowRoot.querySelector('canvas');
+    if (c) return c;
+  }
+
+  // Fallback: normales DOM
+  if (typeof src.querySelector === 'function') {
+    const c = src.querySelector('canvas');
+    if (c) return c;
+  }
+
+  return null;
+}
+
 export function initRecording() {
   const btnCapture = document.getElementById('btn-capture');
   const btnGallery = document.getElementById('btn-gallery');
@@ -53,7 +81,6 @@ export function initRecording() {
   const galleryPanel = document.getElementById('gallery-panel');
   galleryGridRef = document.getElementById('gallery-grid');
   const recInfo = document.getElementById('rec-info');
-  const mvEl = document.getElementById('ar-scene-element');
 
   // Galerie öffnen
   btnGallery?.addEventListener('click', () => {
@@ -73,8 +100,8 @@ export function initRecording() {
     longPressActive = false;
     pressTimerId = setTimeout(() => {
       longPressActive = true;
-      if (canRecordReal(mvEl)) {
-        startRealRecording(mvEl, recInfo, btnCapture);
+      if (canRecordReal()) {
+        startRealRecording(recInfo, btnCapture);
       } else {
         console.warn('MediaRecorder nicht verfügbar → Fallback Simulation.');
         startSimulatedRecording(recInfo, btnCapture);
@@ -94,7 +121,7 @@ export function initRecording() {
 
     if (!longPressActive) {
       // Kurztipp → Foto
-      takeScreenshot(mvEl, btnCapture);
+      takeScreenshot(btnCapture);
     } else {
       // Aufnahme lief → Stop
       if (isRecordingReal || simulatedRecordingId) {
@@ -124,29 +151,55 @@ export function initRecording() {
 }
 
 /* ---------- Screenshot ---------- */
-function takeScreenshot(mvEl, btnCapture) {
-  if (!mvEl || typeof mvEl.toBlob !== 'function') {
-    console.warn('toBlob() nicht verfügbar.');
+function takeScreenshot(btnCapture) {
+  const src = getCaptureSourceElement();
+  const canvas = getCaptureCanvas();
+
+  if (!src && !canvas) {
+    console.warn('Keine Quelle für Screenshot gefunden.');
     return;
   }
+
   // Snap Animation
   btnCapture?.classList.add('snap');
   setTimeout(() => btnCapture?.classList.remove('snap'), 200);
 
-  mvEl.toBlob({ mimeType: 'image/jpeg', quality: SCREENSHOT_QUALITY })
-    .then(blob => {
-      const url = URL.createObjectURL(blob);
-      // Download
-      triggerDownload(url, 'ARea_Screenshot.jpg');
-      // In Galerie übernehmen
-      addToGallery({ type:'image', url, format:'jpg', ts:Date.now() });
-    })
-    .catch(e => console.error('Screenshot fehlgeschlagen:', e));
+  const handleBlob = (blob) => {
+    if (!blob) {
+      console.warn('Screenshot-Blob ist leer.');
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    // Download
+    triggerDownload(url, 'ARea_Screenshot.jpg');
+    // In Galerie übernehmen
+    addToGallery({ type:'image', url, format:'jpg', ts:Date.now() });
+  };
+
+  // model-viewer hat eine eigene toBlob()-Methode
+  if (src && typeof src.toBlob === 'function') {
+    try {
+      src.toBlob({ mimeType: 'image/jpeg', quality: SCREENSHOT_QUALITY })
+        .then(handleBlob)
+        .catch(e => console.error('Screenshot (model-viewer) fehlgeschlagen:', e));
+      return;
+    } catch (e) {
+      console.warn('model-viewer toBlob fehlgeschlagen, versuche Canvas:', e);
+    }
+  }
+
+  // Fallback: Canvas
+  if (canvas && typeof canvas.toBlob === 'function') {
+    canvas.toBlob(handleBlob, 'image/jpeg', SCREENSHOT_QUALITY);
+  } else {
+    console.warn('Canvas toBlob() nicht verfügbar.');
+  }
 }
 
 /* ---------- Feature Detection ---------- */
-function canRecordReal(mvEl) {
-  return !!window.MediaRecorder && !!mvEl?.shadowRoot?.querySelector('canvas');
+function canRecordReal() {
+  const canvas = getCaptureCanvas();
+  return !!window.MediaRecorder && !!canvas;
 }
 
 /* ---------- Simulierte Aufnahme ---------- */
@@ -179,8 +232,8 @@ function formatTime(seconds) {
 }
 
 /* ---------- Echte Aufnahme ---------- */
-function startRealRecording(mvEl, recInfo, btnCapture) {
-  const canvas = mvEl.shadowRoot.querySelector('canvas');
+function startRealRecording(recInfo, btnCapture) {
+  const canvas = getCaptureCanvas();
   if (!canvas) {
     console.warn('Kein Canvas für Aufnahme gefunden → Fallback.');
     startSimulatedRecording(recInfo, btnCapture);
