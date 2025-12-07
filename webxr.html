@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <title>ARea Viewer – WebXR</title>
+
+  <!-- Font Awesome für Galerie-Icon -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+
+  <!-- FFmpeg.js für WebM -> MP4 Konvertierung -->
+  <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.7/dist/ffmpeg.min.js"></script>
+
+  <style>
+    :root {
+      color-scheme: dark light;
+      --model-vertical-offset: 0px;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body {
+      margin: 0; height: 100%;
+      background: #000;
+      font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+      overscroll-behavior: none;
+      touch-action: manipulation;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    #poster {
+      position: fixed; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: #05070c; z-index: 20; color: #fff;
+      text-align: center; padding: 24px;
+    }
+    #poster-inner {
+      max-width: 420px; width: 100%; padding: 24px 20px; border-radius: 24px;
+      background: radial-gradient(circle at top,#243b74,#05070c);
+      box-shadow: 0 18px 40px rgba(0,0,0,0.6);
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    #posterTitle { font-size: 22px; margin: 0 0 6px; }
+
+    #posterSubtitle {
+      margin: 0 0 8px;
+      font-size: 15px;
+      opacity: 0.85;
+    }
+
+    #poster-media {
+      margin: 0 0 14px;
+    }
+    #poster-media img {
+      max-width: 100%;
+      border-radius: 16px;
+      display: block;
+    }
+
+    #posterText { margin: 0 0 16px; font-size: 14px; opacity: 0.9; }
+    #startAr {
+      appearance: none; border: none; border-radius: 999px;
+      padding: 10px 22px; font-size: 15px; font-weight: 500;
+      background: linear-gradient(135deg,#5ddcff,#3c67e3); color:#fff;
+      cursor: pointer;
+      box-shadow: 0 6px 16px rgba(0,0,0,0.5);
+      transition: transform .25s;
+    }
+    #startAr:active { transform: scale(.94); }
+    #startAr[disabled]{ opacity:.55; cursor: wait; }
+
+    #loading-status {
+      position: fixed;
+      inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px; color: #fff;
+      background: #05070c;
+      z-index: 10;
+    }
+
+    #err {
+      position: fixed; left: 12px; top: 12px; z-index: 40;
+      background: #b00020; color:#fff; padding:8px 10px; border-radius:8px;
+      display:none; font:12px/1.35 monospace;
+      max-width:min(92vw,680px); white-space:pre-wrap;
+    }
+
+    #ar-container {
+      width: 100%; height: 100%;
+      position: relative;
+      background: #000;
+    }
+
+    /* Sowohl model-viewer (für andere Viewer) als auch Canvas im WebXR-Viewer */
+    model-viewer,
+    #ar-scene-element {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100svh;
+      display: block;
+      background: #000;
+      transform: translateY(var(--model-vertical-offset));
+    }
+
+    #ar-ui {
+      position: fixed; inset:0; z-index:30;
+      display:none; pointer-events:none;
+      font-family: inherit;
+    }
+    .bottom-bar {
+      position:absolute; left:0; right:0;
+      bottom:max(env(safe-area-inset-bottom),16px);
+      display:flex; align-items:center; justify-content:space-between;
+      gap:22px; pointer-events:auto; padding:0 18px;
+    }
+
+    #btn-gallery, #btn-mute {
+      appearance:none; border:none; cursor:pointer;
+      display:flex; align-items:center; justify-content:center;
+      color:#fff;
+      background: rgba(30,30,30,0.6);
+      border:1px solid rgba(255,255,255,0.25);
+      box-shadow:0 4px 12px rgba(0,0,0,0.4);
+      backdrop-filter: blur(4px);
+      width:44px; height:44px; border-radius:12px; font-size:18px;
+    }
+
+    #btn-capture {
+      appearance:none; border:none; cursor:pointer;
+      width:84px; height:84px; border-radius:50%;
+      background:transparent; border:none; box-shadow:none;
+      position:relative;
+      display:flex; align-items:center; justify-content:center;
+    }
+    #btn-capture .outer-ring {
+      position:absolute; inset:0;
+      border-radius:50%;
+      background: rgba(255,255,255,0.2);
+      border: 2px solid rgba(255,255,255,0.6);
+      display:flex; align-items:center; justify-content:center;
+      transition: transform .25s, background .25s, border-color .25s;
+    }
+    #btn-capture .inner-dot {
+      width:56px; height:56px;
+      background:#fff; border-radius:50%;
+      transition: transform .2s, background .2s, border-radius .2s;
+    }
+    #btn-capture.snap .inner-dot { animation:snap-blink 180ms ease-out; }
+    @keyframes snap-blink {0%{transform:scale(1)}50%{transform:scale(.9)}100%{transform:scale(1)}}
+
+    #btn-capture.recording .outer-ring {
+      background: rgba(255,59,48,0.25);
+      border-color: rgba(255,59,48,0.95);
+      animation: rec-pulse 1.05s ease-in-out infinite;
+    }
+    #btn-capture.recording .inner-dot {
+      background:#ff3b30;
+      width:34px; height:34px;
+      border-radius:8px;
+      transform: scale(1.0);
+    }
+    @keyframes rec-pulse {0%{transform:scale(1)}50%{transform:scale(1.06)}100%{transform:scale(1)}}
+
+    #rec-info {
+      position:absolute;
+      bottom: calc(max(env(safe-area-inset-bottom),16px) + 110px);
+      left:50%; transform:translateX(-50%);
+      background:#ff3b30; color:#fff;
+      padding:4px 8px; border-radius:4px; font-size:14px;
+      display:none; align-items:center; gap:6px;
+    }
+    #rec-info::before { content:"●"; font-size:10px; animation:rec-pulse 1s infinite; }
+
+    /* Galerie Panel */
+    #gallery-panel {
+      position:fixed; inset:0; z-index:50;
+      background:rgba(5,7,12,0.92);
+      backdrop-filter:blur(12px);
+      display:none; flex-direction:column;
+      padding:18px 22px 40px;
+    }
+    #gallery-header {
+      display:flex; align-items:center; justify-content:space-between;
+      margin-bottom:12px;
+    }
+    #gallery-header h2 {
+      margin:0; font-size:18px; font-weight:600; color:#fff;
+    }
+    #btn-gallery-close {
+      appearance:none; border:none; cursor:pointer;
+      background:#24303a; color:#fff; padding:6px 12px; border-radius:8px;
+      font-size:14px; border:1px solid rgba(255,255,255,0.15);
+    }
+    #gallery-grid {
+      display:grid;
+      grid-template-columns:repeat(auto-fill,minmax(120px,1fr));
+      gap:12px;
+      overflow:auto;
+      padding:4px;
+    }
+    .thumb {
+      position:relative;
+      background:#111; border-radius:8px; overflow:hidden;
+      border:1px solid rgba(255,255,255,0.15);
+      display:flex; align-items:center; justify-content:center;
+    }
+    .thumb img, .thumb video {
+      width:100%; height:100%; object-fit:cover;
+      display:block;
+    }
+    .thumb-label {
+      position:absolute; left:4px; bottom:4px;
+      background:rgba(0,0,0,0.55); color:#fff;
+      font-size:10px; padding:2px 4px; border-radius:4px;
+    }
+    .thumb video { background:#000; }
+
+    .Hotspot {
+      background: rgba(30,30,30,0.75);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.35);
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .Hotspot.in-ar {
+      background: rgba(0,140,255,0.85);
+      border-color: rgba(255,255,255,0.6);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Poster -->
+  <div id="poster" style="display:none;">
+    <div id="poster-inner">
+      <h1 id="posterTitle">3D / AR Erlebnis</h1>
+      <p id="posterSubtitle" class="hidden"></p>
+      <div id="poster-media" class="hidden">
+        <img id="posterImageEl" alt="">
+      </div>
+      <p id="posterText">Tippe auf START AR, um das Modell in deiner Umgebung zu sehen.</p>
+      <button id="startAr" type="button">START AR</button>
+    </div>
+  </div>
+
+  <div id="loading-status">Lade Szene…</div>
+  <div id="err"></div>
+
+  <div id="ar-container">
+    <!-- Canvas, das three.js und WebXR nutzt -->
+    <canvas id="ar-scene-element"></canvas>
+  </div>
+
+  <div id="ar-ui">
+    <div class="bottom-bar">
+      <button id="btn-gallery" aria-label="Galerie"><i class="fa-solid fa-images"></i></button>
+
+      <button id="btn-capture" aria-label="Auslöser">
+        <span class="outer-ring"><span class="inner-dot"></span></span>
+      </button>
+
+      <button id="btn-mute" aria-label="Audio stumm/aktivieren">🔊</button>
+    </div>
+    <div id="rec-info">00:00</div>
+  </div>
+
+  <!-- Galerie Panel -->
+  <div id="gallery-panel">
+    <div id="gallery-header">
+      <h2>Galerie</h2>
+      <button id="btn-gallery-close" type="button">Schließen</button>
+    </div>
+    <div id="gallery-grid"></div>
+  </div>
+
+  <!-- Entry Point für den WebXR-Viewer -->
+  <script type="module" src="./js/webxr-app.js"></script>
+</body>
+</html>
