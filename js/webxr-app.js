@@ -1,5 +1,5 @@
 // js/webxr-app.js
-// WebXR-Viewer mit Hit-Test, Poster und Screenshot-Galerie
+// WebXR-Viewer mit Hit-Test, Poster und Screenshot-Galerie (ohne Videoaufnahme)
 
 import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
 import { GLTFLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
@@ -22,6 +22,8 @@ const state = {
   hitTestSource: null,
   hitTestSourceRequested: false,
 
+  xrSession: null,
+
   galleryItems: []
 };
 
@@ -29,7 +31,7 @@ window.addEventListener('DOMContentLoaded', init);
 
 async function init() {
   const params = new URLSearchParams(location.search);
-  state.sceneId   = params.get('scene');
+  state.sceneId    = params.get('scene');
   state.workerBase = params.get('base');
 
   const loadingEl = document.getElementById('loading-status');
@@ -43,23 +45,23 @@ async function init() {
   try {
     if (loadingEl) loadingEl.style.display = 'flex';
 
-    // Scene-Konfig laden
+    // Szene-Konfiguration laden
     state.cfg = await loadConfig(state.sceneId, state.workerBase);
     console.log('[WebXR] SceneConfig:', state.cfg);
 
-    // Three.js Setup (Renderer, Scene, Kamera)
+    // Three.js-Grundsetup
     setupThree();
 
-    // Modell aus R2 laden
+    // GLB-Modell laden
     await loadModel();
 
-    // Reticle für Hit-Test
+    // Reticle (Platzierungsring)
     setupReticle();
 
-    // Poster aus Meta-Daten
+    // Poster aus Meta-Daten befüllen
     showPosterFromMeta();
 
-    // UI-Hooks (Start AR, Galerie, Screenshot)
+    // UI verdrahten (Start AR, Galerie, Screenshot)
     setupUI();
 
     if (loadingEl) loadingEl.style.display = 'none';
@@ -89,7 +91,7 @@ async function loadConfig(sceneId, workerBase) {
   }
 }
 
-/* ------------------ Three.js Grundsetup ------------------ */
+/* ------------------ Three.js-Grundsetup ------------------ */
 
 function setupThree() {
   const canvas = document.getElementById('ar-scene-element');
@@ -98,12 +100,13 @@ function setupThree() {
   const renderer = new THREE.WebGLRenderer({
     canvas,
     antialias: true,
-    alpha: true     // wichtig: alpha + clearAlpha 0 → Kamera sichtbar
+    alpha: true
   });
+
   renderer.setPixelRatio(window.devicePixelRatio);
-  renderer.setSize(window.innerWidth, window.innerHeight, false); // nur einmal
+  renderer.setSize(window.innerWidth, window.innerHeight, false); // nur einmal vor der Session
   renderer.xr.enabled = true;
-  renderer.setClearColor(0x000000, 0); // kein schwarzer Hintergrund, sondern transparent
+  renderer.setClearColor(0x000000, 0); // transparent, Kamera soll sichtbar sein
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(
@@ -122,8 +125,8 @@ function setupThree() {
   state.camera   = camera;
   state.clock    = new THREE.Clock();
 
-  // Wir hängen KEIN window.resize dran, um die
-  // "Can't change size while VR device is presenting"-Fehler zu vermeiden.
+  // Kein window.resize-Listener, um "Can't change size while VR device is presenting"
+  // und ähnliche Fehler zu vermeiden.
 }
 
 /* ------------------ Modell laden & Animation ------------------ */
@@ -139,13 +142,13 @@ async function loadModel() {
     loader.load(
       url,
       (gltf) => {
-        const root = gltf.scene || gltf.scenes[0];
+        const root = gltf.scene || gltf.scenes?.[0];
         if (!root) {
           reject(new Error('GLTF enthält keine Szene.'));
           return;
         }
 
-        root.visible = false; // erst sichtbar, wenn platziert
+        root.visible = false; // erst sichtbar nach Platzierung
         state.scene.add(root);
         state.model = root;
 
@@ -164,7 +167,7 @@ async function loadModel() {
   });
 }
 
-/* ------------------ Reticle (Platzierungsring) ------------------ */
+/* ------------------ Reticle (Hit-Test-Ring) ------------------ */
 
 function setupReticle() {
   const geometry = new THREE.RingGeometry(0.08, 0.1, 32).rotateX(-Math.PI / 2);
@@ -234,7 +237,7 @@ function showPosterFromMeta() {
   if (poster) poster.style.display = 'flex';
 }
 
-/* ------------------ UI verbinden ------------------ */
+/* ------------------ UI verdrahten ------------------ */
 
 function setupUI() {
   const startBtn        = document.getElementById('startAr');
@@ -251,7 +254,7 @@ function setupUI() {
         console.error(e);
         showError('AR konnte nicht gestartet werden: ' + (e.message || e));
       } finally {
-        // zur Sicherheit wieder freigeben
+        // im Fehlerfall nicht dauerhaft disabled lassen
         startBtn.disabled = false;
       }
     });
@@ -265,6 +268,7 @@ function setupUI() {
         refreshGalleryGrid();
       }
     });
+
     btnGalleryClose.addEventListener('click', () => {
       const panel = document.getElementById('gallery-panel');
       if (panel) panel.style.display = 'none';
@@ -278,7 +282,7 @@ function setupUI() {
   }
 }
 
-/* ------------------ WebXR Session Start ------------------ */
+/* ------------------ AR-Session starten ------------------ */
 
 async function startARSession() {
   if (!navigator.xr) {
@@ -301,85 +305,98 @@ async function startARSession() {
   }
 
   const session = await navigator.xr.requestSession('immersive-ar', {
-    requiredFeatures: ['hit-test', 'local'],   // bewusst "local" wie im Three-Beispiel
+    requiredFeatures: ['hit-test', 'local'],
     optionalFeatures: ['dom-overlay'],
     domOverlay: { root: document.body }
   });
+
+  state.xrSession = session;
 
   const renderer = state.renderer;
   renderer.xr.setReferenceSpaceType('local');
   await renderer.xr.setSession(session);
 
+  // Modell-Platzierung per Tap
+  session.addEventListener('select', onSelect);
+
   session.addEventListener('end', () => {
     state.hitTestSourceRequested = false;
     state.hitTestSource = null;
     state.placed = false;
+    state.xrSession = null;
 
     const arUI   = document.getElementById('ar-ui');
     const poster = document.getElementById('poster');
     if (arUI) arUI.style.display = 'none';
     if (poster) poster.style.display = 'flex';
-
-    renderer.setAnimationLoop(null);
   });
 
-  // UI einblenden, Poster ausblenden
+  // UI im AR-Modus anzeigen, Poster ausblenden
   const arUI   = document.getElementById('ar-ui');
   const poster = document.getElementById('poster');
   if (arUI) arUI.style.display = 'block';
   if (poster) poster.style.display = 'none';
 
-  // Renderloop aktivieren
-  renderer.setAnimationLoop(renderXRFrame);
+  // Eigene XR-Renderloop nur über session.requestAnimationFrame
+  const onXRFrame = (time, frame) => {
+    if (session !== state.xrSession) return; // Session wurde beendet
+    renderXRFrame(time, frame);
+    session.requestAnimationFrame(onXRFrame);
+  };
+
+  session.requestAnimationFrame(onXRFrame);
 }
 
-/* ------------------ WebXR Renderloop ------------------ */
+/* ------------------ XR-Frame-Renderloop ------------------ */
 
 function renderXRFrame(timestamp, frame) {
   const renderer = state.renderer;
   const scene    = state.scene;
   const camera   = state.camera;
 
-  if (frame) {
-    const referenceSpace = renderer.xr.getReferenceSpace();
-    const session        = renderer.xr.getSession();
+  if (!frame) return;
 
-    if (!state.hitTestSourceRequested) {
-      session.requestReferenceSpace('viewer').then((viewerRef) => {
-        session.requestHitTestSource({ space: viewerRef }).then((source) => {
-          state.hitTestSource = source;
-        });
+  const referenceSpace = renderer.xr.getReferenceSpace();
+  const session        = renderer.xr.getSession();
+
+  // Hit-Test-Source einmalig anfordern
+  if (!state.hitTestSourceRequested) {
+    session.requestReferenceSpace('viewer').then((viewerRef) => {
+      session.requestHitTestSource({ space: viewerRef }).then((source) => {
+        state.hitTestSource = source;
       });
+    });
 
-      session.addEventListener('end', () => {
-        state.hitTestSourceRequested = false;
-        state.hitTestSource = null;
-      });
+    session.addEventListener('end', () => {
+      state.hitTestSourceRequested = false;
+      state.hitTestSource = null;
+    });
 
-      state.hitTestSourceRequested = true;
-    }
+    state.hitTestSourceRequested = true;
+  }
 
-    if (state.hitTestSource && !state.placed) {
-      const hitTestResults = frame.getHitTestResults(state.hitTestSource);
-      if (hitTestResults.length) {
-        const hit = hitTestResults[0];
-        const pose = hit.getPose(referenceSpace);
-        if (pose && state.reticle) {
-          state.reticle.visible = true;
-          state.reticle.matrix.fromArray(pose.transform.matrix);
-        }
-      } else if (state.reticle) {
-        state.reticle.visible = false;
+  // Reticle-Position mit Hit-Test aktualisieren, solange nicht platziert
+  if (state.hitTestSource && !state.placed) {
+    const hitTestResults = frame.getHitTestResults(state.hitTestSource);
+    if (hitTestResults.length > 0) {
+      const hit = hitTestResults[0];
+      const pose = hit.getPose(referenceSpace);
+      if (pose && state.reticle) {
+        state.reticle.visible = true;
+        state.reticle.matrix.fromArray(pose.transform.matrix);
       }
+    } else if (state.reticle) {
+      state.reticle.visible = false;
     }
   }
 
-  // Animationen updaten
+  // Animation updaten
   if (state.mixer && state.clock) {
     const delta = state.clock.getDelta();
     state.mixer.update(delta);
   }
 
+  // Rendern – wir sind hier IM XR-Frame-Callback
   renderer.render(scene, camera);
 }
 
@@ -398,7 +415,7 @@ function onSelect() {
 
 function takeScreenshot() {
   const canvas = document.getElementById('ar-scene-element');
-  if (!canvas || !canvas.toBlob) {
+  if (!canvas || typeof canvas.toBlob !== 'function') {
     console.warn('Canvas oder toBlob() nicht verfügbar.');
     return;
   }
