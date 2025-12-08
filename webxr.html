@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Surface AR – WebXR Hit-Test (rechteckiger Reticle + Preview)</title>
+<title>Surface AR – WebXR Hit-Test (mit Gesten wie Native Viewer)</title>
 <style>
   html,body{
     margin:0;
@@ -13,30 +13,37 @@
     color:#fff;
     font-family:system-ui
   }
-  #enter{
+  #enter{ display:none; }
+  #tapToStart {
     position:fixed;
-    left:50%;
-    top:50%;
-    transform:translate(-50%,-50%);
-    padding:12px 18px;
-    border-radius:12px;
-    border:1px solid #555;
+    inset:0;
+    display:none;
+    align-items:center;
+    justify-content:center;
+    background:rgba(0,0,0,.5);
+    z-index: 10;
+    font:16px/1.3 system-ui;
+    text-align:center;
+  }
+  #tapToStart .inner{
     background:#111;
+    border:1px solid #444;
+    border-radius:12px;
+    padding:14px 16px;
+    max-width:min(90vw,420px);
     color:#fff;
-    z-index:10;
   }
   #msg{
     position:fixed;
     left:12px;
     bottom:12px;
-    opacity:.9;
-    z-index:5;
+    opacity:.9
   }
   #err{
     position:fixed;
     left:12px;
     top:12px;
-    z-index:9;
+    z-index:12;
     background:#b00020;
     color:#fff;
     padding:8px 10px;
@@ -44,7 +51,7 @@
     display:none;
     font:12px/1.35 monospace;
     max-width:min(92vw,680px);
-    white-space:pre-wrap;
+    white-space:pre-wrap
   }
   #badge{
     position:fixed;
@@ -55,10 +62,18 @@
     color:#9cf;
     padding:6px 8px;
     border-radius:8px;
-    font:12px system-ui;
+    font:12px system-ui
+  }
+  /* Vollflächige Gesten-Ebene (DOM Overlay) */
+  #gesture-layer {
+    position:fixed;
+    inset:0;
+    z-index: 9;
+    background: transparent;
+    touch-action: none;
+    pointer-events: auto;
   }
 </style>
-
 <script type="importmap">
 {
   "imports": {
@@ -70,26 +85,25 @@
 </head>
 <body>
   <div id="err"></div>
-  <button id="enter">Start AR</button>
-  <div id="msg">Android Chrome empfohlen · Bewege das Gerät, dann tippe zum Platzieren</div>
+  <div id="tapToStart"><div class="inner">Tippe, um AR zu starten</div></div>
+  <div id="msg">Android Chrome empfohlen · Bewege das Gerät, dann mit Gesten verschieben/skalieren/rotieren · Tippe zum Platzieren</div>
   <div id="badge">WEBXR BUILD</div>
+  <div id="gesture-layer"></div>
 
 <script type="module">
 import * as THREE from 'three';
 import { GLTFLoader }  from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
-let camera, scene, renderer, reticle, controller;
-let hitTestSource = null;
-let hitTestSourceRequested = false;
-
-let model = null;
-let mixer = null;
-let clips = [];
+let camera, scene, renderer, reticle, controller, hitTestSource=null, hitTestSourceRequested=false;
+let model=null, mixer=null, clips=[];
+let modelLocked = false;
 let modelLoaded = false;
-let modelPlaced = false;   // nach Tap „gelockt“
 
-const clock = new THREE.Clock();
+const clock   = new THREE.Clock();
+const tempPos = new THREE.Vector3();
+const tempQuat= new THREE.Quaternion();
+const tempMat = new THREE.Matrix4();
 
 const showErr = (m)=>{
   const el=document.getElementById('err');
@@ -99,8 +113,6 @@ const showErr = (m)=>{
 
 /* ========= Param-Normalisierung ========= */
 const qs = new URLSearchParams(location.search);
-
-// --- Force-Param: niemals auf Native umleiten, wenn ?force=webxr ---
 const FORCE = (qs.get('force') || '').toLowerCase();
 if (FORCE === 'webxr') {
   window.__FORCE_MODE = 'webxr';
@@ -123,21 +135,20 @@ if (overrideGlb) {
   SCENE_GLB = overrideGlb;
 } else if (sceneParam) {
   if (isDataOrBlob(sceneParam)) {
-    SCENE_JSON = sceneParam;
+    SCENE_GLB = sceneParam;
   } else if (isHttp(sceneParam)) {
     if (isGlbLike(sceneParam)) SCENE_GLB = sceneParam;
     else SCENE_JSON = sceneParam;
   } else {
     const id = sceneParam.replace(/\/+$/,'');
-    SCENE_GLB  = `${workerBase}/scenes/${encodeURIComponent(id)}/scene.glb`;
     SCENE_JSON = `${workerBase}/scenes/${encodeURIComponent(id)}/scene.json`;
   }
 }
 
 const cfg = {
-  modelUrl: SCENE_GLB || 'https://modelviewer.dev/shared-assets/models/Astronaut.glb',
+  modelUrl: 'https://modelviewer.dev/shared-assets/models/Astronaut.glb',
   position: [0,0,0],
-  rotation: [0,0,0],  // Grad
+  rotation: [0,0,0],
   scale:[0.6,0.6,0.6],
   animation: '*'
 };
@@ -148,33 +159,39 @@ const deg2rad = d => (d||0) * Math.PI/180;
 
 // ---------- Szene aus externer JSON (optional) ----------
 async function loadScene(){
+  if (SCENE_JSON) {
+    try {
+      const r = await fetch(SCENE_JSON, {cache:'no-cache', mode:'cors'});
+      if(!r.ok) throw new Error('scene.json Load '+r.status+' '+r.statusText);
+      const j = await r.json();
+      console.log('[WEBXR] scene.json geladen:', j);
+
+      const resolveAgainstJson = (u)=>{
+        if (!u) return u;
+        if (isHttp(u) || isDataOrBlob(u)) return u;
+        try { return new URL(u, SCENE_JSON).href; } catch { return u; }
+      };
+
+      if (j?.model?.url)                 cfg.modelUrl = resolveAgainstJson(j.model.url);
+      if (Array.isArray(j?.model?.position))    cfg.position = j.model.position;
+      if (Array.isArray(j?.model?.rotationDeg)) cfg.rotation = j.model.rotationDeg;
+      else if (Array.isArray(j?.model?.rotation)) cfg.rotation = j.model.rotation;
+      if (Array.isArray(j?.model?.scale))       cfg.scale    = j.model.scale;
+      if (j?.model?.animation!=null)           cfg.animation= j.model.animation;
+      return;
+    } catch(e) {
+      console.warn(e);
+      showErr('scene.json konnte nicht geladen werden:\n'+e.message);
+    }
+  }
+
   if (SCENE_GLB) {
     cfg.modelUrl = SCENE_GLB;
+    console.log('[WEBXR] Fallback: SCENE_GLB verwendet:', cfg.modelUrl);
     return;
   }
-  if (!SCENE_JSON) return;
 
-  try{
-    const r = await fetch(SCENE_JSON, {cache:'no-cache', mode:'cors'});
-    if(!r.ok) throw new Error('scene.json Load '+r.status+' '+r.statusText);
-    const j = await r.json();
-
-    const resolveAgainstJson = (u)=>{
-      if (!u) return u;
-      if (isHttp(u) || isDataOrBlob(u)) return u;
-      try { return new URL(u, SCENE_JSON).href; } catch { return u; }
-    };
-
-    if (j?.model?.url)                 cfg.modelUrl = resolveAgainstJson(j.model.url);
-    if (Array.isArray(j?.model?.position))    cfg.position = j.model.position;
-    if (Array.isArray(j?.model?.rotationDeg)) cfg.rotation = j.model.rotationDeg;
-    else if (Array.isArray(j?.model?.rotation)) cfg.rotation = j.model.rotation;
-    if (Array.isArray(j?.model?.scale))       cfg.scale    = j.model.scale;
-    if (j?.model?.animation!=null)           cfg.animation= j.model.animation;
-  }catch(e){
-    console.warn(e);
-    showErr('scene.json konnte nicht geladen werden:\n'+e.message);
-  }
+  console.log('[WEBXR] Kein scene/base → Astronaut Fallback.');
 }
 
 // -------- Fallbacks aus Query --------
@@ -200,7 +217,7 @@ function applyQueryFallback(){
 
 // ---------- THREE Init ----------
 function init() {
-  scene  = new THREE.Scene();
+  scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera();
 
   const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
@@ -219,9 +236,9 @@ function init() {
   renderer.toneMappingExposure = 1.0;
   document.body.appendChild(renderer.domElement);
 
-  // 🔹 Rechteck-Reticle (wie Shadow-Plane)
+  // Rechteck-Reticle
   const planeGeo = new THREE.PlaneGeometry(0.4, 0.4);
-  planeGeo.rotateX(-Math.PI/2);
+  planeGeo.rotateX(-Math.PI / 2);
   const planeMat = new THREE.MeshBasicMaterial({
     color: 0x66ccff,
     opacity: 0.5,
@@ -236,13 +253,19 @@ function init() {
   controller.addEventListener('select', onSelect);
   scene.add(controller);
 
-  // Resize: während XR keine Größe ändern
+  // Resize während XR vermeiden
   addEventListener('resize', ()=>{
-    if (renderer?.xr?.isPresenting) return;
+    if (renderer?.xr?.isPresenting) return; // nicht setzen während XR
     renderer.setSize(innerWidth, innerHeight);
   });
 
-  document.getElementById('enter').addEventListener('click', startAR);
+  const tapOverlay = document.getElementById('tapToStart');
+  tapOverlay.addEventListener('pointerdown', () => {
+    tapOverlay.style.display = 'none';
+    startAR().catch((e)=> {
+      console.warn('startAR via overlay fehlgeschlagen:', e);
+    });
+  });
 
   try {
     window.opener && window.opener.postMessage({ type:'webar-ready' }, location.origin);
@@ -253,11 +276,10 @@ function init() {
 function playClips(){
   if (!mixer || !clips.length) return;
   const a = cfg.animation;
-  if (a === 'none') return;
-
-  if (a === '*'){
+  if (a==='none') return;
+  if (a==='*'){
     clips.forEach(c=>mixer.clipAction(c).play());
-  } else if (typeof a === 'string'){
+  } else if (typeof a==='string'){
     const c = clips.find(c=>c.name===a) || clips[0];
     mixer.clipAction(c).play();
   } else {
@@ -266,13 +288,13 @@ function playClips(){
   }
 }
 
-/* ---------- Modell vorab laden (sicher über loadAsync) ---------- */
+/* ---------- Modell laden (sicher über loadAsync) ---------- */
 async function preloadModel() {
-  if (modelLoaded) return;
   try {
     console.log('[WEBXR] Preload GLB:', cfg.modelUrl);
 
     const loader = new GLTFLoader();
+    // DRACO für komprimierte Meshes aktivieren
     const draco = new DRACOLoader();
     draco.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
     loader.setDRACOLoader(draco);
@@ -297,54 +319,49 @@ async function preloadModel() {
     }
 
     modelLoaded = true;
-    console.log('[WEBXR] Modell geladen.');
   } catch (err) {
     console.error('GLTF load failed', err);
     showErr('Fehler beim Laden des Objekts:\n' + (err?.message || err || 'Unbekannt'));
   }
 }
 
-/* ---------- Tap: endgültig platzieren ---------- */
+/* ---------- Tap: Modell platzieren ---------- */
 async function onSelect() {
   if (!reticle.visible || !modelLoaded || !model) return;
-  modelPlaced = true;
+  modelLocked = true;
   reticle.visible = false;
-  console.log('[WEBXR] Modell platziert (Tap).');
 }
 
 /* ---------- WebXR ---------- */
 async function startAR(){
-  if (!navigator.xr) { showErr('WebXR nicht verfügbar.'); return; }
+  if (!navigator.xr) {
+    showErr('WebXR nicht verfügbar.');
+    return;
+  }
   const isARSupported = await navigator.xr.isSessionSupported('immersive-ar');
   if (!isARSupported) {
     showErr('Dein Gerät/Browser unterstützt kein WebXR-AR.');
     return;
   }
 
-  // Modell vor der Session laden
-  await preloadModel();
-
   const session = await navigator.xr.requestSession('immersive-ar', {
-    requiredFeatures: ['hit-test','local-floor']
+    requiredFeatures: ['hit-test','local-floor'],
+    optionalFeatures: ['dom-overlay'],
+    domOverlay: { root: document.body }
   });
 
   renderer.xr.setReferenceSpaceType('local-floor');
   await renderer.xr.setSession(session);
-  document.getElementById('enter').style.display='none';
-
-  session.addEventListener('end', () => {
-    hitTestSourceRequested = false;
-    hitTestSource = null;
-    modelPlaced = false;
-    if (reticle) reticle.visible = false;
-    if (model)   model.visible   = false;
-    document.getElementById('enter').style.display='block';
-  });
-
   animate();
 }
 
-const tempPos = new THREE.Vector3();
+function attemptAutoStart() {
+  startAR().catch(err => {
+    console.warn('[AutoStart] startAR fehlgeschlagen:', err);
+    const overlay = document.getElementById('tapToStart');
+    overlay.style.display = 'flex';
+  });
+}
 
 function animate() {
   renderer.setAnimationLoop(render);
@@ -354,9 +371,8 @@ function render(t, frame) {
   const dt = clock.getDelta();
   if (mixer) mixer.update(dt);
 
-  if (!frame) {
-    // Während XR kommt hier normalerweise immer ein frame rein;
-    // außerhalb XR rendern wir nichts, um XR-Fehler zu vermeiden.
+  if (!frame){
+    // Nur außerhalb XR, falls nötig – hier lassen wir es aus
     return;
   }
 
@@ -369,6 +385,13 @@ function render(t, frame) {
         hitTestSource = source;
       });
     });
+    session.addEventListener('end', () => {
+      hitTestSourceRequested = false;
+      hitTestSource = null;
+      modelLocked = false;
+      const overlay = document.getElementById('tapToStart');
+      overlay.style.display = 'flex';
+    });
     hitTestSourceRequested = true;
   }
 
@@ -378,21 +401,19 @@ function render(t, frame) {
       const hit  = results[0];
       const pose = hit.getPose(referenceSpace);
 
-      if (pose) {
-        reticle.visible = !modelPlaced;
-        reticle.matrix.fromArray(pose.transform.matrix);
+      reticle.visible = !modelLocked;
+      reticle.matrix.fromArray(pose.transform.matrix);
 
-        // 🔹 solange NICHT platziert → Modell folgt dem Rechteck
-        if (model && modelLoaded && !modelPlaced) {
-          model.visible = true;
-          tempPos.setFromMatrixPosition(reticle.matrix);
-          model.position.copy(tempPos);
-        }
+      // Modell folgt dem Rechteck, solange es noch nicht "fest" ist
+      if (model && modelLoaded && !modelLocked) {
+        model.visible = true;
+        tempPos.setFromMatrixPosition(reticle.matrix);
+        model.position.copy(tempPos);
       }
     } else {
-      if (!modelPlaced) {
+      if (!modelLocked) {
         reticle.visible = false;
-        if (model && !modelPlaced) model.visible = false;
+        if (model) model.visible = false;
       }
     }
   }
@@ -400,11 +421,150 @@ function render(t, frame) {
   renderer.render(scene, camera);
 }
 
+// ===================== Native-Viewer-ähnliche Gesten =====================
+const gestureLayer = document.getElementById('gesture-layer');
+let dragging = false;
+let twoFinger = false;
+let dragOffset = new THREE.Vector3();
+let placementPlane = new THREE.Plane();
+let tapStartTime = 0;
+let tapStartPt = { x:0, y:0 };
+
+let initialDist = 0;
+let initialAngle = 0;
+let initialScaleY = 1;
+let initialRotY = 0;
+
+const MIN_SCALE = 0.1;
+const MAX_SCALE = 5.0;
+const TAP_TIME_MS = 220;
+const TAP_MOVE_PX = 12;
+
+function getXRViewCamera() {
+  return renderer?.xr?.getCamera(camera) || camera;
+}
+
+const raycaster = new THREE.Raycaster();
+const ndc = new THREE.Vector2();
+const planeHit = new THREE.Vector3();
+
+function screenToWorldOnPlane(clientX, clientY, plane) {
+  const cam = getXRViewCamera();
+  ndc.x = (clientX / window.innerWidth) * 2 - 1;
+  ndc.y = -(clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(ndc, cam);
+  const ok = raycaster.ray.intersectPlane(plane, planeHit);
+  return ok ? planeHit.clone() : null;
+}
+
+function updatePlacementPlaneFromReticle() {
+  if (!reticle || !reticle.visible) return false;
+  const normal = new THREE.Vector3(0,1,0);
+  tempQuat.setFromRotationMatrix(reticle.matrix);
+  normal.applyQuaternion(tempQuat);
+  const point = new THREE.Vector3().setFromMatrixPosition(reticle.matrix);
+  placementPlane.setFromNormalAndCoplanarPoint(normal, point);
+  return true;
+}
+
+gestureLayer.addEventListener('touchstart', (ev) => {
+  if (!renderer?.xr?.isPresenting || !modelLoaded || !model) return;
+  if (modelLocked) return;
+
+  const touches = ev.touches;
+  if (touches.length === 1) {
+    twoFinger = false;
+    dragging = true;
+    tapStartTime = performance.now();
+    tapStartPt.x = touches[0].clientX;
+    tapStartPt.y = touches[0].clientY;
+
+    if (!updatePlacementPlaneFromReticle()) return;
+    const hit = screenToWorldOnPlane(touches[0].clientX, touches[0].clientY, placementPlane);
+    if (hit) {
+      dragOffset.copy(model.position).sub(hit);
+    }
+  } else if (touches.length === 2) {
+    twoFinger = true;
+    dragging = false;
+
+    const dx = touches[1].clientX - touches[0].clientX;
+    const dy = touches[1].clientY - touches[0].clientY;
+    initialDist = Math.hypot(dx, dy) || 1;
+    initialAngle = Math.atan2(dy, dx);
+    initialScaleY = model.scale.y;
+    initialRotY = model.rotation.y;
+  }
+}, { passive: false });
+
+gestureLayer.addEventListener('touchmove', (ev) => {
+  if (!renderer?.xr?.isPresenting || !modelLoaded || !model) return;
+
+  const touches = ev.touches;
+  if (twoFinger && touches.length === 2) {
+    ev.preventDefault();
+
+    const dx = touches[1].clientX - touches[0].clientX;
+    const dy = touches[1].clientY - touches[0].clientY;
+    const dist = Math.hypot(dx, dy) || 1;
+    const angle = Math.atan2(dy, dx);
+
+    const scaleFactor = dist / initialDist;
+    const newScale = THREE.MathUtils.clamp(initialScaleY * scaleFactor, MIN_SCALE, MAX_SCALE);
+    model.scale.setScalar(newScale);
+
+    const deltaAngle = angle - initialAngle;
+    model.rotation.y = initialRotY + deltaAngle;
+
+  } else if (dragging && touches.length === 1) {
+    ev.preventDefault();
+
+    if (!updatePlacementPlaneFromReticle()) return;
+    const hit = screenToWorldOnPlane(touches[0].clientX, touches[0].clientY, placementPlane);
+    if (hit) {
+      model.position.copy(hit).add(dragOffset);
+      model.visible = true;
+    }
+  }
+}, { passive: false });
+
+gestureLayer.addEventListener('touchend', (ev) => {
+  if (!renderer?.xr?.isPresenting || !modelLoaded || !model) return;
+
+  if (!twoFinger && !ev.touches.length) {
+    const dt = performance.now() - tapStartTime;
+    const up = ev.changedTouches && ev.changedTouches[0];
+    const dx = up ? (up.clientX - tapStartPt.x) : 0;
+    const dy = up ? (up.clientY - tapStartPt.y) : 0;
+    const moved = Math.hypot(dx, dy);
+
+    if (dt <= TAP_TIME_MS && moved <= TAP_MOVE_PX) {
+      modelLocked = true;
+      reticle.visible = false;
+    }
+  }
+
+  dragging = false;
+  twoFinger = false;
+}, { passive: false });
+
+// Optional: Long-Press zum Entsperren
+let longPressTimer = null;
+gestureLayer.addEventListener('touchstart', (ev) => {
+  if (!renderer?.xr?.isPresenting || !modelLoaded || !model) return;
+  if (ev.touches.length !== 1) return;
+  longPressTimer = setTimeout(()=>{ modelLocked = false; }, 700);
+}, { passive: true });
+gestureLayer.addEventListener('touchend', ()=> { if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer=null; } }, { passive: true });
+gestureLayer.addEventListener('touchcancel', ()=> { if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer=null; } }, { passive: true });
+
 // ---------- Boot ----------
 (async ()=>{
   try { await loadScene(); } catch(e){ console.warn(e); }
   applyQueryFallback();
   init();
+  await preloadModel();
+  attemptAutoStart();
 })();
 </script>
 </body>
