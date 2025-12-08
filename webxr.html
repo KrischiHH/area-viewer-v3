@@ -39,42 +39,45 @@ const showErr = (m)=>{ const el=document.getElementById('err'); el.textContent=m
 
 /* ========= Param-Normalisierung ========= */
 const qs = new URLSearchParams(location.search);
-  // --- Force-Param: niemals auf Native umleiten, wenn ?force=webxr ---
+// --- Force-Param: niemals auf Native umleiten, wenn ?force=webxr ---
 const FORCE = (qs.get('force') || '').toLowerCase();
 if (FORCE === 'webxr') {
   window.__FORCE_MODE = 'webxr';
   window.__NO_NATIVE_REDIRECT__ = true;   // falls irgendwo (global) Redirect-Logik existiert
-  // (optional) Badge aktualisieren:
   try { document.getElementById('badge').textContent = 'WEBXR (forced)'; } catch {}
 }
+
 let sceneParam = (qs.get('scene') || qs.get('src') || '').trim();
-const workerBase = (qs.get('base') || 'https://area-publish.area-webar.workers.dev').replace(/\/$/, '');
+const workerBase = (qs.get('base') || 'https://area-publish-proxy.area-webar.workers.dev').replace(/\/$/, '');
 const overrideGlb = (qs.get('glb') || '').trim();
 
-const isHttp     = u => /^https?:\/\//i.test(u);
+const isHttp       = u => /^https?:\/\//i.test(u);
 const isDataOrBlob = u => /^data:|^blob:/i.test(u);
-const isGlbLike  = u => /\.(?:glb|gltf)(?:[?#]|$)/i.test(u);
+const isGlbLike    = u => /\.(?:glb|gltf)(?:[?#]|$)/i.test(u);
 
-let SCENE_GLB = '';
+let SCENE_GLB  = '';
 let SCENE_JSON = '';
 
 if (overrideGlb) {
+  // expliziter GLB-Override
   SCENE_GLB = overrideGlb;
 } else if (sceneParam) {
   if (isDataOrBlob(sceneParam)) {
-    SCENE_JSON = sceneParam;
+    // data:/blob: → direkt als GLB verwenden
+    SCENE_GLB = sceneParam;
   } else if (isHttp(sceneParam)) {
+    // Externe URL: wenn .glb/.gltf → direkt Modell, sonst JSON
     if (isGlbLike(sceneParam)) SCENE_GLB = sceneParam;
     else SCENE_JSON = sceneParam;
   } else {
+    // Interne Szene-ID → nur scene.json; GLB wird aus model.url gelesen
     const id = sceneParam.replace(/\/+$/,'');
-    SCENE_GLB  = `${workerBase}/scenes/${encodeURIComponent(id)}/scene.glb`;
     SCENE_JSON = `${workerBase}/scenes/${encodeURIComponent(id)}/scene.json`;
   }
 }
 
 const cfg = {
-  modelUrl: SCENE_GLB || 'https://modelviewer.dev/shared-assets/models/Astronaut.glb',
+  modelUrl: 'https://modelviewer.dev/shared-assets/models/Astronaut.glb',
   position: [0,0,0],
   rotation: [0,0,0],  // Grad
   scale:[0.6,0.6,0.6],
@@ -87,30 +90,44 @@ const deg2rad = d => (d||0) * Math.PI/180;
 
 // ---------- Szene aus externer JSON (optional) ----------
 async function loadScene(){
-  if (SCENE_GLB) { cfg.modelUrl = SCENE_GLB; return; }
-  if (!SCENE_JSON) return;
+  // 1) scene.json bevorzugen (neue Pipeline mit model.url)
+  if (SCENE_JSON) {
+    try {
+      const r = await fetch(SCENE_JSON, {cache:'no-cache', mode:'cors'});
+      if(!r.ok) throw new Error('scene.json Load '+r.status+' '+r.statusText);
+      const j = await r.json();
 
-  try{
-    const r = await fetch(SCENE_JSON, {cache:'no-cache', mode:'cors'});
-    if(!r.ok) throw new Error('scene.json Load '+r.status+' '+r.statusText);
-    const j = await r.json();
+      console.log('[WEBXR] scene.json geladen:', j);
 
-    const resolveAgainstJson = (u)=>{
-      if (!u) return u;
-      if (isHttp(u) || isDataOrBlob(u)) return u;
-      try { return new URL(u, SCENE_JSON).href; } catch { return u; }
-    };
+      const resolveAgainstJson = (u)=>{
+        if (!u) return u;
+        if (isHttp(u) || isDataOrBlob(u)) return u;
+        try { return new URL(u, SCENE_JSON).href; } catch { return u; }
+      };
 
-    if (j?.model?.url)         cfg.modelUrl = resolveAgainstJson(j.model.url);
-    if (Array.isArray(j?.model?.position)) cfg.position = j.model.position;
-    if (Array.isArray(j?.model?.rotationDeg)) cfg.rotation = j.model.rotationDeg;
-    else if (Array.isArray(j?.model?.rotation)) cfg.rotation = j.model.rotation;
-    if (Array.isArray(j?.model?.scale))    cfg.scale    = j.model.scale;
-    if (j?.model?.animation!=null)         cfg.animation= j.model.animation;
-  }catch(e){
-    console.warn(e);
-    showErr('scene.json konnte nicht geladen werden:\n'+e.message);
+      if (j?.model?.url)              cfg.modelUrl = resolveAgainstJson(j.model.url);
+      if (Array.isArray(j?.model?.position))    cfg.position = j.model.position;
+      if (Array.isArray(j?.model?.rotationDeg)) cfg.rotation = j.model.rotationDeg;
+      else if (Array.isArray(j?.model?.rotation)) cfg.rotation = j.model.rotation;
+      if (Array.isArray(j?.model?.scale))       cfg.scale    = j.model.scale;
+      if (j?.model?.animation!=null)           cfg.animation= j.model.animation;
+      return;
+    } catch(e) {
+      console.warn(e);
+      showErr('scene.json konnte nicht geladen werden:\n'+e.message);
+      // Fallback: unten ggf. SCENE_GLB oder Astronaut
+    }
   }
+
+  // 2) Wenn explizit ?glb=… oder SCENE_GLB gesetzt ist → direkt nutzen
+  if (SCENE_GLB) {
+    cfg.modelUrl = SCENE_GLB;
+    console.log('[WEBXR] Fallback: SCENE_GLB verwendet:', cfg.modelUrl);
+    return;
+  }
+
+  // 3) Sonst bleibt der Astronaut-Fallback aktiv
+  console.log('[WEBXR] Kein scene/base → Astronaut Fallback.');
 }
 
 // -------- Fallbacks aus Query --------
@@ -120,7 +137,11 @@ function applyQueryFallback(){
 
   const rx = qs.get('rx'), ry = qs.get('ry'), rz = qs.get('rz');
   if (rx!=null || ry!=null || rz!=null){
-    cfg.rotation = [rad2deg(parseFloat(rx)), rad2deg(parseFloat(ry)), rad2deg(parseFloat(rz))].map(v=>isFinite(v)?v:0);
+    cfg.rotation = [
+      rad2deg(parseFloat(rx)),
+      rad2deg(parseFloat(ry)),
+      rad2deg(parseFloat(rz))
+    ].map(v=>isFinite(v)?v:0);
   }
 
   const px = parseFloat(qs.get('px')), py = parseFloat(qs.get('py')), pz = parseFloat(qs.get('pz'));
