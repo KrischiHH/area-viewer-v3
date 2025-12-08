@@ -2,76 +2,77 @@
 <html lang="de">
 <head>
 <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Surface AR – WebXR Hit-Test (mit Gesten wie Native Viewer)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no"/>
+<title>ARea WebXR Viewer</title>
 <style>
-  html,body{
-    margin:0;
-    height:100%;
-    overflow:hidden;
-    background:#000;
-    color:#fff;
-    font-family:system-ui
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background-color: #111; color: #fff;
+    font-family: system-ui, -apple-system, sans-serif;
+    overflow: hidden;
   }
-  #enter{ display:none; }
-  #tapToStart {
-    position:fixed;
-    inset:0;
-    display:none;
-    align-items:center;
-    justify-content:center;
-    background:rgba(0,0,0,.5);
+  
+  /* DOM Overlay UI */
+  #overlay {
+    position: fixed; inset: 0;
+    pointer-events: none; /* Lässt Klicks durch zum Canvas */
+    display: flex; flex-direction: column; justify-content: space-between;
     z-index: 10;
-    font:16px/1.3 system-ui;
-    text-align:center;
   }
-  #tapToStart .inner{
-    background:#111;
-    border:1px solid #444;
-    border-radius:12px;
-    padding:14px 16px;
-    max-width:min(90vw,420px);
-    color:#fff;
+
+  /* Start Screen */
+  #start-screen {
+    position: absolute; inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: auto; z-index: 20;
+    backdrop-filter: blur(5px);
   }
-  #msg{
-    position:fixed;
-    left:12px;
-    bottom:12px;
-    opacity:.9
+  .btn-start {
+    background: white; color: black; border: none;
+    padding: 12px 24px; border-radius: 30px;
+    font-weight: 600; font-size: 16px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
   }
-  #err{
-    position:fixed;
-    left:12px;
-    top:12px;
-    z-index:12;
-    background:#b00020;
-    color:#fff;
-    padding:8px 10px;
-    border-radius:8px;
-    display:none;
-    font:12px/1.35 monospace;
-    max-width:min(92vw,680px);
-    white-space:pre-wrap
+
+  /* Interactive Elements in Overlay */
+  .ui-row {
+    padding: 20px; display: flex; justify-content: space-between; align-items: flex-start;
+    pointer-events: none;
   }
-  #badge{
-    position:fixed;
-    right:12px;
-    top:12px;
-    z-index:9;
-    background:#0b1220;
-    color:#9cf;
-    padding:6px 8px;
-    border-radius:8px;
-    font:12px system-ui
+  .pointer-auto { pointer-events: auto; }
+
+  .btn-icon {
+    background: rgba(20,20,30,0.6);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: white; width: 44px; height: 44px;
+    border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-size: 20px; backdrop-filter: blur(10px);
+    transition: transform 0.1s;
   }
-  /* Vollflächige Gesten-Ebene (DOM Overlay) */
+  .btn-icon:active { transform: scale(0.95); }
+
+  #msg-container {
+    text-align: center; padding-bottom: 40px;
+    pointer-events: none;
+  }
+  #msg {
+    background: rgba(0,0,0,0.5); padding: 8px 16px;
+    border-radius: 20px; display: inline-block;
+    font-size: 14px; opacity: 0.9;
+  }
+
+  /* Fehlermeldungen */
+  #err {
+    position: absolute; top: 10px; left: 10px; right: 10px;
+    background: #b00020; color: white; padding: 10px;
+    border-radius: 8px; font-size: 12px; display: none; z-index: 30;
+  }
+
+  /* Gesture Layer für Touch-Events (Three.js Raycaster) */
   #gesture-layer {
-    position:fixed;
-    inset:0;
-    z-index: 9;
-    background: transparent;
+    position: absolute; inset: 0; z-index: 5;
     touch-action: none;
-    pointer-events: auto;
   }
 </style>
 <script type="importmap">
@@ -84,488 +85,334 @@
 </script>
 </head>
 <body>
-  <div id="err"></div>
-  <div id="tapToStart"><div class="inner">Tippe, um AR zu starten</div></div>
-  <div id="msg">Android Chrome empfohlen · Bewege das Gerät, dann mit Gesten verschieben/skalieren/rotieren · Tippe zum Platzieren</div>
-  <div id="badge">WEBXR BUILD</div>
-  <div id="gesture-layer"></div>
+
+<div id="err"></div>
+
+<div id="start-screen">
+  <button class="btn-start" id="btn-enter-ar">AR Starten</button>
+</div>
+
+<div id="overlay">
+  <div class="ui-row">
+    <button class="btn-icon pointer-auto" id="btn-close">✕</button>
+    <button class="btn-icon pointer-auto" id="btn-mute" style="display:none">🔊</button>
+  </div>
+  
+  <div id="msg-container">
+    <div id="msg">Bewege dein Gerät um Fläche zu finden...</div>
+  </div>
+</div>
+
+<audio id="ar-audio" loop playsinline preload="auto"></audio>
 
 <script type="module">
 import * as THREE from 'three';
-import { GLTFLoader }  from 'three/addons/loaders/GLTFLoader.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
-let camera, scene, renderer, reticle, controller, hitTestSource=null, hitTestSourceRequested=false;
-let model=null, mixer=null, clips=[];
-let modelLocked = false;
+// --- Globals ---
+let camera, scene, renderer;
+let hitTestSource = null, hitTestSourceRequested = false;
+let placementGroup; // Enthält Modell + Rectangle
+let placementRect;  // Das Viereck am Boden
+let model;          // Das geladene GLB
+let mixer;          // Animation Mixer
+const clock = new THREE.Clock();
+
+// State
+let isPlaced = false;   // false = "Ghost Mode" (folgt HitTest), true = "Locked"
 let modelLoaded = false;
+let reticleVisible = false;
 
-const clock   = new THREE.Clock();
-const tempPos = new THREE.Vector3();
-const tempQuat= new THREE.Quaternion();
-const tempMat = new THREE.Matrix4();
-
-const showErr = (m)=>{
-  const el=document.getElementById('err');
-  el.textContent=m;
-  el.style.display='block';
-};
-
-/* ========= Param-Normalisierung ========= */
+// Config
 const qs = new URLSearchParams(location.search);
-const FORCE = (qs.get('force') || '').toLowerCase();
-if (FORCE === 'webxr') {
-  window.__FORCE_MODE = 'webxr';
-  window.__NO_NATIVE_REDIRECT__ = true;
-  try { document.getElementById('badge').textContent = 'WEBXR (forced)'; } catch {}
-}
-
-let sceneParam = (qs.get('scene') || qs.get('src') || '').trim();
 const workerBase = (qs.get('base') || 'https://area-publish-proxy.area-webar.workers.dev').replace(/\/$/, '');
-const overrideGlb = (qs.get('glb') || '').trim();
+const sceneParam = qs.get('scene') || qs.get('src');
+let SCENE_JSON_URL = '';
+let MODEL_URL = '';
+let AUDIO_URL = '';
 
-const isHttp       = u => /^https?:\/\//i.test(u);
-const isDataOrBlob = u => /^data:|^blob:/i.test(u);
-const isGlbLike    = u => /\.(?:glb|gltf)(?:[?#]|$)/i.test(u);
+// --- Init & Load ---
 
-let SCENE_GLB  = '';
-let SCENE_JSON = '';
-
-if (overrideGlb) {
-  SCENE_GLB = overrideGlb;
-} else if (sceneParam) {
-  if (isDataOrBlob(sceneParam)) {
-    SCENE_GLB = sceneParam;
-  } else if (isHttp(sceneParam)) {
-    if (isGlbLike(sceneParam)) SCENE_GLB = sceneParam;
-    else SCENE_JSON = sceneParam;
-  } else {
-    const id = sceneParam.replace(/\/+$/,'');
-    SCENE_JSON = `${workerBase}/scenes/${encodeURIComponent(id)}/scene.json`;
-  }
-}
-
-const cfg = {
-  modelUrl: 'https://modelviewer.dev/shared-assets/models/Astronaut.glb',
-  position: [0,0,0],
-  rotation: [0,0,0],
-  scale:[0.6,0.6,0.6],
-  animation: '*'
-};
-
-// ---------- Utils ----------
-const rad2deg = r => (r||0) * 180/Math.PI;
-const deg2rad = d => (d||0) * Math.PI/180;
-
-// ---------- Szene aus externer JSON (optional) ----------
-async function loadScene(){
-  if (SCENE_JSON) {
-    try {
-      const r = await fetch(SCENE_JSON, {cache:'no-cache', mode:'cors'});
-      if(!r.ok) throw new Error('scene.json Load '+r.status+' '+r.statusText);
-      const j = await r.json();
-      console.log('[WEBXR] scene.json geladen:', j);
-
-      const resolveAgainstJson = (u)=>{
-        if (!u) return u;
-        if (isHttp(u) || isDataOrBlob(u)) return u;
-        try { return new URL(u, SCENE_JSON).href; } catch { return u; }
-      };
-
-      if (j?.model?.url)                 cfg.modelUrl = resolveAgainstJson(j.model.url);
-      if (Array.isArray(j?.model?.position))    cfg.position = j.model.position;
-      if (Array.isArray(j?.model?.rotationDeg)) cfg.rotation = j.model.rotationDeg;
-      else if (Array.isArray(j?.model?.rotation)) cfg.rotation = j.model.rotation;
-      if (Array.isArray(j?.model?.scale))       cfg.scale    = j.model.scale;
-      if (j?.model?.animation!=null)           cfg.animation= j.model.animation;
-      return;
-    } catch(e) {
-      console.warn(e);
-      showErr('scene.json konnte nicht geladen werden:\n'+e.message);
-    }
-  }
-
-  if (SCENE_GLB) {
-    cfg.modelUrl = SCENE_GLB;
-    console.log('[WEBXR] Fallback: SCENE_GLB verwendet:', cfg.modelUrl);
+async function boot() {
+  if (!navigator.xr) {
+    showErr("WebXR nicht unterstützt.");
     return;
   }
 
-  console.log('[WEBXR] Kein scene/base → Astronaut Fallback.');
-}
-
-// -------- Fallbacks aus Query --------
-function applyQueryFallback(){
-  const glb = qs.get('glb');
-  if (glb) cfg.modelUrl = glb;
-
-  const rx = qs.get('rx'), ry = qs.get('ry'), rz = qs.get('rz');
-  if (rx!=null || ry!=null || rz!=null){
-    cfg.rotation = [
-      rad2deg(parseFloat(rx)),
-      rad2deg(parseFloat(ry)),
-      rad2deg(parseFloat(rz))
-    ].map(v=>isFinite(v)?v:0);
+  // URL Auflösung
+  if (sceneParam) {
+    if (sceneParam.endsWith('.glb')) {
+      MODEL_URL = sceneParam;
+    } else {
+      SCENE_JSON_URL = `${workerBase}/scenes/${sceneParam}/scene.json`;
+    }
+  } else {
+    // Fallback Demo
+    MODEL_URL = 'https://modelviewer.dev/shared-assets/models/Astronaut.glb';
   }
 
-  const px = parseFloat(qs.get('px')), py = parseFloat(qs.get('py')), pz = parseFloat(qs.get('pz'));
-  if ([px,py,pz].some(v=>!isNaN(v))) cfg.position = [px||0, py||0, pz||0];
+  if (SCENE_JSON_URL) {
+    try {
+      const res = await fetch(SCENE_JSON_URL);
+      if(!res.ok) throw new Error('Scene JSON Error');
+      const json = await res.json();
+      
+      if(json.model && json.model.url) {
+        MODEL_URL = `${workerBase}/scenes/${sceneParam}/${json.model.url}`;
+      }
+      if(json.audio && json.audio.url) {
+        AUDIO_URL = `${workerBase}/scenes/${sceneParam}/${json.audio.url}`;
+        setupAudio(json.audio);
+      }
+      // TODO: Position/Scale/Rotation aus JSON lesen
+    } catch(e) {
+      console.error(e);
+      showErr("Fehler beim Laden der Szene.");
+    }
+  }
 
-  const sx = parseFloat(qs.get('sx')), sy = parseFloat(qs.get('sy')), sz = parseFloat(qs.get('sz'));
-  if ([sx,sy,sz].some(v=>!isNaN(v))) cfg.scale = [sx||1, sy||1, sz||1];
+  initThree();
+  loadModel(); // Startet Laden im Hintergrund
+  
+  document.getElementById('btn-enter-ar').addEventListener('click', onStartAR);
+  document.getElementById('btn-close').addEventListener('click', () => {
+    if(renderer.xr.getSession()) renderer.xr.getSession().end();
+    else window.close();
+  });
 }
 
-// ---------- THREE Init ----------
-function init() {
+function initThree() {
   scene = new THREE.Scene();
-  camera = new THREE.PerspectiveCamera();
 
-  const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
-  scene.add(hemi);
+  camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.01, 20);
 
-  const dir = new THREE.DirectionalLight(0xffffff, 1.0);
-  dir.position.set(0,6,0);
-  scene.add(dir);
+  const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1.2);
+  scene.add(light);
+  const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+  dirLight.position.set(2, 8, 4);
+  scene.add(dirLight);
 
-  renderer = new THREE.WebGLRenderer({antialias:true, alpha:true});
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.xr.enabled = true;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.0;
   document.body.appendChild(renderer.domElement);
 
-  // Rechteck-Reticle
-  const planeGeo = new THREE.PlaneGeometry(0.4, 0.4);
-  planeGeo.rotateX(-Math.PI / 2);
-  const planeMat = new THREE.MeshBasicMaterial({
-    color: 0x66ccff,
-    opacity: 0.5,
-    transparent: true
+  // Group für Logik: Modell + Bodenplatte
+  placementGroup = new THREE.Group();
+  placementGroup.visible = false; // Erst sichtbar wenn HitTest erfolgreich
+  scene.add(placementGroup);
+
+  // Das "Placement Rectangle" (Visualisierung wie Native Viewer)
+  // Ein abgerundetes Rechteck oder simpler Plane mit Textur/Opazität
+  const rectGeo = new THREE.PlaneGeometry(0.4, 0.4);
+  rectGeo.rotateX(-Math.PI / 2);
+  const rectMat = new THREE.MeshBasicMaterial({ 
+    color: 0xffffff, 
+    opacity: 0.4, 
+    transparent: true,
+    side: THREE.DoubleSide
   });
-  reticle = new THREE.Mesh(planeGeo, planeMat);
-  reticle.matrixAutoUpdate = false;
-  reticle.visible = false;
-  scene.add(reticle);
-
-  controller = renderer.xr.getController(0);
-  controller.addEventListener('select', onSelect);
-  scene.add(controller);
-
-  // Resize während XR vermeiden
-  addEventListener('resize', ()=>{
-    if (renderer?.xr?.isPresenting) return; // nicht setzen während XR
-    renderer.setSize(innerWidth, innerHeight);
-  });
-
-  const tapOverlay = document.getElementById('tapToStart');
-  tapOverlay.addEventListener('pointerdown', () => {
-    tapOverlay.style.display = 'none';
-    startAR().catch((e)=> {
-      console.warn('startAR via overlay fehlgeschlagen:', e);
-    });
-  });
-
-  try {
-    window.opener && window.opener.postMessage({ type:'webar-ready' }, location.origin);
-  } catch {}
+  placementRect = new THREE.Mesh(rectGeo, rectMat);
+  placementRect.position.y = 0.005; // Leicht über Boden (Z-Fighting vermeiden)
+  placementGroup.add(placementRect);
 }
 
-// ---------- Model-Animation ----------
-function playClips(){
-  if (!mixer || !clips.length) return;
-  const a = cfg.animation;
-  if (a==='none') return;
-  if (a==='*'){
-    clips.forEach(c=>mixer.clipAction(c).play());
-  } else if (typeof a==='string'){
-    const c = clips.find(c=>c.name===a) || clips[0];
-    mixer.clipAction(c).play();
-  } else {
-    const idx = Math.max(0, Math.min(clips.length-1, parseInt(a||0,10)));
-    mixer.clipAction(clips[idx]).play();
-  }
-}
+async function loadModel() {
+  const loader = new GLTFLoader();
+  const draco = new DRACOLoader();
+  draco.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
+  loader.setDRACOLoader(draco);
 
-/* ---------- Modell laden (sicher über loadAsync) ---------- */
-async function preloadModel() {
   try {
-    console.log('[WEBXR] Preload GLB:', cfg.modelUrl);
-
-    const loader = new GLTFLoader();
-    // DRACO für komprimierte Meshes aktivieren
-    const draco = new DRACOLoader();
-    draco.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
-    loader.setDRACOLoader(draco);
-    loader.setCrossOrigin('anonymous');
-
-    const gltf = await loader.loadAsync(cfg.modelUrl);
+    const gltf = await loader.loadAsync(MODEL_URL);
     model = gltf.scene;
-
-    const [sx,sy,sz] = cfg.scale;
-    model.scale.set(sx,sy,sz);
-
-    const [rx,ry,rz] = cfg.rotation;
-    model.rotation.set(deg2rad(rx), deg2rad(ry), deg2rad(rz));
-
-    model.visible = false;
-    scene.add(model);
-
-    clips = gltf.animations || [];
-    if (clips.length) {
+    
+    // Auto-Scale (einfach gehalten, ggf. aus JSON laden)
+    model.scale.setScalar(0.5); 
+    
+    // Animationen
+    if(gltf.animations && gltf.animations.length) {
       mixer = new THREE.AnimationMixer(model);
-      playClips();
+      gltf.animations.forEach(clip => mixer.clipAction(clip).play());
     }
 
+    placementGroup.add(model);
     modelLoaded = true;
-  } catch (err) {
-    console.error('GLTF load failed', err);
-    showErr('Fehler beim Laden des Objekts:\n' + (err?.message || err || 'Unbekannt'));
+    updateMsg("Tippe auf den Boden zum Platzieren");
+  } catch(e) {
+    showErr("Modell konnte nicht geladen werden.");
+    console.error(e);
   }
 }
 
-/* ---------- Tap: Modell platzieren ---------- */
-async function onSelect() {
-  if (!reticle.visible || !modelLoaded || !model) return;
-  modelLocked = true;
-  reticle.visible = false;
+// --- Audio ---
+const audioEl = document.getElementById('ar-audio');
+const btnMute = document.getElementById('btn-mute');
+let isMuted = false;
+
+function setupAudio(audioCfg) {
+  audioEl.src = AUDIO_URL;
+  audioEl.loop = !!audioCfg.loop;
+  audioEl.volume = audioCfg.volume || 0.8;
+  btnMute.style.display = 'flex';
+  
+  btnMute.addEventListener('click', () => {
+    isMuted = !isMuted;
+    audioEl.muted = isMuted;
+    btnMute.textContent = isMuted ? '🔇' : '🔊';
+  });
 }
 
-/* ---------- WebXR ---------- */
-async function startAR(){
-  if (!navigator.xr) {
-    showErr('WebXR nicht verfügbar.');
-    return;
-  }
-  const isARSupported = await navigator.xr.isSessionSupported('immersive-ar');
-  if (!isARSupported) {
-    showErr('Dein Gerät/Browser unterstützt kein WebXR-AR.');
-    return;
+// --- WebXR Session ---
+
+async function onStartAR() {
+  document.getElementById('start-screen').style.display = 'none';
+  
+  // Audio Play Trigger (iOS Safari braucht User Action)
+  if(AUDIO_URL) {
+    audioEl.play().then(() => {
+        // Pausieren bis Session wirklich läuft, oder einfach laufen lassen
+    }).catch(e => console.warn("Audio Autoplay:", e));
   }
 
   const session = await navigator.xr.requestSession('immersive-ar', {
-    requiredFeatures: ['hit-test','local-floor'],
+    requiredFeatures: ['hit-test', 'local-floor'],
     optionalFeatures: ['dom-overlay'],
-    domOverlay: { root: document.body }
+    domOverlay: { root: document.getElementById('overlay') }
+  });
+
+  session.addEventListener('end', () => {
+    hitTestSourceRequested = false;
+    hitTestSource = null;
+    document.getElementById('start-screen').style.display = 'flex';
+    audioEl.pause();
   });
 
   renderer.xr.setReferenceSpaceType('local-floor');
   await renderer.xr.setSession(session);
-  animate();
-}
+  
+  // Controller Listener für Taps
+  const controller = renderer.xr.getController(0);
+  controller.addEventListener('select', onSelect);
+  scene.add(controller);
 
-function attemptAutoStart() {
-  startAR().catch(err => {
-    console.warn('[AutoStart] startAR fehlgeschlagen:', err);
-    const overlay = document.getElementById('tapToStart');
-    overlay.style.display = 'flex';
-  });
-}
-
-function animate() {
   renderer.setAnimationLoop(render);
 }
 
-function render(t, frame) {
-  const dt = clock.getDelta();
-  if (mixer) mixer.update(dt);
+// --- Render Loop & Hit Test ---
 
-  if (!frame){
-    // Nur außerhalb XR, falls nötig – hier lassen wir es aus
-    return;
-  }
-
-  const referenceSpace = renderer.xr.getReferenceSpace();
-  const session = renderer.xr.getSession();
-
-  if (!hitTestSourceRequested) {
-    session.requestReferenceSpace('viewer').then((viewerSpace) => {
-      session.requestHitTestSource({ space: viewerSpace }).then((source) => {
-        hitTestSource = source;
+function render(timestamp, frame) {
+  if (frame) {
+    const session = renderer.xr.getSession();
+    
+    // Hit Test Source Request (nur einmal)
+    if (!hitTestSourceRequested) {
+      session.requestReferenceSpace('viewer').then((refSpace) => {
+        session.requestHitTestSource({ space: refSpace }).then((source) => {
+          hitTestSource = source;
+        });
       });
-    });
-    session.addEventListener('end', () => {
-      hitTestSourceRequested = false;
-      hitTestSource = null;
-      modelLocked = false;
-      const overlay = document.getElementById('tapToStart');
-      overlay.style.display = 'flex';
-    });
-    hitTestSourceRequested = true;
-  }
+      session.addEventListener('end', () => { hitTestSourceRequested = false; hitTestSource = null; });
+      hitTestSourceRequested = true;
+    }
 
-  if (hitTestSource) {
-    const results = frame.getHitTestResults(hitTestSource);
-    if (results.length) {
-      const hit  = results[0];
-      const pose = hit.getPose(referenceSpace);
+    // Animation Mixer update
+    const dt = clock.getDelta();
+    if(mixer) mixer.update(dt);
 
-      reticle.visible = !modelLocked;
-      reticle.matrix.fromArray(pose.transform.matrix);
+    // Hit Test Logic
+    if (hitTestSource) {
+      const refSpace = renderer.xr.getReferenceSpace();
+      const results = frame.getHitTestResults(hitTestSource);
 
-      // Modell folgt dem Rechteck, solange es noch nicht "fest" ist
-      if (model && modelLoaded && !modelLocked) {
-        model.visible = true;
-        tempPos.setFromMatrixPosition(reticle.matrix);
-        model.position.copy(tempPos);
-      }
-    } else {
-      if (!modelLocked) {
-        reticle.visible = false;
-        if (model) model.visible = false;
+      if (results.length > 0) {
+        const hit = results[0];
+        const pose = hit.getPose(refSpace);
+
+        // LOGIK:
+        // Wenn NICHT platziert (isPlaced == false):
+        // Modell + Rect folgen dem HitTest.
+        if (!isPlaced) {
+            placementGroup.visible = true;
+            placementGroup.position.x = pose.transform.position.x;
+            placementGroup.position.y = pose.transform.position.y;
+            placementGroup.position.z = pose.transform.position.z;
+            
+            // Optional: sanfte Rotation zur Kamera, aber Boden-parallel
+            // placementGroup.quaternion.copy(pose.transform.orientation); // Folgt Boden-Neigung
+            
+            reticleVisible = true;
+            updateMsg("Tippe zum Platzieren");
+        }
+      } else {
+        if (!isPlaced) {
+            // Wenn kein Boden gefunden, verstecken
+            reticleVisible = false;
+            placementGroup.visible = false;
+            updateMsg("Suche Boden...");
+        }
       }
     }
   }
-
   renderer.render(scene, camera);
 }
 
-// ===================== Native-Viewer-ähnliche Gesten =====================
-const gestureLayer = document.getElementById('gesture-layer');
-let dragging = false;
-let twoFinger = false;
-let dragOffset = new THREE.Vector3();
-let placementPlane = new THREE.Plane();
-let tapStartTime = 0;
-let tapStartPt = { x:0, y:0 };
+// --- Interaction (Tap & Gestures) ---
 
-let initialDist = 0;
-let initialAngle = 0;
-let initialScaleY = 1;
-let initialRotY = 0;
-
-const MIN_SCALE = 0.1;
-const MAX_SCALE = 5.0;
-const TAP_TIME_MS = 220;
-const TAP_MOVE_PX = 12;
-
-function getXRViewCamera() {
-  return renderer?.xr?.getCamera(camera) || camera;
-}
-
+// Raycaster Setup für "Pick up object"
 const raycaster = new THREE.Raycaster();
-const ndc = new THREE.Vector2();
-const planeHit = new THREE.Vector3();
+const tempMatrix = new THREE.Matrix4();
 
-function screenToWorldOnPlane(clientX, clientY, plane) {
-  const cam = getXRViewCamera();
-  ndc.x = (clientX / window.innerWidth) * 2 - 1;
-  ndc.y = -(clientY / window.innerHeight) * 2 + 1;
-  raycaster.setFromCamera(ndc, cam);
-  const ok = raycaster.ray.intersectPlane(plane, planeHit);
-  return ok ? planeHit.clone() : null;
+function onSelect(event) {
+    if (!modelLoaded) return;
+
+    // 1. Wenn wir gerade im "Placing Mode" sind:
+    if (!isPlaced) {
+        if (reticleVisible) {
+            // PLATZIEREN
+            isPlaced = true;
+            placementRect.visible = false; // Rechteck ausblenden
+            updateMsg("Tippe auf das Modell zum Bewegen");
+        }
+        return;
+    }
+
+    // 2. Wenn bereits platziert: Checken ob wir das Modell getroffen haben (Raycast)
+    // Da WebXR 'select' Event keine Bildschirmkoordinaten hat wie Touch, 
+    // nutzen wir die Controller-Position und Richtung.
+    const controller = event.target;
+    tempMatrix.identity().extractRotation(controller.matrixWorld);
+    
+    raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+    raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+
+    // Prüfen ob Modell getroffen
+    const intersects = raycaster.intersectObjects([model], true);
+
+    if (intersects.length > 0) {
+        // Modell getroffen -> ANHEBEN (Reposition Mode)
+        isPlaced = false;
+        placementRect.visible = true; // Rechteck wieder zeigen
+        updateMsg("Bewege das Modell...");
+    }
 }
 
-function updatePlacementPlaneFromReticle() {
-  if (!reticle || !reticle.visible) return false;
-  const normal = new THREE.Vector3(0,1,0);
-  tempQuat.setFromRotationMatrix(reticle.matrix);
-  normal.applyQuaternion(tempQuat);
-  const point = new THREE.Vector3().setFromMatrixPosition(reticle.matrix);
-  placementPlane.setFromNormalAndCoplanarPoint(normal, point);
-  return true;
+// --- Helpers ---
+function showErr(txt) {
+    const e = document.getElementById('err');
+    e.textContent = txt;
+    e.style.display = 'block';
+    setTimeout(() => e.style.display='none', 5000);
 }
 
-gestureLayer.addEventListener('touchstart', (ev) => {
-  if (!renderer?.xr?.isPresenting || !modelLoaded || !model) return;
-  if (modelLocked) return;
+function updateMsg(txt) {
+    document.getElementById('msg').textContent = txt;
+}
 
-  const touches = ev.touches;
-  if (touches.length === 1) {
-    twoFinger = false;
-    dragging = true;
-    tapStartTime = performance.now();
-    tapStartPt.x = touches[0].clientX;
-    tapStartPt.y = touches[0].clientY;
-
-    if (!updatePlacementPlaneFromReticle()) return;
-    const hit = screenToWorldOnPlane(touches[0].clientX, touches[0].clientY, placementPlane);
-    if (hit) {
-      dragOffset.copy(model.position).sub(hit);
-    }
-  } else if (touches.length === 2) {
-    twoFinger = true;
-    dragging = false;
-
-    const dx = touches[1].clientX - touches[0].clientX;
-    const dy = touches[1].clientY - touches[0].clientY;
-    initialDist = Math.hypot(dx, dy) || 1;
-    initialAngle = Math.atan2(dy, dx);
-    initialScaleY = model.scale.y;
-    initialRotY = model.rotation.y;
-  }
-}, { passive: false });
-
-gestureLayer.addEventListener('touchmove', (ev) => {
-  if (!renderer?.xr?.isPresenting || !modelLoaded || !model) return;
-
-  const touches = ev.touches;
-  if (twoFinger && touches.length === 2) {
-    ev.preventDefault();
-
-    const dx = touches[1].clientX - touches[0].clientX;
-    const dy = touches[1].clientY - touches[0].clientY;
-    const dist = Math.hypot(dx, dy) || 1;
-    const angle = Math.atan2(dy, dx);
-
-    const scaleFactor = dist / initialDist;
-    const newScale = THREE.MathUtils.clamp(initialScaleY * scaleFactor, MIN_SCALE, MAX_SCALE);
-    model.scale.setScalar(newScale);
-
-    const deltaAngle = angle - initialAngle;
-    model.rotation.y = initialRotY + deltaAngle;
-
-  } else if (dragging && touches.length === 1) {
-    ev.preventDefault();
-
-    if (!updatePlacementPlaneFromReticle()) return;
-    const hit = screenToWorldOnPlane(touches[0].clientX, touches[0].clientY, placementPlane);
-    if (hit) {
-      model.position.copy(hit).add(dragOffset);
-      model.visible = true;
-    }
-  }
-}, { passive: false });
-
-gestureLayer.addEventListener('touchend', (ev) => {
-  if (!renderer?.xr?.isPresenting || !modelLoaded || !model) return;
-
-  if (!twoFinger && !ev.touches.length) {
-    const dt = performance.now() - tapStartTime;
-    const up = ev.changedTouches && ev.changedTouches[0];
-    const dx = up ? (up.clientX - tapStartPt.x) : 0;
-    const dy = up ? (up.clientY - tapStartPt.y) : 0;
-    const moved = Math.hypot(dx, dy);
-
-    if (dt <= TAP_TIME_MS && moved <= TAP_MOVE_PX) {
-      modelLocked = true;
-      reticle.visible = false;
-    }
-  }
-
-  dragging = false;
-  twoFinger = false;
-}, { passive: false });
-
-// Optional: Long-Press zum Entsperren
-let longPressTimer = null;
-gestureLayer.addEventListener('touchstart', (ev) => {
-  if (!renderer?.xr?.isPresenting || !modelLoaded || !model) return;
-  if (ev.touches.length !== 1) return;
-  longPressTimer = setTimeout(()=>{ modelLocked = false; }, 700);
-}, { passive: true });
-gestureLayer.addEventListener('touchend', ()=> { if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer=null; } }, { passive: true });
-gestureLayer.addEventListener('touchcancel', ()=> { if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer=null; } }, { passive: true });
-
-// ---------- Boot ----------
-(async ()=>{
-  try { await loadScene(); } catch(e){ console.warn(e); }
-  applyQueryFallback();
-  init();
-  await preloadModel();
-  attemptAutoStart();
-})();
+boot();
 </script>
 </body>
 </html>
