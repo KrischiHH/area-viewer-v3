@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Surface AR – WebXR Hit-Test (Native-Viewer-like)</title>
+<title>Surface AR – WebXR Hit-Test (rechteckiger Reticle + Preview)</title>
 <style>
   html,body{
     margin:0;
@@ -59,7 +59,6 @@
   }
 </style>
 
-<!-- Importmap wie gehabt -->
 <script type="importmap">
 {
   "imports": {
@@ -80,21 +79,22 @@ import * as THREE from 'three';
 import { GLTFLoader }  from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
-let camera, scene, renderer;
-let reticle, controller, hitTestSource = null, hitTestSourceRequested = false;
+let camera, scene, renderer, reticle, controller;
+let hitTestSource = null;
+let hitTestSourceRequested = false;
 
 let model = null;
 let mixer = null;
 let clips = [];
 let modelLoaded = false;
-let modelPlaced = false;   // ⬅️ neu: "gelockt" nach Tap
+let modelPlaced = false;   // nach Tap „gelockt“
 
 const clock = new THREE.Clock();
 
 const showErr = (m)=>{
-  const el = document.getElementById('err');
-  el.textContent = m;
-  el.style.display = 'block';
+  const el=document.getElementById('err');
+  el.textContent=m;
+  el.style.display='block';
 };
 
 /* ========= Param-Normalisierung ========= */
@@ -109,7 +109,7 @@ if (FORCE === 'webxr') {
 }
 
 let sceneParam = (qs.get('scene') || qs.get('src') || '').trim();
-const workerBase = (qs.get('base') || 'https://area-publish.area-webar.workers.dev').replace(/\/$/, '');
+const workerBase = (qs.get('base') || 'https://area-publish-proxy.area-webar.workers.dev').replace(/\/$/, '');
 const overrideGlb = (qs.get('glb') || '').trim();
 
 const isHttp       = u => /^https?:\/\//i.test(u);
@@ -138,7 +138,7 @@ const cfg = {
   modelUrl: SCENE_GLB || 'https://modelviewer.dev/shared-assets/models/Astronaut.glb',
   position: [0,0,0],
   rotation: [0,0,0],  // Grad
-  scale:   [0.6,0.6,0.6],
+  scale:[0.6,0.6,0.6],
   animation: '*'
 };
 
@@ -148,7 +148,10 @@ const deg2rad = d => (d||0) * Math.PI/180;
 
 // ---------- Szene aus externer JSON (optional) ----------
 async function loadScene(){
-  if (SCENE_GLB) { cfg.modelUrl = SCENE_GLB; return; }
+  if (SCENE_GLB) {
+    cfg.modelUrl = SCENE_GLB;
+    return;
+  }
   if (!SCENE_JSON) return;
 
   try{
@@ -216,7 +219,7 @@ function init() {
   renderer.toneMappingExposure = 1.0;
   document.body.appendChild(renderer.domElement);
 
-  // 🔹 RECHTECK statt Ring (wie Shadow-Plane)
+  // 🔹 Rechteck-Reticle (wie Shadow-Plane)
   const planeGeo = new THREE.PlaneGeometry(0.4, 0.4);
   planeGeo.rotateX(-Math.PI/2);
   const planeMat = new THREE.MeshBasicMaterial({
@@ -233,10 +236,17 @@ function init() {
   controller.addEventListener('select', onSelect);
   scene.add(controller);
 
-  addEventListener('resize', ()=>renderer.setSize(innerWidth, innerHeight));
+  // Resize: während XR keine Größe ändern
+  addEventListener('resize', ()=>{
+    if (renderer?.xr?.isPresenting) return;
+    renderer.setSize(innerWidth, innerHeight);
+  });
+
   document.getElementById('enter').addEventListener('click', startAR);
 
-  try { window.opener && window.opener.postMessage({ type:'webar-ready' }, location.origin); } catch {}
+  try {
+    window.opener && window.opener.postMessage({ type:'webar-ready' }, location.origin);
+  } catch {}
 }
 
 // ---------- Model-Animation ----------
@@ -256,74 +266,47 @@ function playClips(){
   }
 }
 
-/* ---------- Flexible GLB/GLTF Loader ---------- */
-async function loadGLTFFlexible(url) {
-  const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
-  if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+/* ---------- Modell vorab laden (sicher über loadAsync) ---------- */
+async function preloadModel() {
+  if (modelLoaded) return;
+  try {
+    console.log('[WEBXR] Preload GLB:', cfg.modelUrl);
 
-  const ct = (res.headers.get('content-type') || '').toLowerCase();
-  const looksGLB =
-    /\.glb(?:[?#]|$)/i.test(url) ||
-    ct.includes('model/gltf-binary') ||
-    ct.includes('application/octet-stream');
+    const loader = new GLTFLoader();
+    const draco = new DRACOLoader();
+    draco.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
+    loader.setDRACOLoader(draco);
+    loader.setCrossOrigin('anonymous');
 
-  const loader = new GLTFLoader();
-  loader.setCrossOrigin('anonymous');
-  const draco = new DRACOLoader();
-  draco.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
-  loader.setDRACOLoader(draco);
+    const gltf = await loader.loadAsync(cfg.modelUrl);
+    model = gltf.scene;
 
-  if (looksGLB) {
-    const buf = await res.arrayBuffer();
-    return new Promise((resolve, reject)=>
-      loader.parse(buf, '', gltf=>resolve(gltf), err=>reject(err))
-    );
-  } else {
-    const text = await res.text();
-    let json;
-    try { json = JSON.parse(text); }
-    catch (e) { showErr('GLTF-JSON konnte nicht geparst werden.'); throw e; }
-    const base = url.replace(/[^\/?#]*([?#].*)?$/, '');
-    return new Promise((resolve, reject)=>
-      loader.parse(json, base, gltf=>resolve(gltf), err=>reject(err))
-    );
-  }
-}
+    const [sx,sy,sz] = cfg.scale;
+    model.scale.set(sx,sy,sz);
 
-/* ---------- Modell einmalig laden ---------- */
-let loadPromise = null;
+    const [rx,ry,rz] = cfg.rotation;
+    model.rotation.set(deg2rad(rx), deg2rad(ry), deg2rad(rz));
 
-async function ensureModelLoaded() {
-  if (modelLoaded || loadPromise) return;
-  loadPromise = (async()=>{
-    try {
-      const gltf = await loadGLTFFlexible(cfg.modelUrl);
-      model = gltf.scene;
-      const [sx,sy,sz] = cfg.scale;    model.scale.set(sx,sy,sz);
-      const [rx,ry,rz] = cfg.rotation; model.rotation.set(deg2rad(rx), deg2rad(ry), deg2rad(rz));
-      model.position.set(0,0,0);
-      model.visible = false; // wird nach erstem Hit sichtbar
-      scene.add(model);
+    model.visible = false;
+    scene.add(model);
 
-      clips = gltf.animations || [];
-      if (clips.length) {
-        mixer = new THREE.AnimationMixer(model);
-        playClips();
-      }
-      modelLoaded = true;
-      console.log('[WEBXR] Modell geladen.');
-    } catch (err) {
-      console.error('GLTF load failed', err);
-      showErr('Fehler beim Laden des Objekts:\n' + (err?.message || err || 'Unbekannt'));
+    clips = gltf.animations || [];
+    if (clips.length) {
+      mixer = new THREE.AnimationMixer(model);
+      playClips();
     }
-  })();
+
+    modelLoaded = true;
+    console.log('[WEBXR] Modell geladen.');
+  } catch (err) {
+    console.error('GLTF load failed', err);
+    showErr('Fehler beim Laden des Objekts:\n' + (err?.message || err || 'Unbekannt'));
+  }
 }
 
 /* ---------- Tap: endgültig platzieren ---------- */
 async function onSelect() {
-  // wie im Native Viewer: Tap "bestätigt" die aktuelle Pose
-  if (!model || !modelLoaded) return;
-  if (!reticle.visible) return;
+  if (!reticle.visible || !modelLoaded || !model) return;
   modelPlaced = true;
   reticle.visible = false;
   console.log('[WEBXR] Modell platziert (Tap).');
@@ -333,10 +316,13 @@ async function onSelect() {
 async function startAR(){
   if (!navigator.xr) { showErr('WebXR nicht verfügbar.'); return; }
   const isARSupported = await navigator.xr.isSessionSupported('immersive-ar');
-  if (!isARSupported) { showErr('Dein Gerät/Browser unterstützt kein WebXR-AR.'); return; }
+  if (!isARSupported) {
+    showErr('Dein Gerät/Browser unterstützt kein WebXR-AR.');
+    return;
+  }
 
-  // Model vor der Session laden
-  await ensureModelLoaded();
+  // Modell vor der Session laden
+  await preloadModel();
 
   const session = await navigator.xr.requestSession('immersive-ar', {
     requiredFeatures: ['hit-test','local-floor']
@@ -345,8 +331,20 @@ async function startAR(){
   renderer.xr.setReferenceSpaceType('local-floor');
   await renderer.xr.setSession(session);
   document.getElementById('enter').style.display='none';
+
+  session.addEventListener('end', () => {
+    hitTestSourceRequested = false;
+    hitTestSource = null;
+    modelPlaced = false;
+    if (reticle) reticle.visible = false;
+    if (model)   model.visible   = false;
+    document.getElementById('enter').style.display='block';
+  });
+
   animate();
 }
+
+const tempPos = new THREE.Vector3();
 
 function animate() {
   renderer.setAnimationLoop(render);
@@ -357,7 +355,8 @@ function render(t, frame) {
   if (mixer) mixer.update(dt);
 
   if (!frame) {
-    renderer.render(scene, camera);
+    // Während XR kommt hier normalerweise immer ein frame rein;
+    // außerhalb XR rendern wir nichts, um XR-Fehler zu vermeiden.
     return;
   }
 
@@ -366,15 +365,9 @@ function render(t, frame) {
 
   if (!hitTestSourceRequested) {
     session.requestReferenceSpace('viewer').then((viewerSpace) => {
-      session.requestHitTestSource({ space: viewerSpace }).then((source) => { hitTestSource = source; });
-    });
-    session.addEventListener('end', () => {
-      hitTestSourceRequested = false;
-      hitTestSource = null;
-      modelPlaced = false;
-      if (reticle) reticle.visible = false;
-      if (model)   model.visible   = false;
-      document.getElementById('enter').style.display='block';
+      session.requestHitTestSource({ space: viewerSpace }).then((source) => {
+        hitTestSource = source;
+      });
     });
     hitTestSourceRequested = true;
   }
@@ -385,15 +378,16 @@ function render(t, frame) {
       const hit  = results[0];
       const pose = hit.getPose(referenceSpace);
 
-      reticle.visible = !modelPlaced;
-      reticle.matrix.fromArray(pose.transform.matrix);
+      if (pose) {
+        reticle.visible = !modelPlaced;
+        reticle.matrix.fromArray(pose.transform.matrix);
 
-      // 🔹 WIE NATIVE VIEWER:
-      // Solange nicht platziert → Modell folgt dem Rechteck (Reticle)
-      if (model && modelLoaded && !modelPlaced) {
-        const pos = new THREE.Vector3().setFromMatrixPosition(reticle.matrix);
-        model.position.copy(pos);
-        model.visible = true;
+        // 🔹 solange NICHT platziert → Modell folgt dem Rechteck
+        if (model && modelLoaded && !modelPlaced) {
+          model.visible = true;
+          tempPos.setFromMatrixPosition(reticle.matrix);
+          model.position.copy(tempPos);
+        }
       }
     } else {
       if (!modelPlaced) {
@@ -411,8 +405,6 @@ function render(t, frame) {
   try { await loadScene(); } catch(e){ console.warn(e); }
   applyQueryFallback();
   init();
-  // Modell kann optional schon hier vorgeladen werden:
-  // await ensureModelLoaded();
 })();
 </script>
 </body>
