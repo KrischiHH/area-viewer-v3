@@ -119,12 +119,12 @@ let model;          // Das geladene GLB
 let mixer;          // Animation Mixer
 const clock = new THREE.Clock();
 
-// State
+// State & Config
+const HOVER_HEIGHT = 0.1; // 10 cm Schwebehöhe im Placement Mode
 let isPlaced = false;   // false = "Ghost Mode" (folgt HitTest), true = "Locked"
 let modelLoaded = false;
 let reticleVisible = false;
 
-// Config
 const qs = new URLSearchParams(location.search);
 const workerBase = (qs.get('base') || 'https://area-publish-proxy.area-webar.workers.dev').replace(/\/$/, '');
 const sceneParam = qs.get('scene') || qs.get('src');
@@ -205,18 +205,40 @@ function initThree() {
   placementGroup.visible = false; // Erst sichtbar wenn HitTest erfolgreich
   scene.add(placementGroup);
 
-  // Das "Placement Rectangle" (Visualisierung wie Native Viewer)
-  // Ein abgerundetes Rechteck oder simpler Plane mit Textur/Opazität
-  const rectGeo = new THREE.PlaneGeometry(0.4, 0.4);
-  rectGeo.rotateX(-Math.PI / 2);
-  const rectMat = new THREE.MeshBasicMaterial({ 
+  // 🔹 NEU: Das "Placement Rectangle" als Outline (Native Viewer Look)
+  const size = 0.4;
+  const radius = 0.05; // Abgerundete Ecken
+  
+  const rectShape = new THREE.Shape();
+  // Zeichne ein Rechteck mit abgerundeten Ecken
+  rectShape.moveTo(0, radius);
+  rectShape.lineTo(0, size - radius);
+  rectShape.quadraticCurveTo(0, size, radius, size);
+  rectShape.lineTo(size - radius, size);
+  rectShape.quadraticCurveTo(size, size, size, size - radius);
+  rectShape.lineTo(size, radius);
+  rectShape.quadraticCurveTo(size, 0, size - radius, 0);
+  rectShape.lineTo(radius, 0);
+  rectShape.quadraticCurveTo(0, 0, 0, radius);
+  
+  // Geometrie erstellen und zentrieren
+  const outlineGeo = new THREE.ShapeGeometry(rectShape);
+  outlineGeo.translate(-size / 2, -size / 2, 0);
+
+  const edges = new THREE.EdgesGeometry(outlineGeo);
+  
+  // Linien-Material
+  const lineMat = new THREE.LineBasicMaterial({ 
     color: 0xffffff, 
-    opacity: 0.4, 
-    transparent: true,
-    side: THREE.DoubleSide
+    linewidth: 3, 
+    opacity: 0.8, 
+    transparent: true 
   });
-  placementRect = new THREE.Mesh(rectGeo, rectMat);
-  placementRect.position.y = 0.005; // Leicht über Boden (Z-Fighting vermeiden)
+  
+  placementRect = new THREE.LineSegments(edges, lineMat);
+  placementRect.rotation.x = -Math.PI / 2; // Parallel zum Boden drehen
+  placementRect.position.y = 0.005; // Leicht über Boden
+  
   placementGroup.add(placementRect);
 }
 
@@ -241,7 +263,7 @@ async function loadModel() {
 
     placementGroup.add(model);
     modelLoaded = true;
-    updateMsg("Tippe auf den Boden zum Platzieren");
+    updateMsg("Bewege dein Gerät um Fläche zu finden...");
   } catch(e) {
     showErr("Modell konnte nicht geladen werden.");
     console.error(e);
@@ -337,15 +359,16 @@ function render(timestamp, frame) {
         // Modell + Rect folgen dem HitTest.
         if (!isPlaced) {
             placementGroup.visible = true;
+            
+            // Setze X/Z auf Hit-Position
             placementGroup.position.x = pose.transform.position.x;
-            placementGroup.position.y = pose.transform.position.y;
             placementGroup.position.z = pose.transform.position.z;
             
-            // Optional: sanfte Rotation zur Kamera, aber Boden-parallel
-            // placementGroup.quaternion.copy(pose.transform.orientation); // Folgt Boden-Neigung
+            // 🔹 NEU: Lasse Y um HOVER_HEIGHT schweben
+            placementGroup.position.y = pose.transform.position.y + HOVER_HEIGHT; 
             
             reticleVisible = true;
-            updateMsg("Tippe zum Platzieren");
+            updateMsg("Tippe auf den Boden zum Platzieren");
         }
       } else {
         if (!isPlaced) {
@@ -381,8 +404,6 @@ function onSelect(event) {
     }
 
     // 2. Wenn bereits platziert: Checken ob wir das Modell getroffen haben (Raycast)
-    // Da WebXR 'select' Event keine Bildschirmkoordinaten hat wie Touch, 
-    // nutzen wir die Controller-Position und Richtung.
     const controller = event.target;
     tempMatrix.identity().extractRotation(controller.matrixWorld);
     
