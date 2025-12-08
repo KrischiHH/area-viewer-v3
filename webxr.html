@@ -125,6 +125,18 @@ let isPlaced = false;   // false = "Ghost Mode" (folgt HitTest), true = "Locked"
 let modelLoaded = false;
 let reticleVisible = false;
 
+// 🔹 NEU: Variablen für Gesten
+let currentTouches = []; // Speichert aktuelle Touches
+let gestureActive = false; // true, wenn Skalieren/Rotieren läuft
+let initialPinchDistance = 0;
+let initialPinchRotation = 0;
+let initialModelScale = 1;
+let initialModelRotationY = 0;
+const TAP_THRESHOLD_MS = 250; 
+const DRAG_THRESHOLD_PIX = 10;
+const SCALE_FACTOR = 0.005; // Empfindlichkeit für Skalierung
+const ROTATION_FACTOR = 0.01; // Empfindlichkeit für Rotation
+
 const qs = new URLSearchParams(location.search);
 const workerBase = (qs.get('base') || 'https://area-publish-proxy.area-webar.workers.dev').replace(/\/$/, '');
 const sceneParam = qs.get('scene') || qs.get('src');
@@ -165,7 +177,6 @@ async function boot() {
         AUDIO_URL = `${workerBase}/scenes/${sceneParam}/${json.audio.url}`;
         setupAudio(json.audio);
       }
-      // TODO: Position/Scale/Rotation aus JSON lesen
     } catch(e) {
       console.error(e);
       showErr("Fehler beim Laden der Szene.");
@@ -180,6 +191,12 @@ async function boot() {
     if(renderer.xr.getSession()) renderer.xr.getSession().end();
     else window.close();
   });
+  
+  // 🔹 NEU: Touch/Gesten-Listener auf dem Overlay hinzufügen
+  const overlay = document.getElementById('overlay');
+  overlay.addEventListener('touchstart', handleTouchStart, false);
+  overlay.addEventListener('touchmove', handleTouchMove, false);
+  overlay.addEventListener('touchend', handleTouchEnd, false);
 }
 
 function initThree() {
@@ -187,23 +204,50 @@ function initThree() {
 
   camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.01, 20);
 
+  // Lichter
   const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1.2);
   scene.add(light);
+  
   const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
   dirLight.position.set(2, 8, 4);
   scene.add(dirLight);
+
+  // 🔹 NEU: Schatten-Konfiguration für das Directional Light
+  dirLight.castShadow = true;
+  dirLight.shadow.mapSize.width = 1024;
+  dirLight.shadow.mapSize.height = 1024;
+  dirLight.shadow.camera.near = 0.5;
+  dirLight.shadow.camera.far = 50;
+  dirLight.shadow.camera.left = -5;
+  dirLight.shadow.camera.right = 5;
+  dirLight.shadow.camera.top = 5;
+  dirLight.shadow.camera.bottom = -5;
+
 
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.xr.enabled = true;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  // 🔹 NEU: Schatten im Renderer aktivieren
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
   document.body.appendChild(renderer.domElement);
 
   // Group für Logik: Modell + Bodenplatte
   placementGroup = new THREE.Group();
   placementGroup.visible = false; // Erst sichtbar wenn HitTest erfolgreich
   scene.add(placementGroup);
+
+  // 🔹 NEU: Unsichtbarer Boden, der Schatten empfängt (PlaneGeometry)
+  const shadowPlaneGeo = new THREE.PlaneGeometry(10, 10);
+  shadowPlaneGeo.rotateX(-Math.PI / 2);
+  const shadowPlaneMat = new THREE.ShadowMaterial({ opacity: 0.3 }); // Nur Schatten sichtbar
+  const shadowPlane = new THREE.Mesh(shadowPlaneGeo, shadowPlaneMat);
+  shadowPlane.position.y = 0;
+  shadowPlane.receiveShadow = true; // Empfängt Schatten
+  scene.add(shadowPlane); 
+
 
   // 🔹 NEU: Das "Placement Rectangle" als Outline (Native Viewer Look)
   const size = 0.4;
@@ -230,7 +274,7 @@ function initThree() {
   // Linien-Material
   const lineMat = new THREE.LineBasicMaterial({ 
     color: 0xffffff, 
-    linewidth: 3, 
+    // linewidth: 3, // Wird ignoriert, daher Skalierung unten
     opacity: 0.8, 
     transparent: true 
   });
@@ -238,6 +282,8 @@ function initThree() {
   placementRect = new THREE.LineSegments(edges, lineMat);
   placementRect.rotation.x = -Math.PI / 2; // Parallel zum Boden drehen
   placementRect.position.y = 0.005; // Leicht über Boden
+  // 🔹 NEU: Skalierung erhöhen, um die Linie dicker erscheinen zu lassen
+  placementRect.scale.set(1.05, 1.05, 1.05); 
   
   placementGroup.add(placementRect);
 }
@@ -252,6 +298,14 @@ async function loadModel() {
     const gltf = await loader.loadAsync(MODEL_URL);
     model = gltf.scene;
     
+    // 🔹 NEU: Schatten für alle Teile des Modells aktivieren
+    model.traverse((node) => {
+      if (node.isMesh) {
+        node.castShadow = true; 
+        node.receiveShadow = false;
+      }
+    });
+
     // Auto-Scale (einfach gehalten, ggf. aus JSON laden)
     model.scale.setScalar(0.5); 
     
@@ -293,11 +347,9 @@ function setupAudio(audioCfg) {
 async function onStartAR() {
   document.getElementById('start-screen').style.display = 'none';
   
-  // Audio Play Trigger (iOS Safari braucht User Action)
+  // Audio Play Trigger
   if(AUDIO_URL) {
-    audioEl.play().then(() => {
-        // Pausieren bis Session wirklich läuft, oder einfach laufen lassen
-    }).catch(e => console.warn("Audio Autoplay:", e));
+    audioEl.play().catch(e => console.warn("Audio Autoplay:", e));
   }
 
   const session = await navigator.xr.requestSession('immersive-ar', {
@@ -316,10 +368,10 @@ async function onStartAR() {
   renderer.xr.setReferenceSpaceType('local-floor');
   await renderer.xr.setSession(session);
   
-  // Controller Listener für Taps
-  const controller = renderer.xr.getController(0);
-  controller.addEventListener('select', onSelect);
-  scene.add(controller);
+  // Controller Listener für Taps (wird für Touch/Tap-Erkennung NICHT mehr verwendet)
+  // const controller = renderer.xr.getController(0);
+  // controller.addEventListener('select', onSelect); 
+  // scene.add(controller);
 
   renderer.setAnimationLoop(render);
 }
@@ -346,7 +398,7 @@ function render(timestamp, frame) {
     if(mixer) mixer.update(dt);
 
     // Hit Test Logic
-    if (hitTestSource) {
+    if (hitTestSource && !gestureActive) { // Hit-Test nur wenn keine Gesten aktiv
       const refSpace = renderer.xr.getReferenceSpace();
       const results = frame.getHitTestResults(hitTestSource);
 
@@ -355,8 +407,7 @@ function render(timestamp, frame) {
         const pose = hit.getPose(refSpace);
 
         // LOGIK:
-        // Wenn NICHT platziert (isPlaced == false):
-        // Modell + Rect folgen dem HitTest.
+        // Wenn NICHT platziert (isPlaced == false) ODER im Reposition-Mode:
         if (!isPlaced) {
             placementGroup.visible = true;
             
@@ -364,11 +415,11 @@ function render(timestamp, frame) {
             placementGroup.position.x = pose.transform.position.x;
             placementGroup.position.z = pose.transform.position.z;
             
-            // 🔹 NEU: Lasse Y um HOVER_HEIGHT schweben
+            // Lasse Y um HOVER_HEIGHT schweben
             placementGroup.position.y = pose.transform.position.y + HOVER_HEIGHT; 
             
             reticleVisible = true;
-            updateMsg("Tippe auf den Boden zum Platzieren");
+            updateMsg("Tippe zum Platzieren");
         }
       } else {
         if (!isPlaced) {
@@ -383,43 +434,154 @@ function render(timestamp, frame) {
   renderer.render(scene, camera);
 }
 
-// --- Interaction (Tap & Gestures) ---
+// --- Interaction (Touch Gestures) ---
 
-// Raycaster Setup für "Pick up object"
-const raycaster = new THREE.Raycaster();
-const tempMatrix = new THREE.Matrix4();
+// --- 1. Touch Start ---
+function handleTouchStart(event) {
+    // Wenn Gesten aktiv sind (2 Finger), ignorieren wir weitere Starts
+    if (gestureActive) return; 
 
-function onSelect(event) {
+    // Speichere die Touches
+    currentTouches = Array.from(event.touches);
+    gestureStartTime = performance.now();
+    
+    if (currentTouches.length === 2) {
+        // 2-Finger-Geste (Skalieren/Rotieren) beginnt
+        event.preventDefault(); // Verhindere Standard-Browser-Aktion
+        gestureActive = true;
+        
+        // Initialzustand speichern
+        initialPinchDistance = getDistance(currentTouches[0], currentTouches[1]);
+        initialPinchRotation = getAngle(currentTouches[0], currentTouches[1]);
+        initialModelScale = placementGroup.scale.x;
+        initialModelRotationY = placementGroup.rotation.y;
+    }
+}
+
+// --- 2. Touch Move ---
+function handleTouchMove(event) {
+    if (currentTouches.length === 0) return;
+    
+    event.preventDefault();
+    const prevTouches = currentTouches;
+    currentTouches = Array.from(event.touches);
+    
+    if (currentTouches.length === 2 && gestureActive) {
+        // 2-Finger-Geste (Skalieren & Rotieren)
+        
+        const newDist = getDistance(currentTouches[0], currentTouches[1]);
+        const newAngle = getAngle(currentTouches[0], currentTouches[1]);
+        
+        // 🔹 Skalierung
+        const scaleDelta = newDist - initialPinchDistance;
+        let newScale = initialModelScale + scaleDelta * SCALE_FACTOR;
+        
+        // Skalierung begrenzen (z.B. 0.1 bis 5)
+        newScale = Math.max(0.1, Math.min(5, newScale)); 
+        placementGroup.scale.setScalar(newScale);
+
+        // 🔹 Rotation (nur um die Y-Achse)
+        const rotationDelta = newAngle - initialPinchRotation;
+        
+        // Wir ignorieren die Rotation, die durch das Wischen der Finger auf dem Screen entsteht, 
+        // und fokussieren uns nur auf die relative Drehung zueinander.
+        placementGroup.rotation.y = initialModelRotationY + rotationDelta * ROTATION_FACTOR;
+        
+        updateMsg("Skalieren / Rotieren...");
+        
+    } else if (currentTouches.length === 1 && isPlaced && !gestureActive) {
+        // 1-Finger-Geste (Tiefen-Bewegung) - **Aktuell NICHT implementiert, da komplex**
+        // Hier müsste ein Raycast vom Finger auf eine virtuelle Plane erfolgen,
+        // um das X/Z des Modells zu verschieben.
+        
+        // Wir lassen den Hit-Test im Render-Loop die Position aktualisieren,
+        // wenn isPlaced auf false gesetzt wird (Lift-to-Move).
+    }
+}
+
+// --- 3. Touch End ---
+function handleTouchEnd(event) {
+    const endedTouchCount = event.changedTouches.length;
+    
+    if (gestureActive) {
+        // Wenn 2-Finger-Geste endet
+        if (endedTouchCount >= currentTouches.length) {
+            // Alle Finger sind weg
+            gestureActive = false;
+            currentTouches = [];
+            updateMsg("Skalierung/Rotation abgeschlossen.");
+            // Reset der Initialwerte für die nächste Geste
+            initialModelScale = placementGroup.scale.x;
+            initialModelRotationY = placementGroup.rotation.y;
+        } else {
+             // Ein Finger ist noch da, aber wir setzen auf 1-Finger-Geste zurück
+             currentTouches = Array.from(event.touches);
+             gestureActive = false;
+        }
+    } else if (currentTouches.length === 1 && endedTouchCount === 1) {
+        // 1-Finger-Geste endet -> Ist es ein Tap?
+        const touchDuration = performance.now() - gestureStartTime;
+        const startX = currentTouches[0].clientX;
+        const startY = currentTouches[0].clientY;
+        const endX = event.changedTouches[0].clientX;
+        const endY = event.changedTouches[0].clientY;
+        
+        const dragDistance = Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endY - startY, 2));
+
+        if (touchDuration < TAP_THRESHOLD_MS && dragDistance < DRAG_THRESHOLD_PIX) {
+            // TAP erkannt: Simuliere onSelect Logik
+            simulateTapSelect();
+        }
+    }
+    
+    currentTouches = Array.from(event.touches);
+}
+
+// --- Hilfsfunktionen für Gesten ---
+
+function getDistance(touch1, touch2) {
+    return Math.sqrt(
+        Math.pow(touch2.clientX - touch1.clientX, 2) +
+        Math.pow(touch2.clientY - touch1.clientY, 2)
+    );
+}
+
+function getAngle(touch1, touch2) {
+    return Math.atan2(
+        touch2.clientY - touch1.clientY, 
+        touch2.clientX - touch1.clientX
+    );
+}
+
+// Simuliert die onSelect Logik, wird bei Tap aufgerufen
+function simulateTapSelect() {
     if (!modelLoaded) return;
 
-    // 1. Wenn wir gerade im "Placing Mode" sind:
     if (!isPlaced) {
+        // 1. Wenn im Placing Mode -> PLATZIEREN
         if (reticleVisible) {
-            // PLATZIEREN
             isPlaced = true;
-            placementRect.visible = false; // Rechteck ausblenden
+            // setze Y auf 0, um es auf dem Boden zu "landen"
+            placementGroup.position.y -= HOVER_HEIGHT; 
+            placementRect.visible = false; 
             updateMsg("Tippe auf das Modell zum Bewegen");
         }
         return;
-    }
+    } 
 
-    // 2. Wenn bereits platziert: Checken ob wir das Modell getroffen haben (Raycast)
-    const controller = event.target;
-    tempMatrix.identity().extractRotation(controller.matrixWorld);
+    // 2. Wenn bereits platziert -> Raycast zur Abfrage, ob Modell getroffen
+    // (Da wir keine Controller-Position haben, ist das nur ein einfacher Raycast 
+    // in die Weltmitte, was im AR-Kontext ungenau ist. Besser wäre Raycast vom Touch-Punkt)
+    // Wir vereinfachen: Wenn isPlaced, dann ist jeder weitere Tap = LIFT-UP (wie native)
     
-    raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
-    raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
-
-    // Prüfen ob Modell getroffen
-    const intersects = raycaster.intersectObjects([model], true);
-
-    if (intersects.length > 0) {
-        // Modell getroffen -> ANHEBEN (Reposition Mode)
-        isPlaced = false;
-        placementRect.visible = true; // Rechteck wieder zeigen
-        updateMsg("Bewege das Modell...");
-    }
+    // ANHEBEN (Reposition Mode)
+    isPlaced = false;
+    placementRect.visible = true; 
+    // setze Y wieder auf hover height
+    placementGroup.position.y += HOVER_HEIGHT;
+    updateMsg("Bewege das Modell...");
 }
+
 
 // --- Helpers ---
 function showErr(txt) {
