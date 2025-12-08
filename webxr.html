@@ -5,11 +5,56 @@
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Surface AR – WebXR Hit-Test (mit Animation)</title>
 <style>
-  html,body{margin:0;height:100%;overflow:hidden;background:#000;color:#fff;font-family:system-ui}
-  #enter{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);padding:12px 18px;border-radius:12px;border:1px solid #555;background:#111;color:#fff}
-  #msg{position:fixed;left:12px;bottom:12px;opacity:.9}
-  #err{position:fixed;left:12px;top:12px;z-index:9;background:#b00020;color:#fff;padding:8px 10px;border-radius:8px;display:none;font:12px/1.35 monospace;max-width:min(92vw,680px);white-space:pre-wrap}
-  #badge{position:fixed;right:12px;top:12px;z-index:9;background:#0b1220;color:#9cf;padding:6px 8px;border-radius:8px;font:12px system-ui}
+  html,body{
+    margin:0;
+    height:100%;
+    overflow:hidden;
+    background:#000;
+    color:#fff;
+    font-family:system-ui
+  }
+  #enter{
+    position:fixed;
+    left:50%;
+    top:50%;
+    transform:translate(-50%,-50%);
+    padding:12px 18px;
+    border-radius:12px;
+    border:1px solid #555;
+    background:#111;
+    color:#fff
+  }
+  #msg{
+    position:fixed;
+    left:12px;
+    bottom:12px;
+    opacity:.9
+  }
+  #err{
+    position:fixed;
+    left:12px;
+    top:12px;
+    z-index:9;
+    background:#b00020;
+    color:#fff;
+    padding:8px 10px;
+    border-radius:8px;
+    display:none;
+    font:12px/1.35 monospace;
+    max-width:min(92vw,680px);
+    white-space:pre-wrap
+  }
+  #badge{
+    position:fixed;
+    right:12px;
+    top:12px;
+    z-index:9;
+    background:#0b1220;
+    color:#9cf;
+    padding:6px 8px;
+    border-radius:8px;
+    font:12px system-ui
+  }
 </style>
 <script type="importmap">
 {
@@ -23,7 +68,7 @@
 <body>
   <div id="err"></div>
   <button id="enter">Start AR</button>
-  <div id="msg">Android Chrome empfohlen · Tippe auf den Boden, um das Modell zu platzieren</div>
+  <div id="msg">Android Chrome empfohlen · Bewege das Gerät, dann tippe zum Platzieren</div>
   <div id="badge">WEBXR BUILD</div>
 
 <script type="module">
@@ -33,9 +78,17 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
 let camera, scene, renderer, reticle, controller, hitTestSource=null, hitTestSourceRequested=false;
 let model=null, mixer=null, clips=[];
-const clock = new THREE.Clock();
+let modelLocked = false;
+let modelLoaded = false;
 
-const showErr = (m)=>{ const el=document.getElementById('err'); el.textContent=m; el.style.display='block'; };
+const clock   = new THREE.Clock();
+const tempPos = new THREE.Vector3();
+
+const showErr = (m)=>{
+  const el=document.getElementById('err');
+  el.textContent=m;
+  el.style.display='block';
+};
 
 /* ========= Param-Normalisierung ========= */
 const qs = new URLSearchParams(location.search);
@@ -43,7 +96,7 @@ const qs = new URLSearchParams(location.search);
 const FORCE = (qs.get('force') || '').toLowerCase();
 if (FORCE === 'webxr') {
   window.__FORCE_MODE = 'webxr';
-  window.__NO_NATIVE_REDIRECT__ = true;   // falls irgendwo (global) Redirect-Logik existiert
+  window.__NO_NATIVE_REDIRECT__ = true;
   try { document.getElementById('badge').textContent = 'WEBXR (forced)'; } catch {}
 }
 
@@ -70,7 +123,7 @@ if (overrideGlb) {
     if (isGlbLike(sceneParam)) SCENE_GLB = sceneParam;
     else SCENE_JSON = sceneParam;
   } else {
-    // Interne Szene-ID → nur scene.json; GLB wird aus model.url gelesen
+    // Interne Szene-ID → scene.json; GLB kommt aus model.url
     const id = sceneParam.replace(/\/+$/,'');
     SCENE_JSON = `${workerBase}/scenes/${encodeURIComponent(id)}/scene.json`;
   }
@@ -90,7 +143,7 @@ const deg2rad = d => (d||0) * Math.PI/180;
 
 // ---------- Szene aus externer JSON (optional) ----------
 async function loadScene(){
-  // 1) scene.json bevorzugen (neue Pipeline mit model.url)
+  // 1) scene.json bevorzugen
   if (SCENE_JSON) {
     try {
       const r = await fetch(SCENE_JSON, {cache:'no-cache', mode:'cors'});
@@ -105,7 +158,7 @@ async function loadScene(){
         try { return new URL(u, SCENE_JSON).href; } catch { return u; }
       };
 
-      if (j?.model?.url)              cfg.modelUrl = resolveAgainstJson(j.model.url);
+      if (j?.model?.url)                 cfg.modelUrl = resolveAgainstJson(j.model.url);
       if (Array.isArray(j?.model?.position))    cfg.position = j.model.position;
       if (Array.isArray(j?.model?.rotationDeg)) cfg.rotation = j.model.rotationDeg;
       else if (Array.isArray(j?.model?.rotation)) cfg.rotation = j.model.rotation;
@@ -115,18 +168,17 @@ async function loadScene(){
     } catch(e) {
       console.warn(e);
       showErr('scene.json konnte nicht geladen werden:\n'+e.message);
-      // Fallback: unten ggf. SCENE_GLB oder Astronaut
     }
   }
 
-  // 2) Wenn explizit ?glb=… oder SCENE_GLB gesetzt ist → direkt nutzen
+  // 2) explizit ?glb=… oder SCENE_GLB
   if (SCENE_GLB) {
     cfg.modelUrl = SCENE_GLB;
     console.log('[WEBXR] Fallback: SCENE_GLB verwendet:', cfg.modelUrl);
     return;
   }
 
-  // 3) Sonst bleibt der Astronaut-Fallback aktiv
+  // 3) sonst Astronaut-Fallback
   console.log('[WEBXR] Kein scene/base → Astronaut Fallback.');
 }
 
@@ -155,8 +207,13 @@ function applyQueryFallback(){
 function init() {
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera();
-  const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2); scene.add(hemi);
-  const dir = new THREE.DirectionalLight(0xffffff, 1.0); dir.position.set(0,6,0); scene.add(dir);
+
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
+  scene.add(hemi);
+
+  const dir = new THREE.DirectionalLight(0xffffff, 1.0);
+  dir.position.set(0,6,0);
+  scene.add(dir);
 
   renderer = new THREE.WebGLRenderer({antialias:true, alpha:true});
   renderer.setPixelRatio(window.devicePixelRatio);
@@ -167,10 +224,15 @@ function init() {
   renderer.toneMappingExposure = 1.0;
   document.body.appendChild(renderer.domElement);
 
-  // Reticle
-  const ring = new THREE.RingGeometry(0.07, 0.08, 32).rotateX(-Math.PI/2);
-  const mat = new THREE.MeshBasicMaterial({color:0x66ccff});
-  reticle = new THREE.Mesh(ring, mat);
+  // 🔹 Rechteck statt Kreis – wie eine Shadow-Plane unter dem Modell
+  const planeGeo = new THREE.PlaneGeometry(0.4, 0.4);
+  planeGeo.rotateX(-Math.PI / 2);
+  const planeMat = new THREE.MeshBasicMaterial({
+    color: 0x66ccff,
+    opacity: 0.5,
+    transparent: true
+  });
+  reticle = new THREE.Mesh(planeGeo, planeMat);
   reticle.matrixAutoUpdate = false;
   reticle.visible = false;
   scene.add(reticle);
@@ -182,7 +244,9 @@ function init() {
   addEventListener('resize', ()=>renderer.setSize(innerWidth, innerHeight));
   document.getElementById('enter').addEventListener('click', startAR);
 
-  try { window.opener && window.opener.postMessage({ type:'webar-ready' }, location.origin); } catch {}
+  try {
+    window.opener && window.opener.postMessage({ type:'webar-ready' }, location.origin);
+  } catch {}
 }
 
 // ---------- Model-Animation ----------
@@ -193,9 +257,11 @@ function playClips(){
   if (a==='*'){
     clips.forEach(c=>mixer.clipAction(c).play());
   } else if (typeof a==='string'){
-    const c = clips.find(c=>c.name===a) || clips[0]; mixer.clipAction(c).play();
+    const c = clips.find(c=>c.name===a) || clips[0];
+    mixer.clipAction(c).play();
   } else {
-    const idx = Math.max(0, Math.min(clips.length-1, parseInt(a||0,10))); mixer.clipAction(clips[idx]).play();
+    const idx = Math.max(0, Math.min(clips.length-1, parseInt(a||0,10)));
+    mixer.clipAction(clips[idx]).play();
   }
 }
 
@@ -205,7 +271,9 @@ async function loadGLTFFlexible(url) {
   if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
 
   const ct = (res.headers.get('content-type') || '').toLowerCase();
-  const looksGLB = /\.glb(?:[?#]|$)/i.test(url) || ct.includes('model/gltf-binary') || ct.includes('application/octet-stream');
+  const looksGLB = /\.glb(?:[?#]|$)/i.test(url)
+    || ct.includes('model/gltf-binary')
+    || ct.includes('application/octet-stream');
 
   const loader = new GLTFLoader();
   loader.setCrossOrigin('anonymous');
@@ -230,69 +298,118 @@ async function loadGLTFFlexible(url) {
   }
 }
 
-/* ---------- Tap: platzieren & laden ---------- */
-async function onSelect() {
-  if (!reticle.visible) return;
+/* ---------- Modell vorab laden & in Szene halten ---------- */
+async function preloadModel() {
+  try {
+    console.log('[WEBXR] Preload GLB:', cfg.modelUrl);
+    const gltf = await loadGLTFFlexible(cfg.modelUrl);
+    model = gltf.scene;
 
-  if (!model) {
-    try {
-      const gltf = await loadGLTFFlexible(cfg.modelUrl);
-      model = gltf.scene;
-      const [sx,sy,sz] = cfg.scale;    model.scale.set(sx,sy,sz);
-      const [rx,ry,rz] = cfg.rotation; model.rotation.set(deg2rad(rx), deg2rad(ry), deg2rad(rz));
-      model.position.setFromMatrixPosition(reticle.matrix);
-      scene.add(model);
+    const [sx,sy,sz] = cfg.scale;
+    model.scale.set(sx,sy,sz);
 
-      clips = gltf.animations || [];
-      if (clips.length) {
-        mixer = new THREE.AnimationMixer(model);
-        playClips();
-      }
-    } catch (err) {
-      console.error('GLTF load failed', err);
-      showErr('Fehler beim Laden des Objekts:\n' + (err?.message || err || 'Unbekannt'));
+    const [rx,ry,rz] = cfg.rotation;
+    model.rotation.set(deg2rad(rx), deg2rad(ry), deg2rad(rz));
+
+    model.visible = false;
+    scene.add(model);
+
+    clips = gltf.animations || [];
+    if (clips.length) {
+      mixer = new THREE.AnimationMixer(model);
+      playClips();
     }
-  } else {
-    model.position.setFromMatrixPosition(reticle.matrix);
+
+    modelLoaded = true;
+  } catch (err) {
+    console.error('GLTF preload failed', err);
+    showErr('Fehler beim Laden des Objekts:\n' + (err?.message || err || 'Unbekannt'));
   }
+}
+
+/* ---------- Tap: Modell "fest" platzieren ---------- */
+async function onSelect() {
+  if (!reticle.visible || !modelLoaded || !model) return;
+
+  // Modell an aktueller Reticle-Position festpinnen
+  modelLocked = true;
+  reticle.visible = false;
 }
 
 // ---------- WebXR ----------
 async function startAR(){
-  if (!navigator.xr) { showErr('WebXR nicht verfügbar.'); return; }
+  if (!navigator.xr) {
+    showErr('WebXR nicht verfügbar.');
+    return;
+  }
   const isARSupported = await navigator.xr.isSessionSupported('immersive-ar');
-  if (!isARSupported) { showErr('Dein Gerät/Browser unterstützt kein WebXR-AR.'); return; }
-  const session = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['hit-test','local-floor'] });
+  if (!isARSupported) {
+    showErr('Dein Gerät/Browser unterstützt kein WebXR-AR.');
+    return;
+  }
+
+  const session = await navigator.xr.requestSession('immersive-ar', {
+    requiredFeatures: ['hit-test','local-floor']
+  });
+
   renderer.xr.setReferenceSpaceType('local-floor');
   await renderer.xr.setSession(session);
   document.getElementById('enter').style.display='none';
   animate();
 }
 
-function animate() { renderer.setAnimationLoop(render); }
+function animate() {
+  renderer.setAnimationLoop(render);
+}
 
 function render(t, frame) {
-  const dt = clock.getDelta(); if (mixer) mixer.update(dt);
-  if (!frame){ renderer.render(scene, camera); return; }
+  const dt = clock.getDelta();
+  if (mixer) mixer.update(dt);
+
+  if (!frame){
+    renderer.render(scene, camera);
+    return;
+  }
+
   const referenceSpace = renderer.xr.getReferenceSpace();
   const session = renderer.xr.getSession();
 
   if (!hitTestSourceRequested) {
     session.requestReferenceSpace('viewer').then((viewerSpace) => {
-      session.requestHitTestSource({ space: viewerSpace }).then((source) => { hitTestSource = source; });
+      session.requestHitTestSource({ space: viewerSpace }).then((source) => {
+        hitTestSource = source;
+      });
     });
-    session.addEventListener('end', () => { hitTestSourceRequested = false; hitTestSource = null; });
+    session.addEventListener('end', () => {
+      hitTestSourceRequested = false;
+      hitTestSource = null;
+      modelLocked = false;
+    });
     hitTestSourceRequested = true;
   }
 
   if (hitTestSource) {
     const results = frame.getHitTestResults(hitTestSource);
     if (results.length) {
-      const hit = results[0];
+      const hit  = results[0];
       const pose = hit.getPose(referenceSpace);
-      reticle.visible = true;
+
+      // Reticle nur zeigen, solange noch nicht endgültig platziert
+      reticle.visible = !modelLocked;
       reticle.matrix.fromArray(pose.transform.matrix);
-    } else { reticle.visible = false; }
+
+      // Modell folgt dem Rectangle, solange es noch nicht "fest" ist
+      if (model && modelLoaded && !modelLocked) {
+        model.visible = true;
+        tempPos.setFromMatrixPosition(reticle.matrix);
+        model.position.copy(tempPos);
+      }
+    } else {
+      if (!modelLocked) {
+        reticle.visible = false;
+        if (model) model.visible = false;
+      }
+    }
   }
 
   renderer.render(scene, camera);
@@ -300,9 +417,10 @@ function render(t, frame) {
 
 // ---------- Boot ----------
 (async ()=>{
-  try{ await loadScene(); }catch(e){ console.warn(e); }
+  try { await loadScene(); } catch(e){ console.warn(e); }
   applyQueryFallback();
   init();
+  await preloadModel();
 })();
 </script>
 </body>
