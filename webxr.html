@@ -8,20 +8,8 @@
   <!-- Font Awesome für Galerie-Icon -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
 
-  <!-- FFmpeg.js für WebM -> MP4 Konvertierung -->
+  <!-- FFmpeg.js für WebM -> MP4 Konvertierung (für später, stört hier nicht) -->
   <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.7/dist/ffmpeg.min.js"></script>
-
-  <!-- three.js Importmap für bare specifier "three" -->
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
-      }
-    }
-  </script>
-
-  <!-- Entry Point für den WebXR-Viewer -->
-  <script type="module" src="./js/webxr-app.js"></script>
 
   <style>
     :root {
@@ -30,7 +18,8 @@
     }
     *, *::before, *::after { box-sizing: border-box; }
     html, body {
-      margin: 0; height: 100%;
+      margin: 0;
+      height: 100%;
       background: #000;
       font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
       overscroll-behavior: none;
@@ -104,8 +93,7 @@
       background: #000;
     }
 
-    /* Sowohl model-viewer (für andere Viewer) als auch Canvas im WebXR-Viewer */
-    model-viewer,
+    /* Canvas des WebXR-Viewers */
     #ar-scene-element {
       position: fixed;
       inset: 0;
@@ -262,10 +250,8 @@
   <div id="loading-status">Lade Szene…</div>
   <div id="err"></div>
 
-  <div id="ar-container">
-    <!-- Canvas, das three.js und WebXR nutzt -->
-    <canvas id="ar-scene-element"></canvas>
-  </div>
+  <!-- Hier hängt three.js später sein Canvas hinein -->
+  <div id="ar-container"></div>
 
   <div id="ar-ui">
     <div class="bottom-bar">
@@ -289,5 +275,7 @@
     <div id="gallery-grid"></div>
   </div>
 
+  <!-- Entry Point für den WebXR-Viewer -->
+  <script type="module" src="./js/webxr-app.js"></script>
 </body>
 </html>
