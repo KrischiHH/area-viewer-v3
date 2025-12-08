@@ -4,377 +4,388 @@
 import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
 import { GLTFLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
 import { ARButton } from 'https://unpkg.com/three@0.160.0/examples/jsm/webxr/ARButton.js';
+import { initAudio, toggleAudio, pauseAudioOnHide } from './audio.js';
 
 const state = {
   cfg: null,
   sceneId: null,
   workerBase: null,
-
-  renderer: null,
-  scene: null,
-  camera: null,
-  light: null,
-
   model: null,
   mixer: null,
-
   reticle: null,
-  controller: null,
-
   hitTestSource: null,
   hitTestSourceRequested: false,
-
-  arActive: false,
-  lastFrameTime: null,
-  hiddenArButton: null,
+  arSessionActive: false
 };
 
-init().catch(err => {
-  console.error(err);
-  showError('FEHLER beim Initialisieren: ' + (err.message || err));
-  hideLoading();
+let renderer, scene, camera;
+let clock = new THREE.Clock();
+
+let canvasEl, posterEl, loadingEl, errEl, startArBtn, arUIEl;
+let posterTitleEl, posterSubtitleEl, posterTextEl, posterImageEl;
+
+// ARButton (unsichtbar, wird vom START-Button geklickt)
+let xrButton = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+  canvasEl        = document.getElementById('ar-scene-element');
+  posterEl        = document.getElementById('poster');
+  loadingEl       = document.getElementById('loading-status');
+  errEl           = document.getElementById('err');
+  startArBtn      = document.getElementById('startAr');
+  arUIEl          = document.getElementById('ar-ui');
+  posterTitleEl   = document.getElementById('posterTitle');
+  posterSubtitleEl= document.getElementById('posterSubtitle');
+  posterTextEl    = document.getElementById('posterText');
+  posterImageEl   = document.getElementById('posterImageEl');
+
+  initWebXRViewer().catch((e) => {
+    console.error('[WebXR] Init-Fehler:', e);
+    showError('FEHLER beim Initialisieren: ' + (e.message || e));
+  });
 });
 
-async function init() {
+async function initWebXRViewer() {
+  showLoading();
+
   const params = new URLSearchParams(window.location.search);
-  state.sceneId = params.get('scene');
-  state.workerBase = params.get('base');
+  state.sceneId = params.get('scene') || '';
+  const baseParam = params.get('base') || '';
+  state.workerBase = baseParam ? decodeURIComponent(baseParam) : '';
 
   if (!state.sceneId || !state.workerBase) {
-    showError('FEHLENDE URL-PARAMETER (?scene=… &base=…)');
+    hideLoading();
+    showError('FEHLENDE URL PARAMETER (scene/base)');
     return;
   }
 
-  showLoading();
-
   // Szene-Konfiguration laden
-  const cfgUrl = `${state.workerBase}/scenes/${state.sceneId}/scene.json`;
-  const res = await fetch(cfgUrl);
-  if (!res.ok) {
-    throw new Error('scene.json nicht ladbar (' + res.status + ')');
-  }
-  state.cfg = await res.json();
+  state.cfg = await loadSceneConfig(state.sceneId, state.workerBase);
   console.log('[WebXR] SceneConfig:', state.cfg);
 
-  // Poster befüllen
-  applyPosterFromConfig(state.cfg, state.sceneId, state.workerBase);
+  // Poster aus Meta befüllen
+  applyPosterFromConfig(state);
 
-  // Three.js Grundsetup
-  setupThree();
+  // Three.js Szene aufsetzen
+  setupThreeScene();
 
   // Modell laden
-  await loadModel();
+  await loadModel(state.cfg, state.sceneId, state.workerBase);
 
-  // Reticle + Controller
-  setupReticleAndController();
+  // Audio initialisieren (Mute-Button etc.)
+  initAudio(state);
+  pauseAudioOnHide();
 
-  // AR-Button (unsichtbar) + XR-Events
-  setupARButton();
-
-  // Start-Button an versteckten AR-Button koppeln
-  setupUI();
+  // WebXR / Hit-Test aktivieren
+  setupXR();
 
   hideLoading();
   showPoster();
 
-  // Resize nur, solange keine AR-Session läuft
-  window.addEventListener('resize', () => {
-    if (!state.renderer || !state.camera) return;
-    if (state.renderer.xr.isPresenting) return;
-    state.camera.aspect = window.innerWidth / window.innerHeight;
-    state.camera.updateProjectionMatrix();
-    state.renderer.setSize(window.innerWidth, window.innerHeight, false);
-  });
+  // START AR-Button mit verstecktem ARButton verknüpfen
+  if (startArBtn) {
+    startArBtn.addEventListener('click', () => {
+      if (!xrButton) {
+        showError('AR wird von diesem Browser/Gerät nicht unterstützt.');
+        return;
+      }
+      startArBtn.disabled = true;
+      console.log('[WebXR] Start AR geklickt → internen AR-Button triggern');
+      xrButton.click();
+    });
+  }
 }
 
-/* ---------- UI-Helper ---------- */
+/* ========== Hilfsfunktionen UI ========== */
 
 function showLoading() {
-  const el = document.getElementById('loading-status');
-  if (el) el.style.display = 'flex';
+  if (loadingEl) loadingEl.style.display = 'flex';
 }
+
 function hideLoading() {
-  const el = document.getElementById('loading-status');
-  if (el) el.style.display = 'none';
+  if (loadingEl) loadingEl.style.display = 'none';
 }
+
 function showError(msg) {
-  const el = document.getElementById('err');
-  if (el) {
-    el.textContent = msg;
-    el.style.display = 'block';
-  } else {
-    alert(msg);
+  console.error('[WebXR ERROR]', msg);
+  if (errEl) {
+    errEl.textContent = msg;
+    errEl.style.display = 'block';
   }
 }
+
 function showPoster() {
-  const el = document.getElementById('poster');
-  if (el) el.style.display = 'flex';
+  if (posterEl) posterEl.style.display = 'flex';
 }
+
 function hidePoster() {
-  const el = document.getElementById('poster');
-  if (el) el.style.display = 'none';
+  if (posterEl) posterEl.style.display = 'none';
 }
 
-function applyPosterFromConfig(cfg, sceneId, workerBase) {
+function applyPosterFromConfig(st) {
+  const cfg  = st.cfg || {};
   const meta = cfg.meta || {};
-  const poster = document.getElementById('poster');
-  const titleEl = document.getElementById('posterTitle');
-  const subtitleEl = document.getElementById('posterSubtitle');
-  const textEl = document.getElementById('posterText');
-  const imgEl = document.getElementById('posterImageEl');
-  const mediaWrapper = document.getElementById('poster-media');
+  const welcome = (cfg.ui && cfg.ui.welcome) || {};
 
-  if (titleEl) {
-    titleEl.textContent = meta.title || '3D / AR Erlebnis';
-  }
-  if (subtitleEl) {
-    if (meta.subtitle) {
-      subtitleEl.textContent = meta.subtitle;
-      subtitleEl.classList.remove('hidden');
+  const title =
+    (meta.title && meta.title.trim()) ||
+    (welcome.title && welcome.title.trim()) ||
+    '3D / AR Erlebnis';
+
+  const subtitle =
+    (meta.subtitle && meta.subtitle.trim()) ||
+    (welcome.eyebrow && welcome.eyebrow.trim()) ||
+    '';
+
+  const body =
+    (meta.body && meta.body.trim()) ||
+    (meta.description && meta.description.trim()) ||
+    (welcome.desc && welcome.desc.trim()) ||
+    'Tippe auf START AR, um das Modell in deiner Umgebung zu sehen.';
+
+  const posterFile =
+    (meta.posterImage && String(meta.posterImage).trim()) ||
+    (welcome.poster && String(welcome.poster).trim()) ||
+    '';
+
+  if (posterTitleEl) posterTitleEl.textContent = title;
+  if (posterTextEl)  posterTextEl.textContent  = body;
+
+  if (posterSubtitleEl) {
+    if (subtitle) {
+      posterSubtitleEl.textContent = subtitle;
+      posterSubtitleEl.classList.remove('hidden');
     } else {
-      subtitleEl.textContent = '';
-      subtitleEl.classList.add('hidden');
+      posterSubtitleEl.textContent = '';
+      posterSubtitleEl.classList.add('hidden');
     }
   }
-  if (textEl) {
-    textEl.textContent =
-      meta.body ||
-      meta.description ||
-      'Tippe auf START AR, um das Modell in deiner Umgebung zu sehen.';
-  }
 
-  if (imgEl && mediaWrapper && meta.posterImage) {
-    const url = `${workerBase}/scenes/${encodeURIComponent(
-      sceneId
-    )}/${encodeURIComponent(meta.posterImage)}`;
-    imgEl.src = url;
-    mediaWrapper.classList.remove('hidden');
-  } else if (mediaWrapper) {
-    mediaWrapper.classList.add('hidden');
-  }
-
-  if (poster) {
-    poster.style.display = 'none'; // wird nach Init explizit angezeigt
+  if (posterImageEl) {
+    if (posterFile && state.workerBase && state.sceneId) {
+      const url = `${state.workerBase}/scenes/${encodeURIComponent(
+        state.sceneId
+      )}/${encodeURIComponent(posterFile)}`;
+      console.log('[WebXR] Posterbild URL:', url);
+      posterImageEl.src = url;
+      const wrapper = document.getElementById('poster-media');
+      if (wrapper) {
+        wrapper.classList.remove('hidden');
+        wrapper.style.display = '';
+      }
+    } else {
+      posterImageEl.removeAttribute('src');
+      posterImageEl.style.display = 'none';
+      const wrapper = document.getElementById('poster-media');
+      if (wrapper) wrapper.classList.add('hidden');
+    }
   }
 }
 
-/* ---------- Three.js Grundsetup ---------- */
+/* ========== Szene & Modell ========== */
 
-function setupThree() {
-  const container = document.getElementById('ar-container');
-  if (!container) throw new Error('#ar-container nicht gefunden.');
+async function loadSceneConfig(sceneId, workerBase) {
+  const url = `${workerBase}/scenes/${encodeURIComponent(
+    sceneId
+  )}/scene.json`;
 
-  const renderer = new THREE.WebGLRenderer({
-    antialias: true,
-    alpha: true,
-  });
-  renderer.setPixelRatio(window.devicePixelRatio || 1);
-  renderer.setSize(window.innerWidth, window.innerHeight, false);
-  renderer.xr.enabled = true;
-  renderer.setClearColor(0x000000, 0); // transparent über Kamerabild
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
 
-  // Canvas mit ID versehen, damit CSS greift
-  renderer.domElement.id = 'ar-scene-element';
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error(`Konfiguration nicht ladbar (${res.status})`);
+    return await res.json();
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error('Timeout beim Laden der Konfiguration.');
+    throw e;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
-  container.appendChild(renderer.domElement);
+function setupThreeScene() {
+  if (!canvasEl) {
+    throw new Error('Canvas-Element #ar-scene-element fehlt.');
+  }
 
-  const scene = new THREE.Scene();
+  scene = new THREE.Scene();
 
-  const camera = new THREE.PerspectiveCamera(
+  camera = new THREE.PerspectiveCamera(
     70,
     window.innerWidth / window.innerHeight,
     0.01,
     20
   );
+  scene.add(camera);
 
-  const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1.0);
-  light.position.set(0.5, 1, 0.25);
-  scene.add(light);
+  // Licht
+  const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0);
+  hemiLight.position.set(0, 1, 0);
+  scene.add(hemiLight);
 
-  state.renderer = renderer;
-  state.scene = scene;
-  state.camera = camera;
-  state.light = light;
-}
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+  dirLight.position.set(1, 2, 1);
+  scene.add(dirLight);
 
-/* ---------- Modell laden ---------- */
-
-function loadModel() {
-  return new Promise((resolve, reject) => {
-    const cfg = state.cfg;
-    if (!cfg || !cfg.model || !cfg.model.url) {
-      reject(new Error('Kein Modell in scene.json konfiguriert.'));
-      return;
-    }
-    const loader = new GLTFLoader();
-    const modelUrl = `${state.workerBase}/scenes/${state.sceneId}/${cfg.model.url}`;
-    console.log('[WebXR] Lade GLB:', modelUrl);
-
-    loader.load(
-      modelUrl,
-      (gltf) => {
-        const root = gltf.scene;
-        root.visible = false; // erst nach Placement sichtbar
-        root.scale.setScalar(1.0);
-
-        state.scene.add(root);
-        state.model = root;
-
-        if (gltf.animations && gltf.animations.length) {
-          const mixer = new THREE.AnimationMixer(root);
-          const clip = gltf.animations[0];
-          const action = mixer.clipAction(clip);
-          action.play();
-          state.mixer = mixer;
-        }
-
-        resolve();
-      },
-      undefined,
-      (err) => {
-        reject(err);
-      }
-    );
+  // Renderer mit vorhandenem Canvas
+  renderer = new THREE.WebGLRenderer({
+    canvas: canvasEl,
+    antialias: true,
+    alpha: true
   });
-}
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setSize(window.innerWidth, window.innerHeight, false);
+  renderer.xr.enabled = true;
+  renderer.setClearColor(0x000000, 0); // transparenter Hintergrund → Kamera sichtbar
 
-/* ---------- Reticle + Controller ---------- */
-
-function setupReticleAndController() {
-  const geometry = new THREE.RingGeometry(0.12, 0.18, 32).rotateX(-Math.PI / 2);
-  const material = new THREE.MeshBasicMaterial({ color: 0xffffff });
-
-  const reticle = new THREE.Mesh(geometry, material);
+  // Reticle (Trefferanzeige)
+  const ringGeo = new THREE.RingGeometry(0.15, 0.2, 32);
+  ringGeo.rotateX(-Math.PI / 2);
+  const ringMat = new THREE.MeshBasicMaterial({
+    color: 0x00ff00
+  });
+  const reticle = new THREE.Mesh(ringGeo, ringMat);
   reticle.matrixAutoUpdate = false;
   reticle.visible = false;
-
-  state.scene.add(reticle);
+  scene.add(reticle);
   state.reticle = reticle;
 
-  const controller = state.renderer.xr.getController(0);
-  controller.addEventListener('select', onSelect);
-  state.scene.add(controller);
-  state.controller = controller;
+  // Basis-Renderloop (wird von WebXR genutzt)
+  renderer.setAnimationLoop(onXRFrame);
 }
 
-function onSelect() {
-  if (!state.reticle || !state.model) return;
-  if (!state.reticle.visible) return;
+async function loadModel(cfg, sceneId, workerBase) {
+  if (!cfg.model || !cfg.model.url) {
+    throw new Error('Kein Modell in scene.json (model.url fehlt).');
+  }
 
-  // Modell auf Reticle-Position setzen
-  state.model.position.setFromMatrixPosition(state.reticle.matrix);
+  const modelUrl = `${workerBase}/scenes/${encodeURIComponent(
+    sceneId
+  )}/${encodeURIComponent(cfg.model.url)}`;
+  console.log('[WebXR] Lade GLB:', modelUrl);
 
-  const quat = new THREE.Quaternion();
-  const pos = new THREE.Vector3();
-  const scale = new THREE.Vector3();
-  state.reticle.matrix.decompose(pos, quat, scale);
-  state.model.quaternion.copy(quat);
+  const loader = new GLTFLoader();
+  const gltf = await loader.loadAsync(modelUrl);
 
-  state.model.visible = true;
-}
+  const root = gltf.scene || gltf.scenes[0];
+  if (!root) throw new Error('GLB enthält keine Scene.');
 
-/* ---------- AR-Button + Renderloop ---------- */
-
-function setupARButton() {
-  const renderer = state.renderer;
-
-  const btn = ARButton.createButton(renderer, {
-    requiredFeatures: ['hit-test'],
-    // KEIN domOverlay hier, um Camera-Feed nicht mit DOM zu übermalen
+  root.visible = false; // erst nach Platzierung
+  root.traverse((obj) => {
+    if (obj.isMesh) {
+      obj.castShadow = true;
+      obj.receiveShadow = true;
+    }
   });
 
-  // Button unsichtbar machen, aber im DOM behalten
-  btn.style.position = 'absolute';
-  btn.style.left = '-9999px';
-  btn.style.bottom = 'auto';
-  document.body.appendChild(btn);
+  scene.add(root);
+  state.model = root;
 
-  state.hiddenArButton = btn;
+  // Animation, falls vorhanden
+  if (gltf.animations && gltf.animations.length > 0) {
+    state.mixer = new THREE.AnimationMixer(root);
+    const cfgAnimName = Array.isArray(cfg.animations) && cfg.animations[0];
+    let clip = null;
 
+    if (cfgAnimName) {
+      clip = THREE.AnimationClip.findByName(gltf.animations, cfgAnimName);
+    }
+    if (!clip) {
+      clip = gltf.animations[0];
+    }
+
+    const action = state.mixer.clipAction(clip);
+    action.play();
+  }
+}
+
+/* ========== WebXR + Hit-Test ========== */
+
+function setupXR() {
+  if (!navigator.xr) {
+    showError(
+      'WebXR wird von diesem Browser/Gerät nicht unterstützt.\n' +
+      'Bitte Chrome (Android) auf einem AR-fähigen Gerät verwenden.'
+    );
+    if (startArBtn) startArBtn.disabled = true;
+    return;
+  }
+
+  // Unsichtbarer ARButton – wird vom START AR-Button getriggert
+  xrButton = ARButton.createButton(renderer, {
+    requiredFeatures: ['hit-test'],
+    optionalFeatures: ['dom-overlay'],
+    domOverlay: { root: document.body }
+  });
+  xrButton.style.display = 'none'; // nicht im UI zeigen
+  document.body.appendChild(xrButton);
+
+  // Controller für "select" (Tap zum Platzieren)
+  const controller = renderer.xr.getController(0);
+  controller.addEventListener('select', onSelect);
+  scene.add(controller);
+
+  // Session-Start/-Ende → UI + Audio
   renderer.xr.addEventListener('sessionstart', () => {
     console.log('[WebXR] sessionstart');
-    state.arActive = true;
+    state.arSessionActive = true;
+    state.hitTestSourceRequested = false;
+    state.hitTestSource = null;
+
     hidePoster();
-    const arUI = document.getElementById('ar-ui');
-    if (arUI) arUI.style.display = 'none'; // Aufnahme-UI später
+    if (arUIEl) arUIEl.style.display = 'block';
+
+    toggleAudio(true);
   });
 
   renderer.xr.addEventListener('sessionend', () => {
     console.log('[WebXR] sessionend');
-    state.arActive = false;
+    state.arSessionActive = false;
     state.hitTestSourceRequested = false;
     state.hitTestSource = null;
-    if (state.reticle) state.reticle.visible = false;
-    state.lastFrameTime = null;
+
+    if (arUIEl) arUIEl.style.display = 'none';
     showPoster();
-  });
 
-  renderer.setAnimationLoop(renderXRFrame);
-}
-
-/* ---------- UI: Start-Button ---------- */
-
-function setupUI() {
-  const startBtn = document.getElementById('startAr');
-  if (!startBtn) return;
-
-  startBtn.addEventListener('click', () => {
-    if (!navigator.xr) {
-      showError(
-        'WebXR wird von diesem Browser nicht unterstützt.\n' +
-        'Bitte Chrome (Android) oder Safari (iOS, mit USDZ) verwenden.'
-      );
-      return;
-    }
-
-    console.log('[WebXR] Start AR geklickt → internen AR-Button triggern');
-    startBtn.disabled = true;
-
-    if (state.hiddenArButton) {
-      state.hiddenArButton.click();
-    }
-
-    setTimeout(() => {
-      if (!state.arActive) startBtn.disabled = false;
-    }, 5000);
+    toggleAudio(false);
+    if (startArBtn) startArBtn.disabled = false;
   });
 }
 
-/* ---------- Renderloop ---------- */
+function onSelect() {
+  if (!state.model || !state.reticle) return;
+  if (!state.reticle.visible) return;
 
-function renderXRFrame(timestamp, frame) {
-  const renderer = state.renderer;
-  const scene = state.scene;
-  const camera = state.camera;
+  // Modell an Reticle-Position setzen
+  const poseMatrix = new THREE.Matrix4();
+  poseMatrix.copy(state.reticle.matrix);
 
-  if (!renderer || !scene || !camera) return;
+  state.model.position.setFromMatrixPosition(poseMatrix);
+  state.model.quaternion.setFromRotationMatrix(poseMatrix);
+  state.model.visible = true;
 
-  let delta = 0;
-  if (state.lastFrameTime != null) {
-    delta = (timestamp - state.lastFrameTime) / 1000;
-  }
-  state.lastFrameTime = timestamp;
+  console.log('[WebXR] Modell platziert.');
+}
 
-  if (state.mixer && delta > 0) {
+function onXRFrame(time, frame) {
+  const session = renderer.xr.getSession();
+
+  if (state.mixer) {
+    const delta = clock.getDelta();
     state.mixer.update(delta);
   }
 
-  if (frame) {
+  if (frame && session) {
     const referenceSpace = renderer.xr.getReferenceSpace();
-    const session = renderer.xr.getSession();
 
+    // Hit-Test Source einmalig anfordern
     if (!state.hitTestSourceRequested) {
-      session
-        .requestReferenceSpace('viewer')
-        .then((refSpace) =>
-          session.requestHitTestSource({ space: refSpace })
-        )
-        .then((source) => {
+      session.requestReferenceSpace('viewer').then((viewerSpace) => {
+        session.requestHitTestSource({ space: viewerSpace }).then((source) => {
           state.hitTestSource = source;
-        })
-        .catch((err) => {
-          console.warn('[WebXR] Hit-Test Source Fehler:', err);
         });
+      });
 
       session.addEventListener('end', () => {
         state.hitTestSourceRequested = false;
@@ -390,6 +401,7 @@ function renderXRFrame(timestamp, frame) {
       if (hitTestResults.length > 0) {
         const hit = hitTestResults[0];
         const pose = hit.getPose(referenceSpace);
+
         if (pose && state.reticle) {
           state.reticle.visible = true;
           state.reticle.matrix.fromArray(pose.transform.matrix);
