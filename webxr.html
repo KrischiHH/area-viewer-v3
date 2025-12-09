@@ -141,10 +141,12 @@ let didMove = false;
 let isDraggingModel = false; 
 
 // Gesten Parameter
-const TAP_THRESHOLD_MS = 350;    // NEU V17: Erhöht auf 350ms
-const DRAG_THRESHOLD_PIX = 24;   // NEU V17: Erhöht auf 24px für bessere Tap-Erkennung
+const TAP_THRESHOLD_MS = 350;
+const DRAG_THRESHOLD_PIX = 24;
 const ROTATION_FACTOR = 0.005;  
 const SCALE_FACTOR = 0.005;     
+// NEU V18: Mindestradius (in Pixeln) um das Modellzentrum, innerhalb dessen KEINE Rotation gestartet wird
+const ROTATE_EXCLUSION_RADIUS_PX = 100;
 
 // 2-Finger Skalierung
 let initialPinchDistance = 0;
@@ -166,6 +168,27 @@ function toNDC(clientX, clientY) {
   ndc.x = (clientX / w) * 2 - 1;
   ndc.y = -(clientY / h) * 2 + 1;
 }
+
+// NEU V18: Hilfsfunktion: projiziere eine Weltposition auf Bildschirmpixel
+function worldToScreenPx(vec3World) {
+  const v = vec3World.clone().project(camera);
+  const w = renderer.domElement.clientWidth || window.innerWidth;
+  const h = renderer.domElement.clientHeight || window.innerHeight;
+  return {
+    x: (v.x * 0.5 + 0.5) * w,
+    y: (-v.y * 0.5 + 0.5) * h
+  };
+}
+
+// NEU V18: Prüfe, ob Finger weit genug vom Modellzentrum entfernt ist
+function isFarFromModelCenter(clientX, clientY, radiusPx = ROTATE_EXCLUSION_RADIUS_PX) {
+  // Verwende placementGroup.position, da dies die Mitte des Objekts ist.
+  if (!placementGroup) return true; 
+  const centerPx = worldToScreenPx(placementGroup.position);
+  const dist = Math.hypot(clientX - centerPx.x, clientY - centerPx.y);
+  return dist > radiusPx;
+}
+
 
 // URL-Parameter
 const qs = new URLSearchParams(location.search);
@@ -482,13 +505,22 @@ function onTouchStart(event) {
             lastMoveX = currentTouches[0].clientX;
             lastMoveY = currentTouches[0].clientY;
 
-            // Prüfen, ob Modell getroffen
-            if (isTapOnModel(tapStartX, tapStartY)) {
-              isDraggingModel = true; // MOVE Geste (Treffer auf Modell)
-              updateMsg("Modell wird verschoben (1 Finger Drag auf Modell)");
+            const tapHitsModel = isTapOnModel(tapStartX, tapStartY);
+            // NEU V18: Prüfen, ob der Finger weit genug vom Zentrum entfernt ist.
+            const farEnoughForRotate = isFarFromModelCenter(tapStartX, tapStartY);
+
+            if (tapHitsModel) {
+                // Treffer auf Modell -> Verschieben
+                isDraggingModel = true;
+                updateMsg("Modell wird verschoben (1 Finger Drag auf Modell)");
+            } else if (farEnoughForRotate) {
+                // KEIN Treffer UND weit genug entfernt -> Rotation
+                isDraggingModel = false;
+                updateMsg("Modell wird gedreht (1 Finger Drag außerhalb des Modells)");
             } else {
-              isDraggingModel = false; // ROTATE Geste (KEIN Treffer auf Modell)
-              updateMsg("Modell wird gedreht (1 Finger Drag neben Modell)");
+                // KEIN Treffer, ABER zu nah am Modellzentrum (im Ausschlussradius) -> Als Verschieben behandeln
+                isDraggingModel = true;
+                updateMsg("Zu nah am Modell: Drag statt Rotation");
             }
         }
       }
