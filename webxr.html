@@ -125,6 +125,7 @@ const HOVER_HEIGHT = 0.1; // 10 cm
 let isPlaced = false; // FALSE = Editier-Modus (Hover), TRUE = Platziert-Modus (Ground)
 let modelLoaded = false;
 let reticleVisible = false;
+let hasBeenMoved = false; // NEU: Flag, ob der Benutzer die Position manuell gesetzt hat
 
 // Gesten
 let currentTouches = []; 
@@ -345,6 +346,7 @@ async function onStartAR() {
     reticleVisible = false;
     havePose = false;
     isPlaced = false;
+    hasBeenMoved = false; // Zurücksetzen
     placementGroup.visible = false;
   });
 
@@ -386,8 +388,9 @@ function render(timestamp, frame) {
     if (results.length > 0) {
       const hit = results[0];
       const pose = hit.getPose(refSpace);
-      // NEU: Nur Hit-Test zur Positionierung nutzen, wenn wir im Hover-Modus sind UND keine Geste aktiv ist.
-      if (pose && !gestureActive && !isPlaced) { 
+      
+      // NEU: Hit-Test-Positionierung nur ausführen, wenn das Modell NICHT platziert IST UND NOCH NICHT VOM BENUTZER BEWEGT WURDE.
+      if (pose && !isPlaced && !hasBeenMoved) {
         lastPoseMatrix.fromArray(pose.transform.matrix);
         lastPosePos.set(
           pose.transform.position.x,
@@ -399,15 +402,15 @@ function render(timestamp, frame) {
         placementGroup.visible = true;
         placementGroup.position.set(
           lastPosePos.x,
-          lastPosePos.y + HOVER_HEIGHT, // Hover vor Platzierung
+          lastPosePos.y + HOVER_HEIGHT, // Hover
           lastPosePos.z
         );
         reticleVisible = true;
         updateMsg("1-Finger: Bewegen/Drehen. 2-Finger: Skalieren. Tippe zum Platzieren");
       }
     } else {
-      // NEU: Unsichtbar, wenn keine Fläche gefunden und nicht platziert
-      if (!isPlaced && !gestureActive) {
+      // Unsichtbar, wenn keine Fläche gefunden und nicht platziert und nicht bereits bewegt
+      if (!isPlaced && !hasBeenMoved) {
         reticleVisible = false;
         placementGroup.visible = false;
         havePose = false;
@@ -447,9 +450,8 @@ function onTouchStart(event) {
         initialModelScale = placementGroup.scale.x;
       } else if (currentTouches.length === 1) {
         // 1-Finger Geste: Rotation/Bewegung
-        if (havePose || placementGroup.visible) {
+        if (havePose || placementGroup.visible || hasBeenMoved) { // Auch wenn es bewegt wurde, kann man weiter bewegen
             gestureActive = true;
-            // Speichere die Startposition des Fingers und die aktuelle Rotation für die relative Berechnung
             lastMoveX = currentTouches[0].clientX;
             lastMoveY = currentTouches[0].clientY;
         }
@@ -471,7 +473,10 @@ function onTouchMove(event) {
   if (!gestureActive) return;
 
   const dragDistanceTotal = Math.hypot(currentTouches[0].clientX - tapStartX, currentTouches[0].clientY - tapStartY);
-  if (dragDistanceTotal > DRAG_THRESHOLD_PIX) didMove = true;
+  if (dragDistanceTotal > DRAG_THRESHOLD_PIX) {
+    didMove = true;
+    hasBeenMoved = true; // WICHTIG: Flag setzen, dass die manuelle Positionierung übernommen wurde.
+  }
   
   if (currentTouches.length === 2) {
     // 2-Finger Geste: Skalieren
@@ -488,11 +493,9 @@ function onTouchMove(event) {
     const dx = t.clientX - lastMoveX;
     
     // --- 1) Korrigierte Rotation (Horizontaler Drag dx) ---
-    // Rotation basiert auf der relativen Bewegung (dx) und dreht das Objekt um seine eigene Y-Achse
     placementGroup.rotation.y += dx * ROTATION_FACTOR;
 
     // --- 2) Bewegung (Raycast-Schieben) ---
-    // Bewegen erfolgt, indem der Touchpunkt auf die Bodenebene projiziert wird (Raycast)
     toNDC(t.clientX, t.clientY);
     raycaster.setFromCamera(ndc, camera);
     const hit = new THREE.Vector3();
@@ -537,8 +540,9 @@ function simulateTapSelect() {
 
   if (!isPlaced) {
     // --- AKTION: PLATZIEREN (Hover -> Ground) ---
-    if (havePose || placementGroup.visible) {
+    if (havePose || placementGroup.visible || hasBeenMoved) {
       isPlaced = true;
+      hasBeenMoved = true; // Sicherstellen, dass die manuelle Position beibehalten wird
 
       // Ground-Snap (y=0)
       placementGroup.position.y = 0;
@@ -551,7 +555,7 @@ function simulateTapSelect() {
       }
 
       placementRect.visible = false;
-      initialModelScale = placementGroup.scale.x; // Setzt Baseline, obwohl hier nicht mehr skaliert wird
+      initialModelScale = placementGroup.scale.x;
       
       updateMsg("Objekt platziert. Tippe erneut AUF das Objekt zum Bearbeiten.");
     }
