@@ -71,7 +71,7 @@
   /* Gesture-Layer innerhalb des Overlay */
   #gesture-layer {
     position: absolute; inset: 0; z-index: 5;
-    touch-action: none;
+    /* touch-action: none; entfernt, um Klicks zu erlauben, wird in JS gehandhabt */
     pointer-events: auto;
   }
 </style>
@@ -216,6 +216,7 @@ async function boot() {
   });
   
   const gestureLayer = document.getElementById('gesture-layer');
+  // touch-action: none; wird nun über event.preventDefault() in onTouchMove gesteuert.
   gestureLayer.addEventListener('touchstart', onTouchStart, { passive: false });
   gestureLayer.addEventListener('touchmove', onTouchMove, { passive: false });
   gestureLayer.addEventListener('touchend', onTouchEnd, { passive: false });
@@ -436,7 +437,8 @@ function getDistance(touch1, touch2) {
 }
 
 function onTouchStart(event) {
-  event.preventDefault();
+  // *** KORREKTUR V15: event.preventDefault() entfernt, um Klicks auf DOM-Elemente (z.B. X-Button) zu erlauben.
+  
   currentTouches = event.touches ? Array.from(event.touches) : [event];
 
   if (currentTouches.length === 0) return;
@@ -464,7 +466,7 @@ function onTouchStart(event) {
             lastMoveX = currentTouches[0].clientX;
             lastMoveY = currentTouches[0].clientY;
 
-            // KORRIGIERT: Raycast, um zu prüfen, ob NUR das MODELL getroffen wurde
+            // Raycast, um zu prüfen, ob NUR das MODELL getroffen wurde
             toNDC(tapStartX, tapStartY);
             raycaster.setFromCamera(ndc, camera);
             
@@ -486,8 +488,14 @@ function onTouchStart(event) {
 }
 
 function onTouchMove(event) {
-  event.preventDefault();
-  
+  // *** KORREKTUR V15: event.preventDefault() nur hier aufrufen, wenn tatsächlich eine Geste ausgeführt wird.
+  if (gestureActive || currentTouches.length === 2) {
+    event.preventDefault(); 
+  } else if (gestureActive || currentTouches.length === 1 && !isDraggingModel) {
+    // Verhindert das Scrollen, wenn Rotation gestartet wurde.
+    event.preventDefault(); 
+  }
+
   // WICHTIG: Gesten nur im Hover-Modus erlauben
   if (isPlaced) return; 
 
@@ -508,7 +516,6 @@ function onTouchMove(event) {
     let newScale = initialModelScale + scaleDelta * SCALE_FACTOR;
     newScale = Math.max(0.1, Math.min(5, newScale)); 
     placementGroup.scale.setScalar(newScale);
-    // updateMsg("Skalieren (2 Finger Pinch)"); // Vermeide ständiges Neuschreiben der Nachricht
     
   } else if (currentTouches.length === 1) {
     
@@ -524,13 +531,13 @@ function onTouchMove(event) {
         // Y-Koordinate bleibt auf HOVER_HEIGHT
         placementGroup.position.set(hit.x, HOVER_HEIGHT, hit.z);
       }
-      // updateMsg("Modell wird verschoben..."); // Vermeide ständiges Neuschreiben der Nachricht
+      // Wenn die Bewegung gestartet wurde, muss der event.preventDefault() oben aktiv sein.
 
     } else {
       // AKTION: ROTIEREN (Rotate)
       // Rotation basiert auf der relativen Bewegung (dx)
       placementGroup.rotation.y += dx * ROTATION_FACTOR;
-      // updateMsg("Modell wird gedreht..."); // Vermeide ständiges Neuschreiben der Nachricht
+      // Wenn die Rotation gestartet wurde, muss der event.preventDefault() oben aktiv sein.
     }
     
     lastMoveX = t.clientX;
@@ -541,7 +548,7 @@ function onTouchEnd(event) {
   // Behandle nur Touch-End des letzten Fingers (wenn event.touches leer ist) oder MouseUp
   if (event.touches && event.touches.length > 0) return; 
 
-  event.preventDefault();
+  // event.preventDefault() HIER NICHT NOTWENDIG, um Klicks zu ermöglichen.
   
   const endedTouch = event.changedTouches ? event.changedTouches[0] : event;
   if (!endedTouch) return;
