@@ -125,7 +125,7 @@ const HOVER_HEIGHT = 0.1; // 10 cm
 let isPlaced = false; // FALSE = Editier-Modus (Hover), TRUE = Platziert-Modus (Ground)
 let modelLoaded = false;
 let reticleVisible = false;
-let hasBeenMoved = false; // NEU: Flag, ob der Benutzer die Position manuell gesetzt hat
+let hasBeenMoved = false; // Flag, ob der Benutzer die Position manuell gesetzt hat
 
 // Gesten
 let currentTouches = []; 
@@ -134,6 +134,7 @@ let gestureStartTime = 0;
 let tapStartX = 0;
 let tapStartY = 0;
 let didMove = false;
+let isDraggingModel = false; // NEU: TRUE, wenn der 1-Finger-Drag direkt auf dem Modell startete (Verschieben)
 
 // Gesten Parameter
 const TAP_THRESHOLD_MS = 250;
@@ -346,7 +347,7 @@ async function onStartAR() {
     reticleVisible = false;
     havePose = false;
     isPlaced = false;
-    hasBeenMoved = false; // Zurücksetzen
+    hasBeenMoved = false; 
     placementGroup.visible = false;
   });
 
@@ -389,7 +390,7 @@ function render(timestamp, frame) {
       const hit = results[0];
       const pose = hit.getPose(refSpace);
       
-      // NEU: Hit-Test-Positionierung nur ausführen, wenn das Modell NICHT platziert IST UND NOCH NICHT VOM BENUTZER BEWEGT WURDE.
+      // Hit-Test-Positionierung nur ausführen, wenn das Modell NICHT platziert IST UND NOCH NICHT VOM BENUTZER BEWEGT WURDE.
       if (pose && !isPlaced && !hasBeenMoved) {
         lastPoseMatrix.fromArray(pose.transform.matrix);
         lastPosePos.set(
@@ -406,7 +407,7 @@ function render(timestamp, frame) {
           lastPosePos.z
         );
         reticleVisible = true;
-        updateMsg("1-Finger: Bewegen/Drehen. 2-Finger: Skalieren. Tippe zum Platzieren");
+        updateMsg("1-Finger: Modell berühren zum Bewegen, daneben tippen zum Drehen. 2-Finger: Skalieren. Tippe zum Platzieren");
       }
     } else {
       // Unsichtbar, wenn keine Fläche gefunden und nicht platziert und nicht bereits bewegt
@@ -441,6 +442,8 @@ function onTouchStart(event) {
   tapStartX = currentTouches[0].clientX;
   tapStartY = currentTouches[0].clientY;
   
+  isDraggingModel = false; // NEU: Flag zurücksetzen
+
   // Gesten sind nur im Hover-Modus aktiv
   if (!isPlaced) {
       if (currentTouches.length === 2) {
@@ -449,15 +452,29 @@ function onTouchStart(event) {
         initialPinchDistance = getDistance(currentTouches[0], currentTouches[1]);
         initialModelScale = placementGroup.scale.x;
       } else if (currentTouches.length === 1) {
-        // 1-Finger Geste: Rotation/Bewegung
-        if (havePose || placementGroup.visible || hasBeenMoved) { // Auch wenn es bewegt wurde, kann man weiter bewegen
+        // 1-Finger Geste: Rotation/Bewegung trennen
+        if (havePose || placementGroup.visible || hasBeenMoved) {
             gestureActive = true;
             lastMoveX = currentTouches[0].clientX;
             lastMoveY = currentTouches[0].clientY;
+
+            // NEU: Raycast, um zu prüfen, ob das Modell getroffen wurde (Move)
+            toNDC(tapStartX, tapStartY);
+            raycaster.setFromCamera(ndc, camera);
+            
+            // children[1] ist das Modell, da children[0] das placementRect ist.
+            const intersects = raycaster.intersectObject(model, true); 
+            
+            if (intersects.length > 0) {
+              isDraggingModel = true; // MOVE Geste
+              updateMsg("Modell wird verschoben (1 Finger Drag auf Modell)");
+            } else {
+              isDraggingModel = false; // ROTATE Geste
+              updateMsg("Modell wird gedreht (1 Finger Drag neben Modell)");
+            }
         }
       }
   } else {
-    // Wenn platziert, Tap-Logik vorbereiten, aber keine Gesten-Flags setzen
     gestureActive = false;
   }
 }
@@ -475,7 +492,7 @@ function onTouchMove(event) {
   const dragDistanceTotal = Math.hypot(currentTouches[0].clientX - tapStartX, currentTouches[0].clientY - tapStartY);
   if (dragDistanceTotal > DRAG_THRESHOLD_PIX) {
     didMove = true;
-    hasBeenMoved = true; // WICHTIG: Flag setzen, dass die manuelle Positionierung übernommen wurde.
+    hasBeenMoved = true; 
   }
   
   if (currentTouches.length === 2) {
@@ -488,24 +505,29 @@ function onTouchMove(event) {
     updateMsg("Skalieren (2 Finger Pinch)");
     
   } else if (currentTouches.length === 1) {
-    // 1-Finger Geste: Rotation und Bewegung (Raycast)
+    
     const t = currentTouches[0];
     const dx = t.clientX - lastMoveX;
     
-    // --- 1) Korrigierte Rotation (Horizontaler Drag dx) ---
-    placementGroup.rotation.y += dx * ROTATION_FACTOR;
+    if (isDraggingModel) {
+      // AKTION: VERSCHIEBEN (Move)
+      toNDC(t.clientX, t.clientY);
+      raycaster.setFromCamera(ndc, camera);
+      const hit = new THREE.Vector3();
+      if (raycaster.ray.intersectPlane(floorPlane, hit)) {
+        // Y-Koordinate bleibt auf HOVER_HEIGHT
+        placementGroup.position.set(hit.x, HOVER_HEIGHT, hit.z);
+      }
+      updateMsg("Modell wird verschoben (1 Finger Drag auf Modell)");
 
-    // --- 2) Bewegung (Raycast-Schieben) ---
-    toNDC(t.clientX, t.clientY);
-    raycaster.setFromCamera(ndc, camera);
-    const hit = new THREE.Vector3();
-    if (raycaster.ray.intersectPlane(floorPlane, hit)) {
-      // Y-Koordinate bleibt auf HOVER_HEIGHT
-      placementGroup.position.set(hit.x, HOVER_HEIGHT, hit.z);
+    } else {
+      // AKTION: ROTIEREN (Rotate)
+      // Rotation basiert auf der relativen Bewegung (dx)
+      placementGroup.rotation.y += dx * ROTATION_FACTOR;
+      updateMsg("Modell wird gedreht (1 Finger Drag neben Modell)");
     }
     
     lastMoveX = t.clientX;
-    updateMsg("Drehen/Verschieben (1 Finger). 2-Finger: Skalieren. Tippe zum Platzieren");
   }
 }
 
@@ -531,6 +553,7 @@ function onTouchEnd(event) {
 
   // Geste beenden und Baselines aktualisieren
   gestureActive = false;
+  isDraggingModel = false; // NEU: Flag zurücksetzen
   initialModelScale = placementGroup.scale.x;
 }
 
@@ -538,11 +561,11 @@ function onTouchEnd(event) {
 function simulateTapSelect() {
   if (!modelLoaded) return;
 
+  // 1. TAP: PLATZIEREN (Hover -> Ground)
   if (!isPlaced) {
-    // --- AKTION: PLATZIEREN (Hover -> Ground) ---
     if (havePose || placementGroup.visible || hasBeenMoved) {
       isPlaced = true;
-      hasBeenMoved = true; // Sicherstellen, dass die manuelle Position beibehalten wird
+      hasBeenMoved = true; 
 
       // Ground-Snap (y=0)
       placementGroup.position.y = 0;
@@ -561,13 +584,13 @@ function simulateTapSelect() {
     }
     return;
   }
-
-  // --- AKTION: ANHEBEN (Ground -> Hover) ---
+ 
+  // 2. TAP: ANHEBEN (Ground -> Hover)
   // Reposition starten: zurück in Hover
   isPlaced = false;
   placementRect.visible = true;
   placementGroup.position.y = HOVER_HEIGHT;
-  updateMsg("1-Finger: Bewegen/Drehen. 2-Finger: Skalieren. Tippe zum Absetzen");
+  updateMsg("1-Finger: Modell berühren zum Bewegen, daneben tippen zum Drehen. 2-Finger: Skalieren. Tippe zum Absetzen");
 }
 
 // UI-Helfer
