@@ -141,8 +141,8 @@ let didMove = false;
 let isDraggingModel = false; 
 
 // Gesten Parameter
-const TAP_THRESHOLD_MS = 250;
-const DRAG_THRESHOLD_PIX = 10;
+const TAP_THRESHOLD_MS = 350;    // NEU V17: Erhöht auf 350ms
+const DRAG_THRESHOLD_PIX = 24;   // NEU V17: Erhöht auf 24px für bessere Tap-Erkennung
 const ROTATION_FACTOR = 0.005;  
 const SCALE_FACTOR = 0.005;     
 
@@ -209,7 +209,7 @@ async function boot() {
   
   document.getElementById('btn-enter-ar').addEventListener('click', onStartAR);
 
-// --- KORRIGIERT: Click-Handler für den Schließen-Button ---
+// Click-Handler für den Schließen-Button
 document.getElementById('btn-close').addEventListener('click', async () => {
     const s = renderer.xr.getSession();
     if (s) {
@@ -228,7 +228,6 @@ document.getElementById('btn-close').addEventListener('click', async () => {
         updateMsg("Bewege dein Gerät um Fläche zu finden...");
     }
 });
-// --------------------------------------------------------------------
   
   const gestureLayer = document.getElementById('gesture-layer');
   gestureLayer.addEventListener('touchstart', onTouchStart, { passive: false });
@@ -444,7 +443,7 @@ function getDistance(touch1, touch2) {
   return Math.hypot(touch2.clientX - touch1.clientX, touch2.clientY - touch1.clientY);
 }
 
-// NEU V16: Raycast-Prüfung, ob Tap das Modell traf
+// Raycast-Prüfung, ob Tap das Modell traf
 function isTapOnModel(clientX, clientY) {
   if (!model) return false;
   toNDC(clientX, clientY);
@@ -510,7 +509,7 @@ function onTouchMove(event) {
   const isTwoFinger = currentTouches.length === 2;
   const isOneFinger = currentTouches.length === 1;
 
-  // KORREKTUR V16: Klare preventDefault-Bedingungen (Verhindert Scrollen während einer Geste)
+  // Klare preventDefault-Bedingungen (Verhindert Scrollen während einer Geste)
   if (isTwoFinger || (gestureActive && isOneFinger)) {
     event.preventDefault();
   }
@@ -569,8 +568,9 @@ function onTouchEnd(event) {
   const endedTouchCount = event.changedTouches ? event.changedTouches.length : 1; 
 
   // Tap → Platzieren / Reposition (nur wenn es ein Tap war und nur 1 Finger beteiligt war)
-  if (!didMove && duration < TAP_THRESHOLD_MS && dragDistance < DRAG_THRESHOLD_PIX && endedTouchCount === 1) {
-    simulateTapSelect(endX, endY); // Tap-Koordinaten übergeben
+  const isTap = (!didMove && dragDistance < DRAG_THRESHOLD_PIX && endedTouchCount === 1 && duration < TAP_THRESHOLD_MS);
+  if (isTap) {
+    simulateTapSelect(endX, endY);
   }
 
   // Geste beenden und Baselines aktualisieren
@@ -608,8 +608,7 @@ function simulateTapSelect(tapX, tapY) {
     return;
   }
  
-  // 2. TAP: ANHEBEN (Ground -> Hover)
-  // KORREKTUR V16: Anheben nur erlauben, wenn der Tap das Modell trifft
+  // 2. TAP: ANHEBEN (Ground -> Hover) nur wenn Tap auf Modell
   if (!isTapOnModel(tapX, tapY)) {
       updateMsg("Tippe auf das 3D-Modell, um es anzuheben.");
       return;
@@ -617,7 +616,7 @@ function simulateTapSelect(tapX, tapY) {
   
   // Reposition starten: zurück in Hover
   isPlaced = false;
-  hasBeenMoved = false; // KORREKTUR V16: Setze hasBeenMoved zurück, um Auto-Follow zu erlauben
+  hasBeenMoved = false; // Setze hasBeenMoved zurück, um Auto-Follow zu erlauben
   placementRect.visible = true;
   placementGroup.position.y = HOVER_HEIGHT;
   updateMsg("1-Finger: Modell berühren zum Bewegen, daneben wischen zum Drehen. 2-Finger: Skalieren. Tippe zum Absetzen");
