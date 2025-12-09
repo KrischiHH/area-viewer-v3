@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
 <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover"/>
 <title>ARea WebXR Viewer</title>
 <style>
   html, body {
@@ -34,8 +34,14 @@
     box-shadow: 0 4px 12px rgba(0,0,0,0.3);
   }
 
+  /* WICHTIG: Anpassung für Safe Area (Notch) */
   .ui-row {
-    padding: 20px; display: flex; justify-content: space-between; align-items: flex-start;
+    padding: 20px; 
+    /* Fügt den Safe Area Abstand oben hinzu, damit die Elemente unterhalb der Notch liegen */
+    padding-top: calc(20px + env(safe-area-inset-top)); 
+    display: flex; 
+    justify-content: space-between; 
+    align-items: flex-start;
     pointer-events: none;
   }
   .pointer-auto { pointer-events: auto; }
@@ -125,7 +131,7 @@ const HOVER_HEIGHT = 0.1; // 10 cm
 let isPlaced = false; // FALSE = Editier-Modus (Hover), TRUE = Platziert-Modus (Ground)
 let modelLoaded = false;
 let reticleVisible = false;
-let hasBeenMoved = false; // Flag, ob der Benutzer die Position manuell gesetzt hat
+let hasBeenMoved = false; // Flag, ob der Benutzer die Position manuell gesetzt hat (verhindert Zurückschnappen)
 
 // Gesten
 let currentTouches = []; 
@@ -134,7 +140,7 @@ let gestureStartTime = 0;
 let tapStartX = 0;
 let tapStartY = 0;
 let didMove = false;
-let isDraggingModel = false; // NEU: TRUE, wenn der 1-Finger-Drag direkt auf dem Modell startete (Verschieben)
+let isDraggingModel = false; // TRUE, wenn der 1-Finger-Drag direkt auf dem Modell startete (Verschieben)
 
 // Gesten Parameter
 const TAP_THRESHOLD_MS = 250;
@@ -442,7 +448,7 @@ function onTouchStart(event) {
   tapStartX = currentTouches[0].clientX;
   tapStartY = currentTouches[0].clientY;
   
-  isDraggingModel = false; // NEU: Flag zurücksetzen
+  isDraggingModel = false; 
 
   // Gesten sind nur im Hover-Modus aktiv
   if (!isPlaced) {
@@ -458,12 +464,14 @@ function onTouchStart(event) {
             lastMoveX = currentTouches[0].clientX;
             lastMoveY = currentTouches[0].clientY;
 
-            // NEU: Raycast, um zu prüfen, ob das Modell getroffen wurde (Move)
+            // Raycast, um zu prüfen, ob das Modell getroffen wurde (Move)
             toNDC(tapStartX, tapStartY);
             raycaster.setFromCamera(ndc, camera);
             
-            // children[1] ist das Modell, da children[0] das placementRect ist.
-            const intersects = raycaster.intersectObject(model, true); 
+            // children[1] ist das Modell (da children[0] das placementRect ist).
+            // Wir verwenden die Platzierungsgruppe (placementGroup) selbst als Treffpunkt,
+            // um alle Kind-Meshes zu prüfen.
+            const intersects = raycaster.intersectObject(placementGroup, true); 
             
             if (intersects.length > 0) {
               isDraggingModel = true; // MOVE Geste
@@ -553,7 +561,7 @@ function onTouchEnd(event) {
 
   // Geste beenden und Baselines aktualisieren
   gestureActive = false;
-  isDraggingModel = false; // NEU: Flag zurücksetzen
+  isDraggingModel = false; 
   initialModelScale = placementGroup.scale.x;
 }
 
