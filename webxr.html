@@ -413,7 +413,7 @@ function render(timestamp, frame) {
           lastPosePos.z
         );
         reticleVisible = true;
-        updateMsg("1-Finger: Modell berühren zum Bewegen, daneben tippen zum Drehen. 2-Finger: Skalieren. Tippe zum Platzieren");
+        updateMsg("1-Finger: Modell berühren zum Bewegen, daneben wischen zum Drehen. 2-Finger: Skalieren. Tippe zum Platzieren");
       }
     } else {
       // Unsichtbar, wenn keine Fläche gefunden und nicht platziert und nicht bereits bewegt
@@ -464,20 +464,18 @@ function onTouchStart(event) {
             lastMoveX = currentTouches[0].clientX;
             lastMoveY = currentTouches[0].clientY;
 
-            // Raycast, um zu prüfen, ob das Modell getroffen wurde (Move)
+            // KORRIGIERT: Raycast, um zu prüfen, ob NUR das MODELL getroffen wurde
             toNDC(tapStartX, tapStartY);
             raycaster.setFromCamera(ndc, camera);
             
-            // children[1] ist das Modell (da children[0] das placementRect ist).
-            // Wir verwenden die Platzierungsgruppe (placementGroup) selbst als Treffpunkt,
-            // um alle Kind-Meshes zu prüfen.
-            const intersects = raycaster.intersectObject(placementGroup, true); 
+            // WICHTIG: Prüfe explizit nur das geladene Modell (model)
+            const intersects = raycaster.intersectObject(model, true); 
             
             if (intersects.length > 0) {
-              isDraggingModel = true; // MOVE Geste
+              isDraggingModel = true; // MOVE Geste (Treffer auf Modell)
               updateMsg("Modell wird verschoben (1 Finger Drag auf Modell)");
             } else {
-              isDraggingModel = false; // ROTATE Geste
+              isDraggingModel = false; // ROTATE Geste (KEIN Treffer auf Modell)
               updateMsg("Modell wird gedreht (1 Finger Drag neben Modell)");
             }
         }
@@ -510,7 +508,7 @@ function onTouchMove(event) {
     let newScale = initialModelScale + scaleDelta * SCALE_FACTOR;
     newScale = Math.max(0.1, Math.min(5, newScale)); 
     placementGroup.scale.setScalar(newScale);
-    updateMsg("Skalieren (2 Finger Pinch)");
+    // updateMsg("Skalieren (2 Finger Pinch)"); // Vermeide ständiges Neuschreiben der Nachricht
     
   } else if (currentTouches.length === 1) {
     
@@ -526,13 +524,13 @@ function onTouchMove(event) {
         // Y-Koordinate bleibt auf HOVER_HEIGHT
         placementGroup.position.set(hit.x, HOVER_HEIGHT, hit.z);
       }
-      updateMsg("Modell wird verschoben (1 Finger Drag auf Modell)");
+      // updateMsg("Modell wird verschoben..."); // Vermeide ständiges Neuschreiben der Nachricht
 
     } else {
       // AKTION: ROTIEREN (Rotate)
       // Rotation basiert auf der relativen Bewegung (dx)
       placementGroup.rotation.y += dx * ROTATION_FACTOR;
-      updateMsg("Modell wird gedreht (1 Finger Drag neben Modell)");
+      // updateMsg("Modell wird gedreht..."); // Vermeide ständiges Neuschreiben der Nachricht
     }
     
     lastMoveX = t.clientX;
@@ -598,7 +596,7 @@ function simulateTapSelect() {
   isPlaced = false;
   placementRect.visible = true;
   placementGroup.position.y = HOVER_HEIGHT;
-  updateMsg("1-Finger: Modell berühren zum Bewegen, daneben tippen zum Drehen. 2-Finger: Skalieren. Tippe zum Absetzen");
+  updateMsg("1-Finger: Modell berühren zum Bewegen, daneben wischen zum Drehen. 2-Finger: Skalieren. Tippe zum Absetzen");
 }
 
 // UI-Helfer
