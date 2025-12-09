@@ -71,7 +71,6 @@
   /* Gesture-Layer innerhalb des Overlay */
   #gesture-layer {
     position: absolute; inset: 0; z-index: 5;
-    /* touch-action: none; entfernt, um Klicks zu erlauben, wird in JS gehandhabt */
     pointer-events: auto;
   }
 </style>
@@ -130,7 +129,6 @@ let havePose = false;
 const HOVER_HEIGHT = 0.1; // 10 cm
 let isPlaced = false; // FALSE = Editier-Modus (Hover), TRUE = Platziert-Modus (Ground)
 let modelLoaded = false;
-let reticleVisible = false;
 let hasBeenMoved = false; // Flag, ob der Benutzer die Position manuell gesetzt hat (verhindert Zurückschnappen)
 
 // Gesten
@@ -140,7 +138,7 @@ let gestureStartTime = 0;
 let tapStartX = 0;
 let tapStartY = 0;
 let didMove = false;
-let isDraggingModel = false; // TRUE, wenn der 1-Finger-Drag direkt auf dem Modell startete (Verschieben)
+let isDraggingModel = false; 
 
 // Gesten Parameter
 const TAP_THRESHOLD_MS = 250;
@@ -216,7 +214,6 @@ async function boot() {
   });
   
   const gestureLayer = document.getElementById('gesture-layer');
-  // touch-action: none; wird nun über event.preventDefault() in onTouchMove gesteuert.
   gestureLayer.addEventListener('touchstart', onTouchStart, { passive: false });
   gestureLayer.addEventListener('touchmove', onTouchMove, { passive: false });
   gestureLayer.addEventListener('touchend', onTouchEnd, { passive: false });
@@ -344,6 +341,7 @@ async function onStartAR() {
     domOverlay: { root: document.getElementById('overlay') }
   });
 
+  // *** KORREKTUR V16: Zentraler Session-End Listener
   session.addEventListener('end', async () => {
     hitTestSourceRequested = false;
     hitTestSource = null;
@@ -351,7 +349,7 @@ async function onStartAR() {
     await renderer.xr.setSession(null);
     document.getElementById('start-screen').style.display = 'flex';
     audioEl.pause();
-    reticleVisible = false;
+    // Zustände beim Ende zurücksetzen
     havePose = false;
     isPlaced = false;
     hasBeenMoved = false; 
@@ -376,13 +374,7 @@ function render(timestamp, frame) {
         hitTestSource = source;
       });
     });
-    session.addEventListener('end', () => {
-      hitTestSourceRequested = false;
-      hitTestSource = null;
-      reticleVisible = false;
-      placementGroup.visible = false;
-      havePose = false;
-    });
+    // *** KORREKTUR V16: Entferne doppelten session.addEventListener('end', ...) Block
     hitTestSourceRequested = true;
   }
 
@@ -413,13 +405,11 @@ function render(timestamp, frame) {
           lastPosePos.y + HOVER_HEIGHT, // Hover
           lastPosePos.z
         );
-        reticleVisible = true;
         updateMsg("1-Finger: Modell berühren zum Bewegen, daneben wischen zum Drehen. 2-Finger: Skalieren. Tippe zum Platzieren");
       }
     } else {
       // Unsichtbar, wenn keine Fläche gefunden und nicht platziert und nicht bereits bewegt
       if (!isPlaced && !hasBeenMoved) {
-        reticleVisible = false;
         placementGroup.visible = false;
         havePose = false;
         updateMsg("Suche Boden...");
@@ -436,8 +426,17 @@ function getDistance(touch1, touch2) {
   return Math.hypot(touch2.clientX - touch1.clientX, touch2.clientY - touch1.clientY);
 }
 
+// *** NEU V16: Raycast-Prüfung, ob Tap das Modell traf
+function isTapOnModel(clientX, clientY) {
+  if (!model) return false;
+  toNDC(clientX, clientY);
+  raycaster.setFromCamera(ndc, camera);
+  const hits = raycaster.intersectObject(model, true);
+  return hits.length > 0;
+}
+
 function onTouchStart(event) {
-  // *** KORREKTUR V15: event.preventDefault() entfernt, um Klicks auf DOM-Elemente (z.B. X-Button) zu erlauben.
+  // event.preventDefault() entfernt, um Klicks auf DOM-Elemente (z.B. X-Button) zu erlauben.
   
   currentTouches = event.touches ? Array.from(event.touches) : [event];
 
@@ -466,14 +465,8 @@ function onTouchStart(event) {
             lastMoveX = currentTouches[0].clientX;
             lastMoveY = currentTouches[0].clientY;
 
-            // Raycast, um zu prüfen, ob NUR das MODELL getroffen wurde
-            toNDC(tapStartX, tapStartY);
-            raycaster.setFromCamera(ndc, camera);
-            
-            // WICHTIG: Prüfe explizit nur das geladene Modell (model)
-            const intersects = raycaster.intersectObject(model, true); 
-            
-            if (intersects.length > 0) {
+            // Prüfen, ob Modell getroffen
+            if (isTapOnModel(tapStartX, tapStartY)) {
               isDraggingModel = true; // MOVE Geste (Treffer auf Modell)
               updateMsg("Modell wird verschoben (1 Finger Drag auf Modell)");
             } else {
@@ -488,19 +481,22 @@ function onTouchStart(event) {
 }
 
 function onTouchMove(event) {
-  // *** KORREKTUR V15: event.preventDefault() nur hier aufrufen, wenn tatsächlich eine Geste ausgeführt wird.
-  if (gestureActive || currentTouches.length === 2) {
-    event.preventDefault(); 
-  } else if (gestureActive || currentTouches.length === 1 && !isDraggingModel) {
-    // Verhindert das Scrollen, wenn Rotation gestartet wurde.
-    event.preventDefault(); 
-  }
-
-  // WICHTIG: Gesten nur im Hover-Modus erlauben
-  if (isPlaced) return; 
-
   currentTouches = event.touches ? Array.from(event.touches) : [event];
   
+  // WICHTIG: Gesten nur im Hover-Modus erlauben
+  if (isPlaced) {
+    if (currentTouches.length > 1) event.preventDefault(); // Erlaube 2-Finger Pinch im platzierten Zustand zur Skalierung
+    return;
+  } 
+
+  const isTwoFinger = currentTouches.length === 2;
+  const isOneFinger = currentTouches.length === 1;
+
+  // *** KORREKTUR V16: Klare preventDefault-Bedingungen (Verhindert Scrollen während einer Geste)
+  if (isTwoFinger || (gestureActive && isOneFinger)) {
+    event.preventDefault();
+  }
+
   if (!gestureActive) return;
 
   const dragDistanceTotal = Math.hypot(currentTouches[0].clientX - tapStartX, currentTouches[0].clientY - tapStartY);
@@ -509,7 +505,7 @@ function onTouchMove(event) {
     hasBeenMoved = true; 
   }
   
-  if (currentTouches.length === 2) {
+  if (isTwoFinger) {
     // 2-Finger Geste: Skalieren
     const newDist = getDistance(currentTouches[0], currentTouches[1]);
     const scaleDelta = newDist - initialPinchDistance;
@@ -517,7 +513,7 @@ function onTouchMove(event) {
     newScale = Math.max(0.1, Math.min(5, newScale)); 
     placementGroup.scale.setScalar(newScale);
     
-  } else if (currentTouches.length === 1) {
+  } else if (isOneFinger) {
     
     const t = currentTouches[0];
     const dx = t.clientX - lastMoveX;
@@ -527,17 +523,14 @@ function onTouchMove(event) {
       toNDC(t.clientX, t.clientY);
       raycaster.setFromCamera(ndc, camera);
       const hit = new THREE.Vector3();
+      // Projektion auf die Boden-Ebene (y=0)
       if (raycaster.ray.intersectPlane(floorPlane, hit)) {
         // Y-Koordinate bleibt auf HOVER_HEIGHT
         placementGroup.position.set(hit.x, HOVER_HEIGHT, hit.z);
       }
-      // Wenn die Bewegung gestartet wurde, muss der event.preventDefault() oben aktiv sein.
-
     } else {
       // AKTION: ROTIEREN (Rotate)
-      // Rotation basiert auf der relativen Bewegung (dx)
       placementGroup.rotation.y += dx * ROTATION_FACTOR;
-      // Wenn die Rotation gestartet wurde, muss der event.preventDefault() oben aktiv sein.
     }
     
     lastMoveX = t.clientX;
@@ -548,8 +541,6 @@ function onTouchEnd(event) {
   // Behandle nur Touch-End des letzten Fingers (wenn event.touches leer ist) oder MouseUp
   if (event.touches && event.touches.length > 0) return; 
 
-  // event.preventDefault() HIER NICHT NOTWENDIG, um Klicks zu ermöglichen.
-  
   const endedTouch = event.changedTouches ? event.changedTouches[0] : event;
   if (!endedTouch) return;
 
@@ -561,7 +552,7 @@ function onTouchEnd(event) {
 
   // Tap → Platzieren / Reposition (nur wenn es ein Tap war und nur 1 Finger beteiligt war)
   if (!didMove && duration < TAP_THRESHOLD_MS && dragDistance < DRAG_THRESHOLD_PIX && endedTouchCount === 1) {
-    simulateTapSelect();
+    simulateTapSelect(endX, endY); // *** NEU V16: Tap-Koordinaten übergeben
   }
 
   // Geste beenden und Baselines aktualisieren
@@ -571,14 +562,15 @@ function onTouchEnd(event) {
 }
 
 // Platzieren / Reposition
-function simulateTapSelect() {
+function simulateTapSelect(tapX, tapY) {
   if (!modelLoaded) return;
 
   // 1. TAP: PLATZIEREN (Hover -> Ground)
   if (!isPlaced) {
-    if (havePose || placementGroup.visible || hasBeenMoved) {
+    // Erlaubt das Platzieren, wenn eine gültige Pose vorliegt ODER der Nutzer das Modell bereits manuell bewegt hat.
+    if (havePose || hasBeenMoved) {
       isPlaced = true;
-      hasBeenMoved = true; 
+      hasBeenMoved = true; // Bleibt true, bis manuell angehoben wird
 
       // Ground-Snap (y=0)
       placementGroup.position.y = 0;
@@ -599,8 +591,15 @@ function simulateTapSelect() {
   }
  
   // 2. TAP: ANHEBEN (Ground -> Hover)
+  // *** KORREKTUR V16: Anheben nur erlauben, wenn der Tap das Modell trifft
+  if (!isTapOnModel(tapX, tapY)) {
+      updateMsg("Tippe auf das 3D-Modell, um es anzuheben.");
+      return;
+  }
+  
   // Reposition starten: zurück in Hover
   isPlaced = false;
+  hasBeenMoved = false; // *** KORREKTUR V16: Setze hasBeenMoved zurück, um Auto-Follow zu erlauben
   placementRect.visible = true;
   placementGroup.position.y = HOVER_HEIGHT;
   updateMsg("1-Finger: Modell berühren zum Bewegen, daneben wischen zum Drehen. 2-Finger: Skalieren. Tippe zum Absetzen");
