@@ -127,6 +127,7 @@ let modelLoaded = false;
 let reticleVisible = false;
 
 // Gesten
+let currentTouches = []; // Für 2-Finger-Gesten
 let gestureActive = false;
 let gestureStartTime = 0;
 let tapStartX = 0;
@@ -136,8 +137,13 @@ let didMove = false;
 // Ein-Finger-Multigesten Parameter
 const TAP_THRESHOLD_MS = 250;
 const DRAG_THRESHOLD_PIX = 10;
-const ROTATION_FACTOR = 0.004;  // Horizontaler Drag -> Rotation
-const SCALE_FACTOR = 0.003;     // Vertikaler Drag -> Scale
+const ROTATION_FACTOR = 0.005;  // Horizontaler Drag (1 Finger) -> Rotation
+const SCALE_FACTOR = 0.005;     // Pinch-Distanz (2 Finger) -> Scale
+
+let initialPinchDistance = 0;
+let initialModelScale = 1;
+let initialModelRotationY = 0; // Für 1-Finger Rotation
+let lastMoveX = 0; // Für 1-Finger Drag
 
 // Raycaster/Projection
 const raycaster = new THREE.Raycaster();
@@ -387,26 +393,20 @@ function render(timestamp, frame) {
         havePose = true;
 
         if (!isPlaced) {
-          // Nur Position aktualisieren, wenn nicht gerade manuell bewegt wird
-          if (placementGroup.position.y < 0.01) {
-            // Wenn das Modell durch eine Geste bereits auf Hover-Höhe angehoben wurde,
-            // sollte es im Hit-Test-Frame nicht mehr weiter bewegt werden.
-            // ABER: In diesem Fall ist es im Hover-Modus und wurde noch nicht platziert.
-            // Der Hit-Test soll die Position bestimmen, solange keine Geste aktiv ist.
-            placementGroup.visible = true;
-            placementGroup.position.set(
-              lastPosePos.x,
-              lastPosePos.y + HOVER_HEIGHT, // Hover vor Platzierung
-              lastPosePos.z
-            );
-          }
-
+          // Position des Reticles/Ghost-Objekts auf den Hit-Test setzen
+          // WENN KEINE GESTE AKTIV IST
+          placementGroup.visible = true;
+          placementGroup.position.set(
+            lastPosePos.x,
+            lastPosePos.y + HOVER_HEIGHT, // Hover vor Platzierung
+            lastPosePos.z
+          );
           reticleVisible = true;
-          updateMsg("Ziehe, drehe, skaliere mit 1 Finger – Tippe zum Platzieren");
+          updateMsg("1-Finger: Bewegen/Drehen. 2-Finger: Skalieren. Tippe zum Platzieren");
         }
       }
     } else {
-      if (!isPlaced) {
+      if (!isPlaced && !gestureActive) {
         reticleVisible = false;
         placementGroup.visible = false;
         havePose = false;
@@ -418,99 +418,112 @@ function render(timestamp, frame) {
   renderer.render(scene, camera);
 }
 
-// --- Ein-Finger-Multigesten ---
+// --- Gesten-Handler ---
 
-let lastMoveX = 0;
-let lastMoveY = 0;
-let baseScaleAtTouch = 1;
-let baseRotationYAtTouch = 0;
+function getDistance(touch1, touch2) {
+  return Math.hypot(touch2.clientX - touch1.clientX, touch2.clientY - touch1.clientY);
+}
+// Wird nicht mehr für Rotation benötigt, aber beibehalten für Vollständigkeit
+function getAngle(touch1, touch2) {
+  return Math.atan2(touch2.clientY - touch1.clientY, touch2.clientX - touch1.clientX);
+}
 
-// Wird bei TouchStart (und MouseDown) aufgerufen
 function onTouchStart(event) {
   event.preventDefault();
-  // Nutze event.touches[0] für Touch-Events, event für Mouse-Events
-  const t = event.touches ? event.touches[0] : event;
-  if (!t) return;
+  currentTouches = event.touches ? Array.from(event.touches) : [event];
 
-  // Wenn bereits zwei Finger aktiv sind (was hier nicht passieren sollte, da 2-Finger-Gesten entfernt wurden)
-  if (event.touches && event.touches.length > 1) return; 
-
-  gestureActive = true;
-  gestureStartTime = performance.now();
-  didMove = false;
-
-  tapStartX = t.clientX;
-  tapStartY = t.clientY;
-  lastMoveX = t.clientX;
-  lastMoveY = t.clientY;
-  baseScaleAtTouch = placementGroup.scale.x;
-  baseRotationYAtTouch = placementGroup.rotation.y;
+  if (currentTouches.length === 0) return;
+  
+  gestureStartTime = performance.now();
+  didMove = false;
+  
+  // TAP Startpunkte speichern
+  tapStartX = currentTouches[0].clientX;
+  tapStartY = currentTouches[0].clientY;
+  
+  if (currentTouches.length === 2) {
+    // 2-Finger Geste: Skalieren
+    gestureActive = true;
+    initialPinchDistance = getDistance(currentTouches[0], currentTouches[1]);
+    initialModelScale = placementGroup.scale.x;
+  } else if (currentTouches.length === 1) {
+    // 1-Finger Geste: Bewegen/Rotieren
+    // Geste gilt nur als aktiv, wenn wir nicht im Hover-Modus sind UND ein Hit vorliegt ODER das Modell bereits platziert ist
+    if (isPlaced || havePose) {
+        gestureActive = true;
+        lastMoveX = currentTouches[0].clientX;
+        initialModelRotationY = placementGroup.rotation.y;
+    }
+  }
 }
 
-// Wird bei TouchMove (und MouseMove) aufgerufen
 function onTouchMove(event) {
-  // Nutze event.touches[0] für Touch-Events, event für Mouse-Events
-  const t = event.touches ? event.touches[0] : event;
-  if (!t || !gestureActive) return;
+  event.preventDefault();
+  currentTouches = event.touches ? Array.from(event.touches) : [event];
+  
+  if (!gestureActive) return;
 
-  event.preventDefault();
+  const dragDistanceTotal = Math.hypot(currentTouches[0].clientX - tapStartX, currentTouches[0].clientY - tapStartY);
+  if (dragDistanceTotal > DRAG_THRESHOLD_PIX) didMove = true;
+  
+  if (currentTouches.length === 2) {
+    // 2-Finger Geste: Skalieren
+    const newDist = getDistance(currentTouches[0], currentTouches[1]);
+    const scaleDelta = newDist - initialPinchDistance;
+    let newScale = initialModelScale + scaleDelta * SCALE_FACTOR;
+    newScale = Math.max(0.1, Math.min(5, newScale)); 
+    placementGroup.scale.setScalar(newScale);
+    updateMsg("Skalieren (2 Finger Pinch)");
+    
+  } else if (currentTouches.length === 1) {
+    // 1-Finger Geste: Bewegen (Position X/Z) und Rotieren (Horizontal Drag dx)
+    const t = currentTouches[0];
+    const dx = t.clientX - lastMoveX;
 
-  const dx = t.clientX - lastMoveX;
-  const dy = t.clientY - lastMoveY;
+    // --- 1) Bewegen (Position X/Z) ---
+    toNDC(t.clientX, t.clientY);
+    raycaster.setFromCamera(ndc, camera);
+    const hit = new THREE.Vector3();
+    if (raycaster.ray.intersectPlane(floorPlane, hit)) {
+      // Y-Koordinate: HOVER_HEIGHT vor Platzierung, 0 nach Platzierung
+      placementGroup.position.set(hit.x, isPlaced ? 0 : HOVER_HEIGHT, hit.z);
+    }
+    
+    // --- 2) Rotieren (Horizontaler Drag dx) ---
+    placementGroup.rotation.y = initialModelRotationY + (t.clientX - tapStartX) * ROTATION_FACTOR;
 
-  // Bewegungsschwelle
-  const dragDistanceTotal = Math.hypot(t.clientX - tapStartX, t.clientY - tapStartY);
-  if (dragDistanceTotal > DRAG_THRESHOLD_PIX) didMove = true;
-
-  // --- 1) Bewegen (Position X/Z) ---
-  toNDC(t.clientX, t.clientY);
-  raycaster.setFromCamera(ndc, camera);
-  const hit = new THREE.Vector3();
-  if (raycaster.ray.intersectPlane(floorPlane, hit)) {
-    // Y-Koordinate: HOVER_HEIGHT vor Platzierung, 0 nach Platzierung
-    placementGroup.position.set(hit.x, isPlaced ? 0 : HOVER_HEIGHT, hit.z);
-  }
-
-  // --- 2) Rotieren (Horizontaler Drag dx) ---
-  placementGroup.rotation.y = baseRotationYAtTouch + dx * ROTATION_FACTOR;
-  
-  // --- 3) Skalieren (Vertikaler Drag dy) ---
-  let newScale = baseScaleAtTouch + (-dy) * SCALE_FACTOR; // nach oben = größer
-  newScale = Math.max(0.1, Math.min(5, newScale));
-  placementGroup.scale.setScalar(newScale);
-
-  updateMsg(isPlaced ? "Bewegen/Rotieren/Skalieren (1 Finger)" : "Positionieren/Rotieren/Skalieren (1 Finger)");
-
-  lastMoveX = t.clientX;
-  lastMoveY = t.clientY;
+    lastMoveX = t.clientX;
+    updateMsg(isPlaced ? "Bewegen/Drehen (1 Finger)" : "Positionieren/Drehen (1 Finger)");
+  }
 }
 
-// Wird bei TouchEnd (und MouseUp) aufgerufen
 function onTouchEnd(event) {
-  if (event.touches && event.touches.length > 0) return; // Wichtig bei Multi-Touch-End
+  // Behandle nur Touch-End des letzten Fingers (wenn event.touches leer ist) oder MouseUp
+  if (event.touches && event.touches.length > 0) return; 
 
   event.preventDefault();
-  gestureActive = false;
   
-  // Nutze event.changedTouches[0] für Touch-Events, event für Mouse-Events
-  const endedTouch = event.changedTouches ? event.changedTouches[0] : event;
-  if (!endedTouch) return;
+  const endedTouch = event.changedTouches ? event.changedTouches[0] : event;
+  if (!endedTouch || !gestureActive) {
+      gestureActive = false;
+      return;
+  }
 
-  const duration = performance.now() - gestureStartTime;
-  const endX = endedTouch.clientX;
-  const endY = endedTouch.clientY;
-  const dragDistance = Math.hypot(endX - tapStartX, endY - tapStartY);
-  const endedTouchCount = event.changedTouches ? event.changedTouches.length : 1; // Für Mouse-Event = 1
+  const duration = performance.now() - gestureStartTime;
+  const endX = endedTouch.clientX;
+  const endY = endedTouch.clientY;
+  const dragDistance = Math.hypot(endX - tapStartX, endY - tapStartY);
+  const endedTouchCount = event.changedTouches ? event.changedTouches.length : 1; 
 
-  // Tap → Platzieren / Reposition
-  if (!didMove && duration < TAP_THRESHOLD_MS && dragDistance < DRAG_THRESHOLD_PIX && endedTouchCount === 1) {
-    simulateTapSelect();
-    return;
-  }
+  // Tap → Platzieren / Reposition (nur wenn es ein Tap war und nur 1 Finger beteiligt war)
+  if (!didMove && duration < TAP_THRESHOLD_MS && dragDistance < DRAG_THRESHOLD_PIX && endedTouchCount === 1) {
+    simulateTapSelect();
+  }
 
-  // nach Ende einer Move-Geste: Baselines aktualisieren
-  baseScaleAtTouch = placementGroup.scale.x;
-  baseRotationYAtTouch = placementGroup.rotation.y;
+  // Geste beenden und Baselines aktualisieren
+  gestureActive = false;
+  initialModelScale = placementGroup.scale.x;
+  initialModelRotationY = placementGroup.rotation.y;
 }
 
 // Platzieren / Reposition
@@ -525,23 +538,19 @@ function simulateTapSelect() {
       // Ground-Snap (y=0)
       placementGroup.position.y = 0;
       
-      // Yaw aus Hit-Pose übernehmen (falls vorhanden)
-      if (havePose) {
+      // Rotation: Setze Rotation auf Hit-Pose (Yaw), es sei denn, der Benutzer hat bereits gedreht
+      if (havePose && placementGroup.rotation.y === 0) {
         const q = new THREE.Quaternion().setFromRotationMatrix(lastPoseMatrix);
         const e = new THREE.Euler().setFromQuaternion(q, 'YXZ');
-        // Die durch die Geste gesetzte Rotation wird beibehalten, wenn die Geste aktiv war
-        // Ansonsten wird die Boden-Yaw übernommen, um das Modell auf der Oberfläche auszurichten.
-        if (!gestureActive) { 
-           placementGroup.rotation.y = e.y;
-        }
+        placementGroup.rotation.y = e.y;
       }
 
       placementRect.visible = false;
-      // Baselines setzen, falls die Platzierung ohne aktive Geste erfolgte
-      baseScaleAtTouch = placementGroup.scale.x;
-      baseRotationYAtTouch = placementGroup.rotation.y;
+      // Baselines setzen
+      initialModelScale = placementGroup.scale.x;
+      initialModelRotationY = placementGroup.rotation.y;
       
-      updateMsg("Bewegen/Rotieren/Skalieren (1 Finger). Tippe erneut zum Anheben");
+      updateMsg("1-Finger: Bewegen/Drehen. 2-Finger: Skalieren. Tippe erneut zum Anheben");
     }
     return;
   }
@@ -550,7 +559,7 @@ function simulateTapSelect() {
   isPlaced = false;
   placementRect.visible = true;
   placementGroup.position.y = HOVER_HEIGHT;
-  updateMsg("Bewege/Skaliere/Rotierte im Hover – Tippe zum Absetzen");
+  updateMsg("1-Finger: Bewegen/Drehen. 2-Finger: Skalieren. Tippe zum Absetzen");
 }
 
 // UI-Helfer
