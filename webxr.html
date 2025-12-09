@@ -145,8 +145,8 @@ const TAP_THRESHOLD_MS = 350;
 const DRAG_THRESHOLD_PIX = 24;
 const ROTATION_FACTOR = 0.005;  
 const SCALE_FACTOR = 0.005;     
-// NEU V18: Mindestradius (in Pixeln) um das Modellzentrum, innerhalb dessen KEINE Rotation gestartet wird
-const ROTATE_EXCLUSION_RADIUS_PX = 100;
+const ROTATE_EXCLUSION_RADIUS_PX = 100; // Radius um Modellzentrum, in dem Rotation ignoriert wird
+const LIFT_TAP_RADIUS_PX = 60;          // NEU V19: Toleranter Radius für Tap-Lift im platzierten Zustand
 
 // 2-Finger Skalierung
 let initialPinchDistance = 0;
@@ -169,7 +169,7 @@ function toNDC(clientX, clientY) {
   ndc.y = -(clientY / h) * 2 + 1;
 }
 
-// NEU V18: Hilfsfunktion: projiziere eine Weltposition auf Bildschirmpixel
+// Hilfsfunktion: projiziere eine Weltposition auf Bildschirmpixel
 function worldToScreenPx(vec3World) {
   const v = vec3World.clone().project(camera);
   const w = renderer.domElement.clientWidth || window.innerWidth;
@@ -180,15 +180,31 @@ function worldToScreenPx(vec3World) {
   };
 }
 
-// NEU V18: Prüfe, ob Finger weit genug vom Modellzentrum entfernt ist
+// Prüfe, ob Finger weit genug vom Modellzentrum entfernt ist (für Rotation)
 function isFarFromModelCenter(clientX, clientY, radiusPx = ROTATE_EXCLUSION_RADIUS_PX) {
-  // Verwende placementGroup.position, da dies die Mitte des Objekts ist.
   if (!placementGroup) return true; 
   const centerPx = worldToScreenPx(placementGroup.position);
   const dist = Math.hypot(clientX - centerPx.x, clientY - centerPx.y);
   return dist > radiusPx;
 }
 
+// NEU V19: Prüfe, ob Tap nahe am Modellzentrum liegt (für Anheben)
+function isTapNearModelCenter(clientX, clientY, radiusPx = LIFT_TAP_RADIUS_PX) {
+  if (!placementGroup) return false;
+  const centerPx = worldToScreenPx(placementGroup.position);
+  const dist = Math.hypot(clientX - centerPx.x, clientY - centerPx.y);
+  return dist <= radiusPx;
+}
+
+
+// Raycast-Prüfung, ob Tap das Modell traf
+function isTapOnModel(clientX, clientY) {
+  if (!model) return false;
+  toNDC(clientX, clientY);
+  raycaster.setFromCamera(ndc, camera);
+  const hits = raycaster.intersectObject(model, true);
+  return hits.length > 0;
+}
 
 // URL-Parameter
 const qs = new URLSearchParams(location.search);
@@ -232,25 +248,35 @@ async function boot() {
   
   document.getElementById('btn-enter-ar').addEventListener('click', onStartAR);
 
-// Click-Handler für den Schließen-Button
+// ** FIX V19: Robuster Click-Handler für den Schließen-Button mit Fallback **
 document.getElementById('btn-close').addEventListener('click', async () => {
-    const s = renderer.xr.getSession();
-    if (s) {
-        // Fall 1: AR-Session läuft. Ruft den zentralen 'end'-Listener auf.
-        await s.end();
-    } else {
-        // Fall 2: Kein XR aktiv. Setzt die Zustände manuell zurück und zeigt den Start-Screen.
+    try {
+        const s = renderer?.xr?.getSession?.();
+        if (s) {
+            // Versuche, die Session zu beenden
+            const endPromise = s.end().catch(() => {});
+            // Setze einen kurzen Timeout, um den lokalen Reset zu erzwingen, falls das 'end'-Event hängt
+            const timeout = new Promise(resolve => setTimeout(resolve, 500));
+            await Promise.race([endPromise, timeout]);
+        }
+    } finally {
+        // Lokaler Reset: Stellt sicher, dass die UI und der State zurückgesetzt werden (Fallback)
+        try { await renderer.xr.setSession(null); } catch {}
+        renderer.setAnimationLoop(null); // Stoppt den Render-Loop
+
+        // Zustände und UI zurücksetzen
         document.getElementById('start-screen').style.display = 'flex';
-        
-        // Zustände lokal zurücksetzen
         audioEl.pause();
         havePose = false;
         isPlaced = false;
         hasBeenMoved = false;
         placementGroup.visible = false;
+        placementRect.visible = true;
+        placementGroup.position.y = HOVER_HEIGHT;
         updateMsg("Bewege dein Gerät um Fläche zu finden...");
     }
 });
+// --------------------------------------------------------------------
   
   const gestureLayer = document.getElementById('gesture-layer');
   gestureLayer.addEventListener('touchstart', onTouchStart, { passive: false });
@@ -466,15 +492,6 @@ function getDistance(touch1, touch2) {
   return Math.hypot(touch2.clientX - touch1.clientX, touch2.clientY - touch1.clientY);
 }
 
-// Raycast-Prüfung, ob Tap das Modell traf
-function isTapOnModel(clientX, clientY) {
-  if (!model) return false;
-  toNDC(clientX, clientY);
-  raycaster.setFromCamera(ndc, camera);
-  const hits = raycaster.intersectObject(model, true);
-  return hits.length > 0;
-}
-
 function onTouchStart(event) {
   // event.preventDefault() entfernt, um Klicks auf DOM-Elemente (z.B. X-Button) zu erlauben.
   
@@ -506,7 +523,6 @@ function onTouchStart(event) {
             lastMoveY = currentTouches[0].clientY;
 
             const tapHitsModel = isTapOnModel(tapStartX, tapStartY);
-            // NEU V18: Prüfen, ob der Finger weit genug vom Zentrum entfernt ist.
             const farEnoughForRotate = isFarFromModelCenter(tapStartX, tapStartY);
 
             if (tapHitsModel) {
@@ -640,9 +656,12 @@ function simulateTapSelect(tapX, tapY) {
     return;
   }
  
-  // 2. TAP: ANHEBEN (Ground -> Hover) nur wenn Tap auf Modell
-  if (!isTapOnModel(tapX, tapY)) {
-      updateMsg("Tippe auf das 3D-Modell, um es anzuheben.");
+  // 2. TAP: ANHEBEN (Ground -> Hover) nur bei Tap auf Modell ODER nahe am Modellzentrum
+  const hitModel = isTapOnModel(tapX, tapY);
+  const nearCenter = isTapNearModelCenter(tapX, tapY);
+
+  if (!hitModel && !nearCenter) {
+      updateMsg("Tippe direkt auf das 3D-Modell (oder nahe am Zentrum), um es anzuheben.");
       return;
   }
   
