@@ -15,7 +15,7 @@
   /* DOM Overlay MUSS Events akzeptieren */
   #overlay {
     position: fixed; inset: 0;
-    pointer-events: auto; /* Container lässt Events zu */
+    pointer-events: auto;
     display: flex; flex-direction: column; justify-content: space-between;
     z-index: 10;
   }
@@ -32,27 +32,19 @@
     padding: 12px 24px; border-radius: 30px;
     font-weight: 600; font-size: 16px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    touch-action: manipulation; 
-    transition: opacity 0.2s;
   }
-  /* Fix: Button muss bei Deaktivierung visuell gekennzeichnet werden */
-  .btn-start:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-  }
-  
-  /* UI über Gesture-Layer */
+
+  /* WICHTIG: Anpassung für Safe Area (Notch) */
   .ui-row {
     padding: 20px; 
+    /* Fügt den Safe Area Abstand oben hinzu, damit die Elemente unterhalb der Notch liegen */
     padding-top: calc(20px + env(safe-area-inset-top)); 
     display: flex; 
-    justify-content: flex-end; /* Jetzt nur noch rechts der Mute-Button */
+    justify-content: space-between; 
     align-items: flex-start;
-    pointer-events: none; 
-    position: relative; 
-    z-index: 20; 
+    pointer-events: none;
   }
-  .pointer-auto { pointer-events: auto; } 
+  .pointer-auto { pointer-events: auto; }
 
   .btn-icon {
     background: rgba(20,20,30,0.6);
@@ -61,12 +53,10 @@
     border-radius: 50%; display: flex; align-items: center; justify-content: center;
     font-size: 20px; backdrop-filter: blur(10px);
     transition: transform 0.1s;
-    cursor: pointer;
-    touch-action: manipulation; 
   }
   .btn-icon:active { transform: scale(0.95); }
 
-  #msg-container { text-align: center; padding-bottom: 40px; pointer-events: none; position: relative; z-index: 20; }
+  #msg-container { text-align: center; padding-bottom: 40px; pointer-events: none; }
   #msg {
     background: rgba(0,0,0,0.5); padding: 8px 16px;
     border-radius: 20px; display: inline-block; font-size: 14px; opacity: 0.9;
@@ -78,11 +68,10 @@
     border-radius: 8px; font-size: 12px; display: none; z-index: 30;
   }
 
-  /* Gesture-Layer darunter; ausschließlich hier Gesten abhören */
+  /* Gesture-Layer innerhalb des Overlay */
   #gesture-layer {
     position: absolute; inset: 0; z-index: 5;
-    pointer-events: auto; 
-    touch-action: none; 
+    pointer-events: auto;
   }
 </style>
 <script type="importmap">
@@ -103,15 +92,16 @@
 </div>
 
 <div id="overlay">
-  <div id="gesture-layer"></div>
-
   <div class="ui-row">
+    <button class="btn-icon pointer-auto" id="btn-close">✕</button>
     <button class="btn-icon pointer-auto" id="btn-mute" style="display:none">🔊</button>
   </div>
   
   <div id="msg-container">
     <div id="msg">Bewege dein Gerät um Fläche zu finden...</div>
   </div>
+
+  <div id="gesture-layer"></div>
 </div>
 
 <audio id="ar-audio" loop playsinline preload="auto"></audio>
@@ -137,9 +127,9 @@ let havePose = false;
 
 // State & Config
 const HOVER_HEIGHT = 0.1; // 10 cm
-let isPlaced = false; 
+let isPlaced = false; // FALSE = Editier-Modus (Hover), TRUE = Platziert-Modus (Ground)
 let modelLoaded = false;
-let hasBeenMoved = false; 
+let hasBeenMoved = false; // Flag, ob der Benutzer die Position manuell gesetzt hat (verhindert Zurückschnappen)
 
 // Gesten
 let currentTouches = []; 
@@ -150,13 +140,13 @@ let tapStartY = 0;
 let didMove = false;
 let isDraggingModel = false; 
 
-// Gesten Parameter (Toleranter für Tap)
-const TAP_THRESHOLD_MS = 450;
-const DRAG_THRESHOLD_PIX = 20;
+// Gesten Parameter
+const TAP_THRESHOLD_MS = 350;
+const DRAG_THRESHOLD_PIX = 24;
 const ROTATION_FACTOR = 0.005;  
 const SCALE_FACTOR = 0.005;     
+// NEU V18: Mindestradius (in Pixeln) um das Modellzentrum, innerhalb dessen KEINE Rotation gestartet wird
 const ROTATE_EXCLUSION_RADIUS_PX = 100;
-const MIN_LIFT_TAP_RADIUS_PX = 120; 
 
 // 2-Finger Skalierung
 let initialPinchDistance = 0;
@@ -171,7 +161,7 @@ const raycaster = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
 const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
-// NDC Hilfsfunktion
+// NDC Hilfsfunktion mit Canvasgröße
 function toNDC(clientX, clientY) {
   const w = renderer.domElement.clientWidth || window.innerWidth;
   const h = renderer.domElement.clientHeight || window.innerHeight;
@@ -179,7 +169,7 @@ function toNDC(clientX, clientY) {
   ndc.y = -(clientY / h) * 2 + 1;
 }
 
-// Hilfsfunktion: projiziere eine Weltposition auf Bildschirmpixel
+// NEU V18: Hilfsfunktion: projiziere eine Weltposition auf Bildschirmpixel
 function worldToScreenPx(vec3World) {
   const v = vec3World.clone().project(camera);
   const w = renderer.domElement.clientWidth || window.innerWidth;
@@ -190,66 +180,29 @@ function worldToScreenPx(vec3World) {
   };
 }
 
-// Dynamischer Bildschirm-Radius basierend auf Modellgröße
-function getModelScreenRadiusPx() {
-  if (!model || !camera) return 0;
-  const bbox = new THREE.Box3().setFromObject(model);
-  const sphere = bbox.getBoundingSphere(new THREE.Sphere());
-  
-  const centerPx = worldToScreenPx(sphere.center);
-  const edgeWorld = sphere.center.clone().add(new THREE.Vector3(sphere.radius, 0, 0)); 
-  const edgePx = worldToScreenPx(edgeWorld);
-  
-  const screenRadius = Math.hypot(edgePx.x - centerPx.x, edgePx.y - centerPx.y);
-  return screenRadius;
-}
-
-// Tolerantere Tap-Prüfung für das Anheben
-function isTapNearModelCenter(clientX, clientY) {
-  if (!placementGroup) return false;
-  const centerPx = worldToScreenPx(placementGroup.position);
-  const modelRadius = getModelScreenRadiusPx();
-  const hitRadius = Math.max(MIN_LIFT_TAP_RADIUS_PX, modelRadius * 1.2);
-  const dist = Math.hypot(clientX - centerPx.x, clientY - centerPx.y);
-  return dist <= hitRadius;
-}
-
-// Raycast-Prüfung
-function isTapOnModel(clientX, clientY) {
-  if (!model) return false;
-  toNDC(clientX, clientY);
-  raycaster.setFromCamera(ndc, camera);
-  const hits = raycaster.intersectObject(model, true);
-  return hits.length > 0;
-}
-
-// Prüfe, ob Finger weit genug vom Modellzentrum entfernt ist (für Rotation)
+// NEU V18: Prüfe, ob Finger weit genug vom Modellzentrum entfernt ist
 function isFarFromModelCenter(clientX, clientY, radiusPx = ROTATE_EXCLUSION_RADIUS_PX) {
+  // Verwende placementGroup.position, da dies die Mitte des Objekts ist.
   if (!placementGroup) return true; 
   const centerPx = worldToScreenPx(placementGroup.position);
   const dist = Math.hypot(clientX - centerPx.x, clientY - centerPx.y);
   return dist > radiusPx;
 }
 
-// Dynamische Steuerung des Gesture Layers
-function setGestureLayerEnabled(enabled) {
-  const gl = document.getElementById('gesture-layer');
-  gl.style.pointerEvents = enabled ? 'auto' : 'none';
-}
+
+// URL-Parameter
+const qs = new URLSearchParams(location.search);
+const workerBase = (qs.get('base') || 'https://area-publish-proxy.area-webar.workers.dev').replace(/\/$/, '');
+const sceneParam = qs.get('scene') || qs.get('src');
+let SCENE_JSON_URL = '';
+let MODEL_URL = '';
+let AUDIO_URL = '';
 
 async function boot() {
   if (!navigator.xr) {
     showErr("WebXR nicht unterstützt.");
     return;
   }
-
-  // --- URL Parameter und JSON Laden ---
-  const qs = new URLSearchParams(location.search);
-  const workerBase = (qs.get('base') || 'https://area-publish-proxy.area-webar.workers.dev').replace(/\/$/, '');
-  const sceneParam = qs.get('scene') || qs.get('src');
-  let SCENE_JSON_URL = '';
-  let MODEL_URL = '';
-  let AUDIO_URL = '';
 
   if (sceneParam) {
     if (sceneParam.endsWith('.glb')) MODEL_URL = sceneParam;
@@ -273,43 +226,42 @@ async function boot() {
       showErr("Fehler beim Laden der Szene.");
     }
   }
-  // --- Ende URL Parameter und JSON Laden ---
 
   initThree();
-  loadModel(MODEL_URL);
+  loadModel();
   
-  // Gesten nur am Gesture-Layer abhören 
+  document.getElementById('btn-enter-ar').addEventListener('click', onStartAR);
+
+// Click-Handler für den Schließen-Button
+document.getElementById('btn-close').addEventListener('click', async () => {
+    const s = renderer.xr.getSession();
+    if (s) {
+        // Fall 1: AR-Session läuft. Ruft den zentralen 'end'-Listener auf.
+        await s.end();
+    } else {
+        // Fall 2: Kein XR aktiv. Setzt die Zustände manuell zurück und zeigt den Start-Screen.
+        document.getElementById('start-screen').style.display = 'flex';
+        
+        // Zustände lokal zurücksetzen
+        audioEl.pause();
+        havePose = false;
+        isPlaced = false;
+        hasBeenMoved = false;
+        placementGroup.visible = false;
+        updateMsg("Bewege dein Gerät um Fläche zu finden...");
+    }
+});
+  
   const gestureLayer = document.getElementById('gesture-layer');
   gestureLayer.addEventListener('touchstart', onTouchStart, { passive: false });
   gestureLayer.addEventListener('touchmove', onTouchMove, { passive: false });
   gestureLayer.addEventListener('touchend', onTouchEnd, { passive: false });
   gestureLayer.addEventListener('touchcancel', onTouchEnd, { passive: false });
-  gestureLayer.addEventListener('mousedown', onTouchStart, { passive: false });
-  gestureLayer.addEventListener('mousemove', onTouchMove, { passive: false });
-  gestureLayer.addEventListener('mouseup', onTouchEnd, { passive: false });
 
-  // Start-Button: click + touchstart Handler
-  const btnEnter = document.getElementById('btn-enter-ar');
-  const enterHandler = (ev) => {
-    ev.stopPropagation();
-    ev.preventDefault();
-    
-    // NEU: Race Condition Schutz (Verhindert Doppelklick-Konflikt)
-    if (btnEnter.disabled) return;
-    btnEnter.disabled = true; 
-    
-    onStartAR().finally(() => {
-      // Button wird nur wieder aktiviert, wenn er NICHT erfolgreich gestartet wurde (d.h. start-screen sichtbar ist)
-      if (document.getElementById('start-screen').style.display !== 'none') {
-        btnEnter.disabled = false;
-      }
-    });
-  };
-  btnEnter.addEventListener('click', enterHandler, { passive: false });
-  btnEnter.addEventListener('touchstart', enterHandler, { passive: false });
-
-  // Initial: Gesten Layer deaktivieren
-  setGestureLayerEnabled(false);
+  // Maus-Unterstützung (Desktop testing)
+  gestureLayer.addEventListener('mousedown', onTouchStart, { passive: false });
+  gestureLayer.addEventListener('mousemove', onTouchMove, { passive: false });
+  gestureLayer.addEventListener('mouseup', onTouchEnd, { passive: false });
 }
 
 function initThree() {
@@ -375,7 +327,7 @@ function initThree() {
   placementGroup.add(placementRect);
 }
 
-async function loadModel(MODEL_URL) {
+async function loadModel() {
   const loader = new GLTFLoader();
   const draco = new DRACOLoader();
   draco.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
@@ -409,76 +361,45 @@ function setupAudio(audioCfg) {
   audioEl.loop = !!audioCfg.loop;
   audioEl.volume = audioCfg.volume || 0.8;
   btnMute.style.display = 'flex';
-  btnMute.addEventListener('click', (ev) => {
-    ev.stopPropagation();
+  btnMute.addEventListener('click', () => {
     isMuted = !isMuted;
     audioEl.muted = isMuted;
     btnMute.textContent = isMuted ? '🔇' : '🔊';
-  }, { passive: true });
-  btnMute.addEventListener('touchstart', (ev) => {
-    ev.stopPropagation();
-  }, { passive: true });
+  });
 }
 
 // --- WebXR Session ---
 
 async function onStartAR() {
-  // UI umschalten
   document.getElementById('start-screen').style.display = 'none';
+  if(AUDIO_URL) audioEl.play().catch(e => console.warn("Audio Autoplay:", e));
 
-  try {
-    if(AUDIO_URL) audioEl.play().catch(e => console.warn("Audio Autoplay:", e));
+  const session = await navigator.xr.requestSession('immersive-ar', {
+    requiredFeatures: ['hit-test', 'local-floor'],
+    optionalFeatures: ['dom-overlay'],
+    domOverlay: { root: document.getElementById('overlay') }
+  });
 
-    const session = await navigator.xr.requestSession('immersive-ar', {
-      requiredFeatures: ['hit-test', 'local-floor'],
-      optionalFeatures: ['dom-overlay'],
-      domOverlay: { root: document.getElementById('overlay') }
-    });
-    
-    // GESTURE LAYER AKTIVIEREN, SOBALD SESSION ERFOLGREICH GESTARTET
-    setGestureLayerEnabled(true); 
+  // *** Zentraler Session-End Listener ***
+  session.addEventListener('end', async () => {
+    hitTestSourceRequested = false;
+    hitTestSource = null;
+    renderer.setAnimationLoop(null);
+    await renderer.xr.setSession(null);
+    
+    // Zustände und UI zurücksetzen
+    document.getElementById('start-screen').style.display = 'flex';
+    audioEl.pause();
+    havePose = false;
+    isPlaced = false;
+    hasBeenMoved = false; 
+    placementGroup.visible = false;
+    updateMsg("Bewege dein Gerät um Fläche zu finden...");
+  });
 
-    // Zentraler Session-End Listener (Wird nur bei externer Beendigung ausgelöst, z.B. Home-Button)
-    session.addEventListener('end', async () => {
-      hitTestSourceRequested = false;
-      hitTestSource = null;
-      renderer.setAnimationLoop(null);
-      await renderer.xr.setSession(null);
-      
-      // Zustände und UI zurücksetzen
-      document.getElementById('start-screen').style.display = 'flex';
-      setGestureLayerEnabled(false); 
-      document.getElementById('btn-enter-ar').disabled = false; 
-      audioEl.pause();
-      havePose = false;
-      isPlaced = false;
-      hasBeenMoved = false; 
-      placementGroup.visible = false;
-      placementRect.visible = true;
-      placementGroup.position.y = HOVER_HEIGHT;
-      updateMsg("Bewege dein Gerät um Fläche zu finden...");
-    });
-
-    renderer.xr.setReferenceSpaceType('local-floor');
-    await renderer.xr.setSession(session);
-    renderer.setAnimationLoop(render);
-
-  } catch (e) {
-      // FEHLERBEHANDLUNG: Button wieder aktivieren und Fehler anzeigen
-      document.getElementById('btn-enter-ar').disabled = false; 
-      
-      document.getElementById('start-screen').style.display = 'flex';
-      setGestureLayerEnabled(false);
-      
-      let errMsg = "AR-Start fehlgeschlagen. Ist die Kamera erlaubt?";
-      if (e.message.includes("user activation")) {
-          // Klarer Hinweis, dass der Benutzer nur noch einmal tippen muss.
-          errMsg = "AR-Start benötigt eine direkte Benutzeraktion. Bitte erneut tippen."; 
-      }
-      showErr(errMsg);
-      
-      throw e; 
-  }
+  renderer.xr.setReferenceSpaceType('local-floor');
+  await renderer.xr.setSession(session);
+  renderer.setAnimationLoop(render);
 }
 
 // --- Render Loop & Hit Test ---
@@ -507,8 +428,8 @@ function render(timestamp, frame) {
     if (results.length > 0) {
       const hit = results[0];
       const pose = hit.getPose(refSpace);
-      
-      // Hover-Follow nur wenn nicht platziert und noch nicht manuell bewegt
+      
+      // Hit-Test-Positionierung nur ausführen, wenn das Modell NICHT platziert IST UND NOCH NICHT VOM BENUTZER BEWEGT WURDE.
       if (pose && !isPlaced && !hasBeenMoved) {
         lastPoseMatrix.fromArray(pose.transform.matrix);
         lastPosePos.set(
@@ -527,6 +448,7 @@ function render(timestamp, frame) {
         updateMsg("1-Finger: Modell berühren zum Bewegen, daneben wischen zum Drehen. 2-Finger: Skalieren. Tippe zum Platzieren");
       }
     } else {
+      // Unsichtbar, wenn keine Fläche gefunden und nicht platziert und nicht bereits bewegt
       if (!isPlaced && !hasBeenMoved) {
         placementGroup.visible = false;
         havePose = false;
@@ -544,157 +466,189 @@ function getDistance(touch1, touch2) {
   return Math.hypot(touch2.clientX - touch1.clientX, touch2.clientY - touch1.clientY);
 }
 
+// Raycast-Prüfung, ob Tap das Modell traf
+function isTapOnModel(clientX, clientY) {
+  if (!model) return false;
+  toNDC(clientX, clientY);
+  raycaster.setFromCamera(ndc, camera);
+  const hits = raycaster.intersectObject(model, true);
+  return hits.length > 0;
+}
+
 function onTouchStart(event) {
-  currentTouches = event.touches ? Array.from(event.touches) : [event];
-  if (currentTouches.length === 0) return;
-  
-  // Stellen Sie sicher, dass keine Button-Taps hier landen
-  const target = event.target;
-  if (target.closest('.btn-icon') || target.closest('.btn-start')) {
-    gestureActive = false;
-    return;
-  }
+  // event.preventDefault() entfernt, um Klicks auf DOM-Elemente (z.B. X-Button) zu erlauben.
+  
+  currentTouches = event.touches ? Array.from(event.touches) : [event];
+
+  if (currentTouches.length === 0) return;
   
-  gestureStartTime = performance.now();
-  didMove = false;
-  tapStartX = currentTouches[0].clientX;
-  tapStartY = currentTouches[0].clientY;
-  isDraggingModel = false; 
+  gestureStartTime = performance.now();
+  didMove = false;
+  
+  // TAP Startpunkte speichern
+  tapStartX = currentTouches[0].clientX;
+  tapStartY = currentTouches[0].clientY;
+  
+  isDraggingModel = false; 
 
-  // Gesten sind nur im Hover-Modus aktiv
-  if (!isPlaced) {
-      if (currentTouches.length === 2) {
-        gestureActive = true;
-        initialPinchDistance = getDistance(currentTouches[0], currentTouches[1]);
-        initialModelScale = placementGroup.scale.x;
-      } else if (currentTouches.length === 1) {
-        if (havePose || placementGroup.visible || hasBeenMoved) {
-            gestureActive = true;
-            lastMoveX = currentTouches[0].clientX;
-            lastMoveY = currentTouches[0].clientY;
+  // Gesten sind nur im Hover-Modus aktiv
+  if (!isPlaced) {
+      if (currentTouches.length === 2) {
+        // 2-Finger Geste: Skalieren
+        gestureActive = true;
+        initialPinchDistance = getDistance(currentTouches[0], currentTouches[1]);
+        initialModelScale = placementGroup.scale.x;
+      } else if (currentTouches.length === 1) {
+        // 1-Finger Geste: Rotation/Bewegung trennen
+        if (havePose || placementGroup.visible || hasBeenMoved) {
+            gestureActive = true;
+            lastMoveX = currentTouches[0].clientX;
+            lastMoveY = currentTouches[0].clientY;
 
-            const tapHitsModel = isTapOnModel(tapStartX, tapStartY);
-            const farEnoughForRotate = isFarFromModelCenter(tapStartX, tapStartY);
+            const tapHitsModel = isTapOnModel(tapStartX, tapStartY);
+            // NEU V18: Prüfen, ob der Finger weit genug vom Zentrum entfernt ist.
+            const farEnoughForRotate = isFarFromModelCenter(tapStartX, tapStartY);
 
-            if (tapHitsModel) {
-                isDraggingModel = true;
-                updateMsg("Modell wird verschoben (1 Finger Drag auf Modell)");
-            } else if (farEnoughForRotate) {
-                isDraggingModel = false;
-                updateMsg("Modell wird gedreht (1 Finger Drag außerhalb des Modells)");
-            } else {
-                isDraggingModel = true;
-                updateMsg("Zu nah am Modell: Drag statt Rotation");
-            }
-        }
-      }
-  } else {
-    gestureActive = false;
-  }
+            if (tapHitsModel) {
+                // Treffer auf Modell -> Verschieben
+                isDraggingModel = true;
+                updateMsg("Modell wird verschoben (1 Finger Drag auf Modell)");
+            } else if (farEnoughForRotate) {
+                // KEIN Treffer UND weit genug entfernt -> Rotation
+                isDraggingModel = false;
+                updateMsg("Modell wird gedreht (1 Finger Drag außerhalb des Modells)");
+            } else {
+                // KEIN Treffer, ABER zu nah am Modellzentrum (im Ausschlussradius) -> Als Verschieben behandeln
+                isDraggingModel = true;
+                updateMsg("Zu nah am Modell: Drag statt Rotation");
+            }
+        }
+      }
+  } else {
+    gestureActive = false;
+  }
 }
 
 function onTouchMove(event) {
-  currentTouches = event.touches ? Array.from(event.touches) : [event];
-  
-  if (isPlaced) {
-    // Im platzierten Zustand nur 2-Finger Pinch zur Skalierung zulassen
-    if (currentTouches.length > 1) event.preventDefault(); 
-    return;
-  } 
+  currentTouches = event.touches ? Array.from(event.touches) : [event];
+  
+  // WICHTIG: Gesten nur im Hover-Modus erlauben
+  if (isPlaced) {
+    if (currentTouches.length > 1) event.preventDefault(); // Erlaube 2-Finger Pinch im platzierten Zustand zur Skalierung
+    return;
+  } 
 
-  const isTwoFinger = currentTouches.length === 2;
-  const isOneFinger = currentTouches.length === 1;
+  const isTwoFinger = currentTouches.length === 2;
+  const isOneFinger = currentTouches.length === 1;
 
-  if (isTwoFinger || (gestureActive && isOneFinger)) {
-    event.preventDefault();
-  }
+  // Klare preventDefault-Bedingungen (Verhindert Scrollen während einer Geste)
+  if (isTwoFinger || (gestureActive && isOneFinger)) {
+    event.preventDefault();
+  }
 
-  if (!gestureActive) return;
+  if (!gestureActive) return;
 
-  const dragDistanceTotal = Math.hypot(currentTouches[0].clientX - tapStartX, currentTouches[0].clientY - tapStartY);
-  if (dragDistanceTotal > DRAG_THRESHOLD_PIX) {
-    didMove = true;
-    hasBeenMoved = true; 
-  }
-  
-  if (isTwoFinger) {
-    const newDist = getDistance(currentTouches[0], currentTouches[1]);
-    const scaleDelta = newDist - initialPinchDistance;
-    let newScale = initialModelScale + scaleDelta * SCALE_FACTOR;
-    newScale = Math.max(0.1, Math.min(5, newScale)); 
-    placementGroup.scale.setScalar(newScale);
-    
-  } else if (isOneFinger) {
-    const t = currentTouches[0];
-    const dx = t.clientX - lastMoveX;
-    if (isDraggingModel) {
-      toNDC(t.clientX, t.clientY);
-      raycaster.setFromCamera(ndc, camera);
-      const hit = new THREE.Vector3();
-      if (raycaster.ray.intersectPlane(floorPlane, hit)) {
-        placementGroup.position.set(hit.x, HOVER_HEIGHT, hit.z);
-      }
-    } else {
-      placementGroup.rotation.y += dx * ROTATION_FACTOR;
-    }
-    lastMoveX = t.clientX;
-  }
+  const dragDistanceTotal = Math.hypot(currentTouches[0].clientX - tapStartX, currentTouches[0].clientY - tapStartY);
+  if (dragDistanceTotal > DRAG_THRESHOLD_PIX) {
+    didMove = true;
+    hasBeenMoved = true; 
+  }
+  
+  if (isTwoFinger) {
+    // 2-Finger Geste: Skalieren
+    const newDist = getDistance(currentTouches[0], currentTouches[1]);
+    const scaleDelta = newDist - initialPinchDistance;
+    let newScale = initialModelScale + scaleDelta * SCALE_FACTOR;
+    newScale = Math.max(0.1, Math.min(5, newScale)); 
+    placementGroup.scale.setScalar(newScale);
+    
+  } else if (isOneFinger) {
+    
+    const t = currentTouches[0];
+    const dx = t.clientX - lastMoveX;
+    
+    if (isDraggingModel) {
+      // AKTION: VERSCHIEBEN (Move)
+      toNDC(t.clientX, t.clientY);
+      raycaster.setFromCamera(ndc, camera);
+      const hit = new THREE.Vector3();
+      // Projektion auf die Boden-Ebene (y=0)
+      if (raycaster.ray.intersectPlane(floorPlane, hit)) {
+        // Y-Koordinate bleibt auf HOVER_HEIGHT
+        placementGroup.position.set(hit.x, HOVER_HEIGHT, hit.z);
+      }
+    } else {
+      // AKTION: ROTIEREN (Rotate)
+      placementGroup.rotation.y += dx * ROTATION_FACTOR;
+    }
+    
+    lastMoveX = t.clientX;
+  }
 }
 
 function onTouchEnd(event) {
-  if (event.touches && event.touches.length > 0) return; 
+  // Behandle nur Touch-End des letzten Fingers (wenn event.touches leer ist) oder MouseUp
+  if (event.touches && event.touches.length > 0) return; 
 
-  const endedTouch = event.changedTouches ? event.changedTouches[0] : event;
-  if (!endedTouch) return;
+  const endedTouch = event.changedTouches ? event.changedTouches[0] : event;
+  if (!endedTouch) return;
 
-  const duration = performance.now() - gestureStartTime;
-  const endX = endedTouch.clientX;
-  const endY = endedTouch.clientY;
-  const dragDistance = Math.hypot(endX - tapStartX, endY - tapStartY);
-  const endedTouchCount = event.changedTouches ? event.changedTouches.length : 1; 
+  const duration = performance.now() - gestureStartTime;
+  const endX = endedTouch.clientX;
+  const endY = endedTouch.clientY;
+  const dragDistance = Math.hypot(endX - tapStartX, endY - tapStartY);
+  const endedTouchCount = event.changedTouches ? event.changedTouches.length : 1; 
 
-  const isTap = (!didMove && dragDistance < DRAG_THRESHOLD_PIX && endedTouchCount === 1 && duration < TAP_THRESHOLD_MS);
-  if (isTap) {
-    simulateTapSelect(endX, endY);
-  }
+  // Tap → Platzieren / Reposition (nur wenn es ein Tap war und nur 1 Finger beteiligt war)
+  const isTap = (!didMove && dragDistance < DRAG_THRESHOLD_PIX && endedTouchCount === 1 && duration < TAP_THRESHOLD_MS);
+  if (isTap) {
+    simulateTapSelect(endX, endY);
+  }
 
-  gestureActive = false;
-  isDraggingModel = false; 
-  initialModelScale = placementGroup.scale.x;
+  // Geste beenden und Baselines aktualisieren
+  gestureActive = false;
+  isDraggingModel = false; 
+  initialModelScale = placementGroup.scale.x;
 }
 
 // Platzieren / Reposition
 function simulateTapSelect(tapX, tapY) {
   if (!modelLoaded) return;
 
-  // 1. TAP: Platzieren (Hover -> Ground)
+  // 1. TAP: PLATZIEREN (Hover -> Ground)
   if (!isPlaced) {
+    // Erlaubt das Platzieren, wenn eine gültige Pose vorliegt ODER der Nutzer das Modell bereits manuell bewegt hat.
     if (havePose || hasBeenMoved) {
       isPlaced = true;
-      hasBeenMoved = true;
+      hasBeenMoved = true; // Bleibt true, bis manuell angehoben wird
 
+      // Ground-Snap (y=0)
       placementGroup.position.y = 0;
+      
+      // Rotation: Nur beim ersten Platzieren die Yaw des Hit-Tests übernehmen (falls noch nicht gedreht)
       if (havePose && placementGroup.rotation.y === 0) {
         const q = new THREE.Quaternion().setFromRotationMatrix(lastPoseMatrix);
         const e = new THREE.Euler().setFromQuaternion(q, 'YXZ');
         placementGroup.rotation.y = e.y;
       }
+
       placementRect.visible = false;
-      initialModelScale = placementGroup.scale.x;
-      updateMsg("Objekt platziert. Tippe erneut AUF das Objekt (oder nah am Zentrum), um es anzuheben.");
+      initialModelScale = placementGroup.scale.x;
+      
+      updateMsg("Objekt platziert. Tippe erneut AUF das Objekt zum Bearbeiten.");
     }
     return;
   }
- 
-  // 2. TAP: Anheben (Ground -> Hover)
-  const hitModel = isTapOnModel(tapX, tapY);
-  const nearCenter = isTapNearModelCenter(tapX, tapY);
-  if (!hitModel && !nearCenter) {
-      return;
-  }
-  
+ 
+  // 2. TAP: ANHEBEN (Ground -> Hover) nur wenn Tap auf Modell
+  if (!isTapOnModel(tapX, tapY)) {
+      updateMsg("Tippe auf das 3D-Modell, um es anzuheben.");
+      return;
+  }
+  
+  // Reposition starten: zurück in Hover
   isPlaced = false;
-  hasBeenMoved = false;
+  hasBeenMoved = false; // Setze hasBeenMoved zurück, um Auto-Follow zu erlauben
   placementRect.visible = true;
   placementGroup.position.y = HOVER_HEIGHT;
   updateMsg("1-Finger: Modell berühren zum Bewegen, daneben wischen zum Drehen. 2-Finger: Skalieren. Tippe zum Absetzen");
