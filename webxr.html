@@ -43,6 +43,7 @@
     justify-content: space-between; 
     align-items: flex-start;
     pointer-events: none;
+    z-index: 10; /* UI-Leiste über dem Gesten-Layer */
   }
   .pointer-auto { pointer-events: auto; }
 
@@ -56,7 +57,12 @@
   }
   .btn-icon:active { transform: scale(0.95); }
 
-  #msg-container { text-align: center; padding-bottom: 40px; pointer-events: none; }
+  #msg-container { 
+    text-align: center; 
+    /* Safe Area unten für Statusmeldung */
+    padding-bottom: calc(40px + env(safe-area-inset-bottom));
+    pointer-events: none; 
+  }
   #msg {
     background: rgba(0,0,0,0.5); padding: 8px 16px;
     border-radius: 20px; display: inline-block; font-size: 14px; opacity: 0.9;
@@ -68,10 +74,12 @@
     border-radius: 8px; font-size: 12px; display: none; z-index: 30;
   }
 
-  /* Gesture-Layer innerhalb des Overlay */
+  /* Gesture-Layer innerhalb des Overlay: z-index unter UI, touch-action none */
   #gesture-layer {
-    position: absolute; inset: 0; z-index: 5;
+    position: absolute; inset: 0;
+    z-index: 0; /* unter den UI-Buttons, damit Buttons sicher klickbar sind */
     pointer-events: auto;
+    touch-action: none; /* verhindert Browser-Scroll/Zoom in Gestenbereich */
   }
 </style>
 <script type="importmap">
@@ -114,7 +122,7 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 // --- Globals ---
 let camera, scene, renderer;
 let hitTestSource = null, hitTestSourceRequested = false;
-let placementGroup; 
+let placementGroup; 
 let placementRect;
 let model;
 let mixer;
@@ -123,6 +131,7 @@ const clock = new THREE.Clock();
 // letzte gültige Hit-Pose (für Platzierung)
 const lastPoseMatrix = new THREE.Matrix4();
 const lastPosePos = new THREE.Vector3();
+const smoothedPose = new THREE.Vector3(); // EMA für Hover-Smoothing
 let havePose = false;
 
 // State & Config
@@ -143,10 +152,15 @@ let isDraggingModel = false;
 // Gesten Parameter
 const TAP_THRESHOLD_MS = 350;
 const DRAG_THRESHOLD_PIX = 24;
-const ROTATION_FACTOR = 0.005;  
-const SCALE_FACTOR = 0.005;     
-// NEU V18: Mindestradius (in Pixeln) um das Modellzentrum, innerhalb dessen KEINE Rotation gestartet wird
+/* Sensiblere Rotation gemäß Empfehlung */
+const ROTATION_FACTOR = 0.015;
+const SCALE_FACTOR = 0.005;
+/* Mindestradius (in Pixeln) um das Modellzentrum, innerhalb dessen KEINE Rotation gestartet wird */
 const ROTATE_EXCLUSION_RADIUS_PX = 100;
+/* Hover-Smoothing */
+const HOVER_SMOOTHING_ALPHA = 0.25;
+/* Großzügiger Radius für Anheben im platzierten Zustand */
+const TAP_NEAR_MODEL_RADIUS_PX = 260;
 
 // 2-Finger Skalierung
 let initialPinchDistance = 0;
@@ -163,30 +177,37 @@ const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
 // NDC Hilfsfunktion mit Canvasgröße
 function toNDC(clientX, clientY) {
-  const w = renderer.domElement.clientWidth || window.innerWidth;
-  const h = renderer.domElement.clientHeight || window.innerHeight;
-  ndc.x = (clientX / w) * 2 - 1;
-  ndc.y = -(clientY / h) * 2 + 1;
+  const w = renderer.domElement.clientWidth || window.innerWidth;
+  const h = renderer.domElement.clientHeight || window.innerHeight;
+  ndc.x = (clientX / w) * 2 - 1;
+  ndc.y = -(clientY / h) * 2 + 1;
 }
 
-// NEU V18: Hilfsfunktion: projiziere eine Weltposition auf Bildschirmpixel
+// Hilfsfunktion: projiziere eine Weltposition auf Bildschirmpixel
 function worldToScreenPx(vec3World) {
-  const v = vec3World.clone().project(camera);
-  const w = renderer.domElement.clientWidth || window.innerWidth;
-  const h = renderer.domElement.clientHeight || window.innerHeight;
-  return {
-    x: (v.x * 0.5 + 0.5) * w,
-    y: (-v.y * 0.5 + 0.5) * h
-  };
+  const v = vec3World.clone().project(camera);
+  const w = renderer.domElement.clientWidth || window.innerWidth;
+  const h = renderer.domElement.clientHeight || window.innerHeight;
+  return {
+    x: (v.x * 0.5 + 0.5) * w,
+    y: (-v.y * 0.5 + 0.5) * h
+  };
 }
 
-// NEU V18: Prüfe, ob Finger weit genug vom Modellzentrum entfernt ist
+// Prüfe, ob Finger weit genug vom Modellzentrum entfernt ist (für Rotation)
 function isFarFromModelCenter(clientX, clientY, radiusPx = ROTATE_EXCLUSION_RADIUS_PX) {
-  // Verwende placementGroup.position, da dies die Mitte des Objekts ist.
-  if (!placementGroup) return true; 
-  const centerPx = worldToScreenPx(placementGroup.position);
-  const dist = Math.hypot(clientX - centerPx.x, clientY - centerPx.y);
-  return dist > radiusPx;
+  if (!placementGroup) return true; 
+  const centerPx = worldToScreenPx(placementGroup.position);
+  const dist = Math.hypot(clientX - centerPx.x, clientY - centerPx.y);
+  return dist > radiusPx;
+}
+
+// Prüfe, ob Tap in der Nähe des Modellzentrums liegt (großzügiger Bereich)
+function isNearModelCenter(clientX, clientY, radiusPx = TAP_NEAR_MODEL_RADIUS_PX) {
+  if (!placementGroup) return false;
+  const centerPx = worldToScreenPx(placementGroup.position);
+  const dist = Math.hypot(clientX - centerPx.x, clientY - centerPx.y);
+  return dist <= radiusPx;
 }
 
 
@@ -199,41 +220,41 @@ let MODEL_URL = '';
 let AUDIO_URL = '';
 
 async function boot() {
-  if (!navigator.xr) {
-    showErr("WebXR nicht unterstützt.");
-    return;
-  }
+  if (!navigator.xr) {
+    showErr("WebXR nicht unterstützt.");
+    return;
+  }
 
-  if (sceneParam) {
-    if (sceneParam.endsWith('.glb')) MODEL_URL = sceneParam;
-    else SCENE_JSON_URL = `${workerBase}/scenes/${sceneParam}/scene.json`;
-  } else {
-    MODEL_URL = 'https://modelviewer.dev/shared-assets/models/Astronaut.glb';
-  }
+  if (sceneParam) {
+    if (sceneParam.endsWith('.glb')) MODEL_URL = sceneParam;
+    else SCENE_JSON_URL = `${workerBase}/scenes/${sceneParam}/scene.json`;
+  } else {
+    MODEL_URL = 'https://modelviewer.dev/shared-assets/models/Astronaut.glb';
+  }
 
-  if (SCENE_JSON_URL) {
-    try {
-      const res = await fetch(SCENE_JSON_URL);
-      if(!res.ok) throw new Error('Scene JSON Error');
-      const json = await res.json();
-      if(json.model?.url) MODEL_URL = `${workerBase}/scenes/${sceneParam}/${json.model.url}`;
-      if(json.audio?.url) {
-        AUDIO_URL = `${workerBase}/scenes/${sceneParam}/${json.audio.url}`;
-        setupAudio(json.audio);
-      }
-    } catch(e) {
-      console.error(e);
-      showErr("Fehler beim Laden der Szene.");
-    }
-  }
+  if (SCENE_JSON_URL) {
+    try {
+      const res = await fetch(SCENE_JSON_URL);
+      if(!res.ok) throw new Error('Scene JSON Error');
+      const json = await res.json();
+      if(json.model?.url) MODEL_URL = `${workerBase}/scenes/${sceneParam}/${json.model.url}`;
+      if(json.audio?.url) {
+        AUDIO_URL = `${workerBase}/scenes/${sceneParam}/${json.audio.url}`;
+        setupAudio(json.audio);
+      }
+    } catch(e) {
+      console.error(e);
+      showErr("Fehler beim Laden der Szene.");
+    }
+  }
 
-  initThree();
-  loadModel();
-  
-  document.getElementById('btn-enter-ar').addEventListener('click', onStartAR);
+  initThree();
+  loadModel();
+  
+  document.getElementById('btn-enter-ar').addEventListener('click', onStartAR);
 
-// Click-Handler für den Schließen-Button
-document.getElementById('btn-close').addEventListener('click', async () => {
+  // Click-Handler für den Schließen-Button
+  document.getElementById('btn-close').addEventListener('click', async () => {
     const s = renderer.xr.getSession();
     if (s) {
         // Fall 1: AR-Session läuft. Ruft den zentralen 'end'-Listener auf.
@@ -250,13 +271,13 @@ document.getElementById('btn-close').addEventListener('click', async () => {
         placementGroup.visible = false;
         updateMsg("Bewege dein Gerät um Fläche zu finden...");
     }
-});
-  
-  const gestureLayer = document.getElementById('gesture-layer');
-  gestureLayer.addEventListener('touchstart', onTouchStart, { passive: false });
-  gestureLayer.addEventListener('touchmove', onTouchMove, { passive: false });
-  gestureLayer.addEventListener('touchend', onTouchEnd, { passive: false });
-  gestureLayer.addEventListener('touchcancel', onTouchEnd, { passive: false });
+  });
+  
+  const gestureLayer = document.getElementById('gesture-layer');
+  gestureLayer.addEventListener('touchstart', onTouchStart, { passive: false });
+  gestureLayer.addEventListener('touchmove', onTouchMove, { passive: false });
+  gestureLayer.addEventListener('touchend', onTouchEnd, { passive: false });
+  gestureLayer.addEventListener('touchcancel', onTouchEnd, { passive: false });
 
   // Maus-Unterstützung (Desktop testing)
   gestureLayer.addEventListener('mousedown', onTouchStart, { passive: false });
@@ -265,90 +286,90 @@ document.getElementById('btn-close').addEventListener('click', async () => {
 }
 
 function initThree() {
-  scene = new THREE.Scene();
-  camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.01, 20);
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.01, 20);
 
-  const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1.2);
-  scene.add(light);
-  
-  const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
-  dirLight.position.set(2, 8, 4);
-  dirLight.castShadow = true;
-  dirLight.shadow.mapSize.set(1024, 1024);
-  dirLight.shadow.camera.near = 0.5;
-  dirLight.shadow.camera.far = 50;
-  dirLight.shadow.camera.left = -5;
-  dirLight.shadow.camera.right = 5;
-  dirLight.shadow.camera.top = 5;
-  dirLight.shadow.camera.bottom = -5;
-  scene.add(dirLight);
+  const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1.2);
+  scene.add(light);
+  
+  const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+  dirLight.position.set(2, 8, 4);
+  dirLight.castShadow = true;
+  dirLight.shadow.mapSize set(1024, 1024);
+  dirLight.shadow.camera.near = 0.5;
+  dirLight.shadow.camera.far = 50;
+  dirLight.shadow.camera.left = -5;
+  dirLight.shadow.camera.right = 5;
+  dirLight.shadow.camera.top = 5;
+  dirLight.shadow.camera.bottom = -5;
+  scene.add(dirLight);
 
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  renderer.setPixelRatio(window.devicePixelRatio);
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.xr.enabled = true;
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
-  document.body.appendChild(renderer.domElement);
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.xr.enabled = true;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
+  document.body.appendChild(renderer.domElement);
 
-  placementGroup = new THREE.Group();
-  placementGroup.visible = false;
-  scene.add(placementGroup);
+  placementGroup = new THREE.Group();
+  placementGroup.visible = false;
+  scene.add(placementGroup);
 
-  const shadowPlaneGeo = new THREE.PlaneGeometry(10, 10);
-  shadowPlaneGeo.rotateX(-Math.PI / 2);
-  const shadowPlaneMat = new THREE.ShadowMaterial({ opacity: 0.3 });
-  const shadowPlane = new THREE.Mesh(shadowPlaneGeo, shadowPlaneMat);
-  shadowPlane.position.y = 0;
-  shadowPlane.receiveShadow = true;
-  scene.add(shadowPlane); 
+  const shadowPlaneGeo = new THREE.PlaneGeometry(10, 10);
+  shadowPlaneGeo.rotateX(-Math.PI / 2);
+  const shadowPlaneMat = new THREE.ShadowMaterial({ opacity: 0.3 });
+  const shadowPlane = new THREE.Mesh(shadowPlaneGeo, shadowPlaneMat);
+  shadowPlane.position.y = 0;
+  shadowPlane.receiveShadow = true;
+  scene.add(shadowPlane); 
 
-  const size = 0.4;
-  const radius = 0.05;
-  const rectShape = new THREE.Shape();
-  rectShape.moveTo(0, radius);
-  rectShape.lineTo(0, size - radius);
-  rectShape.quadraticCurveTo(0, size, radius, size);
-  rectShape.lineTo(size - radius, size);
-  rectShape.quadraticCurveTo(size, size, size, size - radius);
-  rectShape.lineTo(size, radius);
-  rectShape.quadraticCurveTo(size, 0, size - radius, 0);
-  rectShape.lineTo(radius, 0);
-  rectShape.quadraticCurveTo(0, 0, 0, radius);
-  const outlineGeo = new THREE.ShapeGeometry(rectShape);
-  outlineGeo.translate(-size / 2, -size / 2, 0);
-  const edges = new THREE.EdgesGeometry(outlineGeo);
-  const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, opacity: 0.8, transparent: true });
-  placementRect = new THREE.LineSegments(edges, lineMat);
-  placementRect.rotation.x = -Math.PI / 2;
-  placementRect.position.y = 0.005;
-  placementRect.scale.set(1.05, 1.05, 1.05); 
-  placementGroup.add(placementRect);
+  const size = 0.4;
+  const radius = 0.05;
+  const rectShape = new THREE.Shape();
+  rectShape.moveTo(0, radius);
+  rectShape.lineTo(0, size - radius);
+  rectShape.quadraticCurveTo(0, size, radius, size);
+  rectShape.lineTo(size - radius, size);
+  rectShape.quadraticCurveTo(size, size, size, size - radius);
+  rectShape.lineTo(size, radius);
+  rectShape.quadraticCurveTo(size, 0, size - radius, 0);
+  rectShape.lineTo(radius, 0);
+  rectShape.quadraticCurveTo(0, 0, 0, radius);
+  const outlineGeo = new THREE.ShapeGeometry(rectShape);
+  outlineGeo.translate(-size / 2, -size / 2, 0);
+  const edges = new THREE.EdgesGeometry(outlineGeo);
+  const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, opacity: 0.8, transparent: true });
+  placementRect = new THREE.LineSegments(edges, lineMat);
+  placementRect.rotation.x = -Math.PI / 2;
+  placementRect.position.y = 0.005;
+  placementRect.scale.set(1.05, 1.05, 1.05); 
+  placementGroup.add(placementRect);
 }
 
 async function loadModel() {
-  const loader = new GLTFLoader();
-  const draco = new DRACOLoader();
-  draco.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
-  loader.setDRACOLoader(draco);
+  const loader = new GLTFLoader();
+  const draco = new DRACOLoader();
+  draco.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
+  loader.setDRACOLoader(draco);
 
-  try {
-    const gltf = await loader.loadAsync(MODEL_URL);
-    model = gltf.scene;
-    model.traverse((node) => { if (node.isMesh) { node.castShadow = true; node.receiveShadow = false; } });
-    model.scale.setScalar(0.5); 
-    if(gltf.animations?.length) {
-      mixer = new THREE.AnimationMixer(model);
-      gltf.animations.forEach(clip => mixer.clipAction(clip).play());
-    }
-    placementGroup.add(model);
-    modelLoaded = true;
-    updateMsg("Bewege dein Gerät um Fläche zu finden...");
-  } catch(e) {
-    showErr("Modell konnte nicht geladen werden.");
-    console.error(e);
-  }
+  try {
+    const gltf = await loader.loadAsync(MODEL_URL);
+    model = gltf.scene;
+    model.traverse((node) => { if (node.isMesh) { node.castShadow = true; node.receiveShadow = false; } });
+    model.scale setScalar(0.5); 
+    if(gltf.animations?.length) {
+      mixer = new THREE.AnimationMixer(model);
+      gltf.animations.forEach(clip => mixer.clipAction(clip).play());
+    }
+    placementGroup.add(model);
+    modelLoaded = true;
+    updateMsg("Bewege dein Gerät um Fläche zu finden...");
+  } catch(e) {
+    showErr("Modell konnte nicht geladen werden.");
+    console.error(e);
+  }
 }
 
 // --- Audio ---
@@ -357,113 +378,120 @@ const btnMute = document.getElementById('btn-mute');
 let isMuted = false;
 
 function setupAudio(audioCfg) {
-  audioEl.src = AUDIO_URL;
-  audioEl.loop = !!audioCfg.loop;
-  audioEl.volume = audioCfg.volume || 0.8;
-  btnMute.style.display = 'flex';
-  btnMute.addEventListener('click', () => {
-    isMuted = !isMuted;
-    audioEl.muted = isMuted;
-    btnMute.textContent = isMuted ? '🔇' : '🔊';
-  });
+  audioEl.src = AUDIO_URL;
+  audioEl.loop = !!audioCfg.loop;
+  audioEl.volume = audioCfg.volume || 0.8;
+  btnMute.style.display = 'flex';
+  btnMute.addEventListener('click', () => {
+    isMuted = !isMuted;
+    audioEl.muted = isMuted;
+    btnMute.textContent = isMuted ? '🔇' : '🔊';
+  });
 }
 
 // --- WebXR Session ---
 
 async function onStartAR() {
-  document.getElementById('start-screen').style.display = 'none';
-  if(AUDIO_URL) audioEl.play().catch(e => console.warn("Audio Autoplay:", e));
+  document.getElementById('start-screen').style.display = 'none';
+  if(AUDIO_URL) audioEl.play().catch(e => console.warn("Audio Autoplay:", e));
 
-  const session = await navigator.xr.requestSession('immersive-ar', {
-    requiredFeatures: ['hit-test', 'local-floor'],
-    optionalFeatures: ['dom-overlay'],
-    domOverlay: { root: document.getElementById('overlay') }
-  });
+  const session = await navigator.xr.requestSession('immersive-ar', {
+    requiredFeatures: ['hit-test', 'local-floor'],
+    optionalFeatures: ['dom-overlay'],
+    domOverlay: { root: document.getElementById('overlay') }
+  });
 
-  // *** Zentraler Session-End Listener ***
-  session.addEventListener('end', async () => {
-    hitTestSourceRequested = false;
-    hitTestSource = null;
-    renderer.setAnimationLoop(null);
-    await renderer.xr.setSession(null);
-    
-    // Zustände und UI zurücksetzen
-    document.getElementById('start-screen').style.display = 'flex';
-    audioEl.pause();
-    havePose = false;
-    isPlaced = false;
-    hasBeenMoved = false; 
-    placementGroup.visible = false;
-    updateMsg("Bewege dein Gerät um Fläche zu finden...");
-  });
+  // *** Zentraler Session-End Listener ***
+  session.addEventListener('end', async () => {
+    hitTestSourceRequested = false;
+    hitTestSource = null;
+    renderer.setAnimationLoop(null);
+    await renderer.xr.setSession(null);
+    
+    // Zustände und UI zurücksetzen
+    document.getElementById('start-screen').style.display = 'flex';
+    audioEl.pause();
+    havePose = false;
+    isPlaced = false;
+    hasBeenMoved = false; 
+    placementGroup.visible = false;
+    updateMsg("Bewege dein Gerät um Fläche zu finden...");
+  });
 
-  renderer.xr.setReferenceSpaceType('local-floor');
-  await renderer.xr.setSession(session);
-  renderer.setAnimationLoop(render);
+  renderer.xr.setReferenceSpaceType('local-floor');
+  await renderer.xr.setSession(session);
+  renderer.setAnimationLoop(render);
 }
 
 // --- Render Loop & Hit Test ---
 
 function render(timestamp, frame) {
-  if (!frame) return;
+  if (!frame) return;
 
-  const session = renderer.xr.getSession();
-  
-  if (!hitTestSourceRequested) {
-    session.requestReferenceSpace('viewer').then((refSpace) => {
-      session.requestHitTestSource({ space: refSpace }).then((source) => {
-        hitTestSource = source;
-      });
-    });
-    hitTestSourceRequested = true;
-  }
+  const session = renderer.xr.getSession();
+  
+  if (!hitTestSourceRequested) {
+    session.requestReferenceSpace('viewer').then((refSpace) => {
+      session.requestHitTestSource({ space: refSpace }).then((source) => {
+        hitTestSource = source;
+      });
+    });
+    hitTestSourceRequested = true;
+  }
 
-  const dt = clock.getDelta();
-  if(mixer) mixer.update(dt);
+  const dt = clock.getDelta();
+  if(mixer) mixer.update(dt);
 
-  if (hitTestSource) {
-    const refSpace = renderer.xr.getReferenceSpace();
-    const results = frame.getHitTestResults(hitTestSource);
+  if (hitTestSource) {
+    const refSpace = renderer.xr.getReferenceSpace();
+    const results = frame.getHitTestResults(hitTestSource);
 
-    if (results.length > 0) {
-      const hit = results[0];
-      const pose = hit.getPose(refSpace);
-      
-      // Hit-Test-Positionierung nur ausführen, wenn das Modell NICHT platziert IST UND NOCH NICHT VOM BENUTZER BEWEGT WURDE.
-      if (pose && !isPlaced && !hasBeenMoved) {
-        lastPoseMatrix.fromArray(pose.transform.matrix);
-        lastPosePos.set(
-          pose.transform.position.x,
-          pose.transform.position.y,
-          pose.transform.position.z
-        );
-        havePose = true;
+    if (results.length > 0) {
+      const hit = results[0];
+      const pose = hit.getPose(refSpace);
+      
+      // Hit-Test-Positionierung nur ausführen, wenn das Modell NICHT platziert IST UND NOCH NICHT VOM BENUTZER BEWEGT WURDE.
+      if (pose && !isPlaced && !hasBeenMoved) {
+        lastPoseMatrix.fromArray(pose.transform.matrix);
+        lastPosePos.set(
+          pose.transform.position.x,
+          pose.transform.position.y,
+          pose.transform.position.z
+        );
+        havePose = true;
 
-        placementGroup.visible = true;
-        placementGroup.position.set(
-          lastPosePos.x,
-          lastPosePos.y + HOVER_HEIGHT, // Hover
-          lastPosePos.z
-        );
-        updateMsg("1-Finger: Modell berühren zum Bewegen, daneben wischen zum Drehen. 2-Finger: Skalieren. Tippe zum Platzieren");
-      }
-    } else {
-      // Unsichtbar, wenn keine Fläche gefunden und nicht platziert und nicht bereits bewegt
-      if (!isPlaced && !hasBeenMoved) {
-        placementGroup.visible = false;
-        havePose = false;
-        updateMsg("Suche Boden...");
-      }
-    }
-  }
+        // Hover-Smoothing (EMA) für stabilere Zielposition
+        if (!smoothedPose.x && !smoothedPose.y && !smoothedPose.z) {
+          smoothedPose.copy(lastPosePos);
+        } else {
+          smoothedPose.lerp(lastPosePos, HOVER_SMOOTHING_ALPHA);
+        }
 
-  renderer.render(scene, camera);
+        placementGroup.visible = true;
+        placementGroup.position.set(
+          smoothedPose.x,
+          smoothedPose.y + HOVER_HEIGHT, // Hover
+          smoothedPose.z
+        );
+        updateMsg("1-Finger: Modell berühren zum Bewegen, daneben wischen zum Drehen. 2-Finger: Skalieren. Tippe zum Platzieren");
+      }
+    } else {
+      // Unsichtbar, wenn keine Fläche gefunden und nicht platziert und nicht bereits bewegt
+      if (!isPlaced && !hasBeenMoved) {
+        placementGroup.visible = false;
+        havePose = false;
+        updateMsg("Suche Boden...");
+      }
+    }
+  }
+
+  renderer.render(scene, camera);
 }
 
 // --- Gesten-Handler ---
 
 function getDistance(touch1, touch2) {
-  return Math.hypot(touch2.clientX - touch1.clientX, touch2.clientY - touch1.clientY);
+  return Math.hypot(touch2.clientX - touch1.clientX, touch2.clientY - touch1.clientY);
 }
 
 // Raycast-Prüfung, ob Tap das Modell traf
@@ -476,8 +504,8 @@ function isTapOnModel(clientX, clientY) {
 }
 
 function onTouchStart(event) {
-  // event.preventDefault() entfernt, um Klicks auf DOM-Elemente (z.B. X-Button) zu erlauben.
-  
+  // event.preventDefault() entfernt, um Klicks auf DOM-Elemente (z.B. X-Button) zu erlauben.
+  
   currentTouches = event.touches ? Array.from(event.touches) : [event];
 
   if (currentTouches.length === 0) return;
@@ -506,7 +534,7 @@ function onTouchStart(event) {
             lastMoveY = currentTouches[0].clientY;
 
             const tapHitsModel = isTapOnModel(tapStartX, tapStartY);
-            // NEU V18: Prüfen, ob der Finger weit genug vom Zentrum entfernt ist.
+            // Prüfen, ob der Finger weit genug vom Zentrum entfernt ist.
             const farEnoughForRotate = isFarFromModelCenter(tapStartX, tapStartY);
 
             if (tapHitsModel) {
@@ -518,9 +546,9 @@ function onTouchStart(event) {
                 isDraggingModel = false;
                 updateMsg("Modell wird gedreht (1 Finger Drag außerhalb des Modells)");
             } else {
-                // KEIN Treffer, ABER zu nah am Modellzentrum (im Ausschlussradius) -> Als Verschieben behandeln
-                isDraggingModel = true;
-                updateMsg("Zu nah am Modell: Drag statt Rotation");
+                // KEIN Treffer, ABER zu nah am Modellzentrum (im Ausschlussradius) -> Tap zulassen, Drag unterdrücken
+                gestureActive = false; 
+                return;
             }
         }
       }
@@ -559,7 +587,7 @@ function onTouchMove(event) {
     const newDist = getDistance(currentTouches[0], currentTouches[1]);
     const scaleDelta = newDist - initialPinchDistance;
     let newScale = initialModelScale + scaleDelta * SCALE_FACTOR;
-    newScale = Math.max(0.1, Math.min(5, newScale)); 
+    newScale = Math.max(0.1, Math.min(5, newScale)); 
     placementGroup.scale.setScalar(newScale);
     
   } else if (isOneFinger) {
@@ -578,7 +606,7 @@ function onTouchMove(event) {
         placementGroup.position.set(hit.x, HOVER_HEIGHT, hit.z);
       }
     } else {
-      // AKTION: ROTIEREN (Rotate)
+      // AKTION: ROTIEREN (Rotate) - sensibler
       placementGroup.rotation.y += dx * ROTATION_FACTOR;
     }
     
@@ -613,55 +641,67 @@ function onTouchEnd(event) {
 
 // Platzieren / Reposition
 function simulateTapSelect(tapX, tapY) {
-  if (!modelLoaded) return;
+  if (!modelLoaded) return;
 
-  // 1. TAP: PLATZIEREN (Hover -> Ground)
-  if (!isPlaced) {
+  // 1. TAP: PLATZIEREN (Hover -> Ground)
+  if (!isPlaced) {
     // Erlaubt das Platzieren, wenn eine gültige Pose vorliegt ODER der Nutzer das Modell bereits manuell bewegt hat.
-    if (havePose || hasBeenMoved) {
-      isPlaced = true;
+    if (havePose || hasBeenMoved) {
+      isPlaced = true;
       hasBeenMoved = true; // Bleibt true, bis manuell angehoben wird
 
-      // Ground-Snap (y=0)
-      placementGroup.position.y = 0;
+      // Ground-Snap (y=0)
+      placementGroup.position.y = 0;
       
-      // Rotation: Nur beim ersten Platzieren die Yaw des Hit-Tests übernehmen (falls noch nicht gedreht)
-      if (havePose && placementGroup.rotation.y === 0) {
-        const q = new THREE.Quaternion().setFromRotationMatrix(lastPoseMatrix);
-        const e = new THREE.Euler().setFromQuaternion(q, 'YXZ');
-        placementGroup.rotation.y = e.y;
-      }
+      // Rotation: Nur beim ersten Platzieren die Yaw des Hit-Tests übernehmen (falls noch nicht gedreht)
+      if (havePose && placementGroup.rotation.y === 0) {
+        const q = new THREE.Quaternion().setFromRotationMatrix(lastPoseMatrix);
+        const e = new THREE.Euler().setFromQuaternion(q, 'YXZ');
+        placementGroup.rotation.y = e.y;
+      }
 
-      placementRect.visible = false;
+      placementRect.visible = false;
       initialModelScale = placementGroup.scale.x;
       
-      updateMsg("Objekt platziert. Tippe erneut AUF das Objekt zum Bearbeiten.");
-    }
-    return;
-  }
+      updateMsg("Objekt platziert. Tippe erneut AUF das Objekt oder in die Nähe zum Anheben.");
+    }
+    return;
+  }
  
-  // 2. TAP: ANHEBEN (Ground -> Hover) nur wenn Tap auf Modell
-  if (!isTapOnModel(tapX, tapY)) {
-      updateMsg("Tippe auf das 3D-Modell, um es anzuheben.");
+  // 2. TAP: ANHEBEN (Ground -> Hover) — großzügiger Bereich akzeptiert
+  const tapHitsModel = isTapOnModel(tapX, tapY);
+  const tapNearCenter = isNearModelCenter(tapX, tapY, TAP_NEAR_MODEL_RADIUS_PX);
+  if (!tapHitsModel && !tapNearCenter) {
+      updateMsg("Tippe auf oder in die Nähe des 3D-Modells, um es anzuheben.");
       return;
   }
   
-  // Reposition starten: zurück in Hover
-  isPlaced = false;
-  hasBeenMoved = false; // Setze hasBeenMoved zurück, um Auto-Follow zu erlauben
-  placementRect.visible = true;
-  placementGroup.position.y = HOVER_HEIGHT;
-  updateMsg("1-Finger: Modell berühren zum Bewegen, daneben wischen zum Drehen. 2-Finger: Skalieren. Tippe zum Absetzen");
+  // Reposition starten: zurück in Hover
+  isPlaced = false;
+  hasBeenMoved = false; // Setze hasBeenMoved zurück, um Auto-Follow zu erlauben
+  placementRect.visible = true;
+  placementGroup.position.y = HOVER_HEIGHT;
+  updateMsg("1-Finger: Modell berühren zum Bewegen, daneben wischen zum Drehen. 2-Finger: Skalieren. Tippe zum Absetzen");
 }
 
 // UI-Helfer
 function showErr(txt) {
-  const e = document.getElementById('err');
-  e.textContent = txt;
-  e.style.display = 'block';
-  setTimeout(() => e.style.display='none', 5000);
+  const e = document.getElementById('err');
+  e.textContent = txt;
+  e.style.display = 'block';
+  setTimeout(() => e.style.display='none', 5000);
 }
-function updateMsg(txt) { document.getElementById('msg').textContent = txt; }
+// Debounced Message Update (Verhindert, dass die Nachricht zu oft neu gesetzt wird)
+let lastMsg = '';
+let lastMsgTime = 0;
+const MSG_DEBOUNCE_MS = 400; 
+function updateMsg(txt) {
+  const now = performance.now();
+  if (txt === lastMsg && (now - lastMsgTime) < MSG_DEBOUNCE_MS) return;
+  lastMsg = txt;
+  lastMsgTime = now;
+  document.getElementById('msg').textContent = txt;
+}
 
 boot();
 </script>
