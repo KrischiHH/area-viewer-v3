@@ -145,8 +145,10 @@ const TAP_THRESHOLD_MS = 350;
 const DRAG_THRESHOLD_PIX = 24;
 const ROTATION_FACTOR = 0.005;  
 const SCALE_FACTOR = 0.005;     
-const ROTATE_EXCLUSION_RADIUS_PX = 100; // Radius um Modellzentrum, in dem Rotation ignoriert wird
-const LIFT_TAP_RADIUS_PX = 120;          // NEU V19: Toleranter Radius für Tap-Lift im platzierten Zustand
+// Radius um Modellzentrum, in dem Rotation ignoriert wird
+const ROTATE_EXCLUSION_RADIUS_PX = 100;
+// V20: Toleranter Screen‑Space‑Radius für Tap‑Lift im platzierten Zustand
+const LIFT_TAP_RADIUS_PX = 120; 
 
 // 2-Finger Skalierung
 let initialPinchDistance = 0;
@@ -188,7 +190,7 @@ function isFarFromModelCenter(clientX, clientY, radiusPx = ROTATE_EXCLUSION_RADI
   return dist > radiusPx;
 }
 
-// NEU V19: Prüfe, ob Tap nahe am Modellzentrum liegt (für Anheben)
+// Prüfe, ob Tap nahe am Modellzentrum liegt (für Anheben)
 function isTapNearModelCenter(clientX, clientY, radiusPx = LIFT_TAP_RADIUS_PX) {
   if (!placementGroup) return false;
   const centerPx = worldToScreenPx(placementGroup.position);
@@ -248,7 +250,7 @@ async function boot() {
   
   document.getElementById('btn-enter-ar').addEventListener('click', onStartAR);
 
-// ** FIX V19: Robuster Click-Handler für den Schließen-Button mit Fallback **
+// ** FIX V20: Robuster Click-Handler für den Schließen-Button mit Fallback **
 document.getElementById('btn-close').addEventListener('click', async () => {
     try {
         const s = renderer?.xr?.getSession?.();
@@ -420,6 +422,8 @@ async function onStartAR() {
     isPlaced = false;
     hasBeenMoved = false; 
     placementGroup.visible = false;
+    placementRect.visible = true;
+    placementGroup.position.y = HOVER_HEIGHT;
     updateMsg("Bewege dein Gerät um Fläche zu finden...");
   });
 
