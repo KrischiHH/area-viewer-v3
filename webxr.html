@@ -148,8 +148,13 @@ const SCALE_FACTOR = 0.005;
 // Rotation erst mit Abstand zum Zentrum (Konflikte vermeiden)
 const ROTATE_EXCLUSION_RADIUS_PX = 120;
 // Großzügige Radien für Tap nahe Modell/Ziel
-const TAP_NEAR_MODEL_RADIUS_PX = 220;   // Anheben (im platzierten Zustand)
-const PLACE_TAP_RADIUS_PX = 200;        // Platzieren (im Hover-Zustand)
+const TAP_NEAR_MODEL_RADIUS_PX = 240;   // Anheben (im platzierten Zustand)
+const PLACE_TAP_RADIUS_PX = 200;        // Fallback fürs Platzieren nahe Hover-Zentrum
+// Rechteck-Parameter für Platzieren
+const PLACEMENT_RECT_SIZE_M = 0.4;
+const PLACEMENT_RECT_SCALE = 1.05;
+const PLACEMENT_RECT_HALF_M = (PLACEMENT_RECT_SIZE_M * PLACEMENT_RECT_SCALE) / 2; // ~0.21 m
+const RECT_TAP_MARGIN_M = 0.06; // kleiner Rand (6 cm) um Treffer zu erleichtern
 
 // 2-Finger Skalierung
 let initialPinchDistance = 0;
@@ -202,6 +207,25 @@ function isNearHoverPos(clientX, clientY, radiusPx = PLACE_TAP_RADIUS_PX) {
   const dist = Math.hypot(clientX - centerPx.x, clientY - centerPx.y);
   return dist <= radiusPx;
 }
+
+// Prüft, ob der Tap innerhalb der Rechteck-Fläche liegt (auf Bodenebene projiziert)
+function isTapInsidePlacementRect(clientX, clientY) {
+  // nur sinnvoll im Hover-Modus, Rechteck liegt horizontal als Kind von placementGroup
+  toNDC(clientX, clientY);
+  raycaster.setFromCamera(ndc, camera);
+  const hit = new THREE.Vector3();
+  // Schnittpunkt mit der Ebene auf Höhe des Hover-Zustands
+  const hoverY = placementGroup.position.y;
+  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -hoverY); // y = hoverY
+  if (!raycaster.ray.intersectPlane(plane, hit)) return false;
+
+  // Rechteck-Bounds um das Zentrum der placementGroup
+  const dx = hit.x - placementGroup.position.x;
+  const dz = hit.z - placementGroup.position.z;
+  const half = PLACEMENT_RECT_HALF_M + RECT_TAP_MARGIN_M;
+  return Math.abs(dx) <= half && Math.abs(dz) <= half;
+}
+
 
 // URL-Parameter
 const qs = new URLSearchParams(location.search);
@@ -313,7 +337,7 @@ function initThree() {
   shadowPlane.receiveShadow = true;
   scene.add(shadowPlane); 
 
-  const size = 0.4;
+  const size = PLACEMENT_RECT_SIZE_M;
   const radius = 0.05;
   const rectShape = new THREE.Shape();
   rectShape.moveTo(0, radius);
@@ -332,7 +356,7 @@ function initThree() {
   placementRect = new THREE.LineSegments(edges, lineMat);
   placementRect.rotation.x = -Math.PI / 2;
   placementRect.position.y = 0.005;
-  placementRect.scale.set(1.05, 1.05, 1.05); 
+  placementRect.scale.set(PLACEMENT_RECT_SCALE, PLACEMENT_RECT_SCALE, PLACEMENT_RECT_SCALE); 
   placementGroup.add(placementRect);
 }
 
@@ -454,7 +478,7 @@ function render(timestamp, frame) {
           lastPosePos.y + HOVER_HEIGHT, // Hover
           lastPosePos.z
         );
-        updateMsg("1-Finger: Modell berühren zum Bewegen, daneben wischen zum Drehen. 2-Finger: Skalieren. Tippe zum Platzieren");
+        updateMsg("1-Finger: Modell berühren zum Bewegen, daneben wischen zum Drehen. 2-Finger: Skalieren. Tippe innerhalb des Rechtecks zum Platzieren");
       }
     } else {
       // Unsichtbar, wenn keine Fläche gefunden und nicht platziert und nicht bereits bewegt
@@ -623,8 +647,11 @@ function simulateTapSelect(tapX, tapY) {
 
   // 1. Tap: Platzieren (Hover -> Ground)
   if (!isPlaced) {
-    // Tap in Nähe der Hover-Position erlaubt Platzieren
-    if ((havePose || hasBeenMoved) && isNearHoverPos(tapX, tapY, PLACE_TAP_RADIUS_PX)) {
+    // Tap innerhalb des Rechtecks (inkl. kleinem Rand) platziert
+    const insideRect = isTapInsidePlacementRect(tapX, tapY);
+    // Fallback: Tap nahe Hover-Zentrum erlaubt auch Platzieren
+    const nearHoverCenter = isNearHoverPos(tapX, tapY, PLACE_TAP_RADIUS_PX);
+    if ((havePose || hasBeenMoved) && (insideRect || nearHoverCenter)) {
       isPlaced = true;
       hasBeenMoved = true;
 
@@ -643,7 +670,7 @@ function simulateTapSelect(tapX, tapY) {
       
       updateMsg("Objekt platziert. Tippe erneut auf das Objekt oder in die Nähe, um es anzuheben.");
     } else {
-      updateMsg("Tippe in die Nähe der Zielmarkierung, um abzusetzen.");
+      updateMsg("Tippe innerhalb des Rechtecks (oder in die Nähe der Zielmarkierung), um abzusetzen.");
     }
     return;
   }
@@ -662,7 +689,7 @@ function simulateTapSelect(tapX, tapY) {
   hasBeenMoved = false; // Auto-Follow erlauben
   placementRect.visible = true;
   placementGroup.position.y = HOVER_HEIGHT;
-  updateMsg("Schwebemodus: 1-Finger bewegen (auf Modell), 1-Finger rotieren (außerhalb, mit Abstand), 2-Finger skalieren. Tippe zum Absetzen.");
+  updateMsg("Schwebemodus: 1-Finger bewegen (auf Modell), 1-Finger rotieren (außerhalb, mit Abstand), 2-Finger skalieren. Tippe im Rechteck zum Absetzen.");
 }
 
 // UI-Helfer
