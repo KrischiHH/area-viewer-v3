@@ -37,12 +37,12 @@
   /* WICHTIG: Anpassung für Safe Area (Notch) */
   .ui-row {
     padding: 20px; 
+    /* Fügt den Safe Area Abstand oben hinzu, damit die Elemente unterhalb der Notch liegen */
     padding-top: calc(20px + env(safe-area-inset-top)); 
     display: flex; 
     justify-content: space-between; 
     align-items: flex-start;
     pointer-events: none;
-    gap: 10px;
   }
   .pointer-auto { pointer-events: auto; }
 
@@ -93,10 +93,8 @@
 
 <div id="overlay">
   <div class="ui-row">
-    <div style="display:flex; gap:8px">
-      <button class="btn-icon pointer-auto" id="btn-close">✕</button>
-      <button class="btn-icon pointer-auto" id="btn-mute" style="display:none">🔊</button>
-    </div>
+    <button class="btn-icon pointer-auto" id="btn-close">✕</button>
+    <button class="btn-icon pointer-auto" id="btn-mute" style="display:none">🔊</button>
   </div>
   
   <div id="msg-container">
@@ -125,7 +123,6 @@ const clock = new THREE.Clock();
 // letzte gültige Hit-Pose (für Platzierung)
 const lastPoseMatrix = new THREE.Matrix4();
 const lastPosePos = new THREE.Vector3();
-const smoothedPose = new THREE.Vector3(); // EMA für Hover-Smoothing
 let havePose = false;
 
 // State & Config
@@ -142,18 +139,17 @@ let tapStartX = 0;
 let tapStartY = 0;
 let didMove = false;
 let isDraggingModel = false; 
-let longPressTimer = null;
 
 // Gesten Parameter
-const TAP_THRESHOLD_MS = 320;
-const DRAG_THRESHOLD_PIX = 22;
+const TAP_THRESHOLD_MS = 350;
+const DRAG_THRESHOLD_PIX = 24;
 const ROTATION_FACTOR = 0.015;  
 const SCALE_FACTOR = 0.005;      
-const ROTATE_EXCLUSION_RADIUS_PX = 100;
-const TAP_NEAR_MODEL_RADIUS_PX = 220;
-const PLACE_TAP_RADIUS_PX = 200;
-const LIFT_LONGPRESS_MS = 450;
-const HOVER_SMOOTHING_ALPHA = 0.25;
+// Rotation erst mit Abstand zum Zentrum (Konflikte vermeiden)
+const ROTATE_EXCLUSION_RADIUS_PX = 120;
+// Großzügige Radien für Tap nahe Modell/Ziel
+const TAP_NEAR_MODEL_RADIUS_PX = 220;   // Anheben (im platzierten Zustand)
+const PLACE_TAP_RADIUS_PX = 200;        // Platzieren (im Hover-Zustand)
 
 // 2-Finger Skalierung
 let initialPinchDistance = 0;
@@ -249,6 +245,7 @@ async function boot() {
   
   document.getElementById('btn-enter-ar').addEventListener('click', onStartAR);
 
+  // Click-Handler für den Schließen-Button
   document.getElementById('btn-close').addEventListener('click', async () => {
     const s = renderer.xr.getSession();
     if (s) {
@@ -263,7 +260,7 @@ async function boot() {
         updateMsg("Bewege dein Gerät um Fläche zu finden...");
     }
   });
-
+  
   const gestureLayer = document.getElementById('gesture-layer');
   gestureLayer.addEventListener('touchstart', onTouchStart, { passive: false });
   gestureLayer.addEventListener('touchmove', onTouchMove, { passive: false });
@@ -392,12 +389,14 @@ async function onStartAR() {
     domOverlay: { root: document.getElementById('overlay') }
   });
 
+  // *** Zentraler Session-End Listener ***
   session.addEventListener('end', async () => {
     hitTestSourceRequested = false;
     hitTestSource = null;
     renderer.setAnimationLoop(null);
     await renderer.xr.setSession(null);
     
+    // Zustände und UI zurücksetzen
     document.getElementById('start-screen').style.display = 'flex';
     audioEl.pause();
     havePose = false;
@@ -439,6 +438,7 @@ function render(timestamp, frame) {
       const hit = results[0];
       const pose = hit.getPose(refSpace);
       
+      // Hit-Test-Positionierung nur ausführen, wenn das Modell NICHT platziert IST UND NOCH NICHT VOM BENUTZER BEWEGT WURDE.
       if (pose && !isPlaced && !hasBeenMoved) {
         lastPoseMatrix.fromArray(pose.transform.matrix);
         lastPosePos.set(
@@ -448,22 +448,16 @@ function render(timestamp, frame) {
         );
         havePose = true;
 
-        // Hover-Smoothing (EMA) für stabilere Zielposition
-        if (!smoothedPose.x && !smoothedPose.y && !smoothedPose.z) {
-          smoothedPose.copy(lastPosePos);
-        } else {
-          smoothedPose.lerp(lastPosePos, HOVER_SMOOTHING_ALPHA);
-        }
-
         placementGroup.visible = true;
         placementGroup.position.set(
-          smoothedPose.x,
-          smoothedPose.y + HOVER_HEIGHT,
-          smoothedPose.z
+          lastPosePos.x,
+          lastPosePos.y + HOVER_HEIGHT, // Hover
+          lastPosePos.z
         );
         updateMsg("1-Finger: Modell berühren zum Bewegen, daneben wischen zum Drehen. 2-Finger: Skalieren. Tippe zum Platzieren");
       }
     } else {
+      // Unsichtbar, wenn keine Fläche gefunden und nicht platziert und nicht bereits bewegt
       if (!isPlaced && !hasBeenMoved) {
         placementGroup.visible = false;
         havePose = false;
@@ -481,6 +475,7 @@ function getDistance(touch1, touch2) {
   return Math.hypot(touch2.clientX - touch1.clientX, touch2.clientY - touch1.clientY);
 }
 
+// Raycast-Prüfung, ob Tap das Modell traf
 function isTapOnModel(clientX, clientY) {
   if (!model) return false;
   toNDC(clientX, clientY);
@@ -490,74 +485,72 @@ function isTapOnModel(clientX, clientY) {
 }
 
 function onTouchStart(event) {
+  // event.preventDefault() entfernt, um Klicks auf DOM-Elemente (z.B. X-Button) zu erlauben.
+  
   currentTouches = event.touches ? Array.from(event.touches) : [event];
+
   if (currentTouches.length === 0) return;
   
   gestureStartTime = performance.now();
   didMove = false;
   
+  // TAP Startpunkte speichern
   tapStartX = currentTouches[0].clientX;
   tapStartY = currentTouches[0].clientY;
+  
   isDraggingModel = false; 
 
-  // Long-Press zum Anheben im platzierten Zustand
-  clearTimeout(longPressTimer);
-  if (isPlaced) {
-    longPressTimer = setTimeout(() => {
-      liftToHover();
-      updateMsg("Objekt angehoben (Long-Press). Ziehe zum Verschieben, tippe zum Absetzen.");
-    }, LIFT_LONGPRESS_MS);
-  }
-
+  // Gesten sind nur im Hover-Modus aktiv
   if (!isPlaced) {
-    if (currentTouches.length === 2) {
-      gestureActive = true;
-      initialPinchDistance = getDistance(currentTouches[0], currentTouches[1]);
-      initialModelScale = placementGroup.scale.x;
-    } else if (currentTouches.length === 1) {
-      if (havePose || placementGroup.visible || hasBeenMoved) {
+      if (currentTouches.length === 2) {
+        // 2-Finger Geste: Skalieren
         gestureActive = true;
-        lastMoveX = currentTouches[0].clientX;
-        lastMoveY = currentTouches[0].clientY;
+        initialPinchDistance = getDistance(currentTouches[0], currentTouches[1]);
+        initialModelScale = placementGroup.scale.x;
+      } else if (currentTouches.length === 1) {
+        // 1-Finger Geste: Rotation/Bewegung trennen
+        if (havePose || placementGroup.visible || hasBeenMoved) {
+            gestureActive = true;
+            lastMoveX = currentTouches[0].clientX;
+            lastMoveY = currentTouches[0].clientY;
 
-        const tapHitsModel = isTapOnModel(tapStartX, tapStartY);
-        const farEnoughForRotate = isFarFromModelCenter(tapStartX, tapStartY);
+            const tapHitsModel = isTapOnModel(tapStartX, tapStartY);
+            const farEnoughForRotate = isFarFromModelCenter(tapStartX, tapStartY);
 
-        if (tapHitsModel) {
-          isDraggingModel = true;
-          updateMsg("Modell wird verschoben (1 Finger Drag auf Modell)");
-        } else if (farEnoughForRotate) {
-          isDraggingModel = false;
-          updateMsg("Modell wird gedreht (1 Finger Drag außerhalb des Modells)");
-        } else {
-          isDraggingModel = true;
-          updateMsg("Zu nah am Modell: Drag statt Rotation");
+            if (tapHitsModel) {
+                // Treffer auf Modell -> Verschieben
+                isDraggingModel = true;
+                updateMsg("Modell wird verschoben (1 Finger Drag auf Modell)");
+            } else if (farEnoughForRotate) {
+                // KEIN Treffer UND weit genug entfernt -> Rotation
+                isDraggingModel = false;
+                updateMsg("Modell wird gedreht (1 Finger Drag außerhalb des Modells)");
+            } else {
+                // Zu nah am Zentrum -> als Verschieben behandeln (Konflikt vermeiden)
+                isDraggingModel = true;
+                updateMsg("Zu nah am Modellzentrum: Drag statt Rotation");
+            }
         }
       }
-    }
   } else {
-    // im platzierten Zustand keine Rotation/Drag starten (bis Long-Press anhebt)
+    // Platziert: keine Bearbeitung starten; nur Tap zum Anheben erlauben
     gestureActive = false;
   }
 }
 
 function onTouchMove(event) {
   currentTouches = event.touches ? Array.from(event.touches) : [event];
-
-  // Wenn der Finger sich bewegt, Long-Press abbrechen
-  if (longPressTimer) {
-    clearTimeout(longPressTimer);
-    longPressTimer = null;
-  }
   
+  // Gesten nur im Hover-Modus erlauben
   if (isPlaced) {
-    if (currentTouches.length > 1) event.preventDefault();
+    if (currentTouches.length > 1) event.preventDefault(); // keine Wirkung im platzierten Modus
     return;
   } 
 
   const isTwoFinger = currentTouches.length === 2;
   const isOneFinger = currentTouches.length === 1;
 
+  // Verhindert Scrollen während Geste
   if (isTwoFinger || (gestureActive && isOneFinger)) {
     event.preventDefault();
   }
@@ -571,6 +564,7 @@ function onTouchMove(event) {
   }
   
   if (isTwoFinger) {
+    // Skalieren
     const newDist = getDistance(currentTouches[0], currentTouches[1]);
     const scaleDelta = newDist - initialPinchDistance;
     let newScale = initialModelScale + scaleDelta * SCALE_FACTOR;
@@ -582,6 +576,7 @@ function onTouchMove(event) {
     const dx = t.clientX - lastMoveX;
     
     if (isDraggingModel) {
+      // Bewegen
       toNDC(t.clientX, t.clientY);
       raycaster.setFromCamera(ndc, camera);
       const hit = new THREE.Vector3();
@@ -589,6 +584,7 @@ function onTouchMove(event) {
         placementGroup.position.set(hit.x, HOVER_HEIGHT, hit.z);
       }
     } else {
+      // Rotieren
       placementGroup.rotation.y += dx * ROTATION_FACTOR;
     }
     
@@ -597,16 +593,11 @@ function onTouchMove(event) {
 }
 
 function onTouchEnd(event) {
+  // Behandle nur Touch-End des letzten Fingers (wenn event.touches leer ist) oder MouseUp
   if (event.touches && event.touches.length > 0) return; 
 
   const endedTouch = event.changedTouches ? event.changedTouches[0] : event;
   if (!endedTouch) return;
-
-  // Long-Press ggf. abbrechen
-  if (longPressTimer) {
-    clearTimeout(longPressTimer);
-    longPressTimer = null;
-  }
 
   const duration = performance.now() - gestureStartTime;
   const endX = endedTouch.clientX;
@@ -614,11 +605,13 @@ function onTouchEnd(event) {
   const dragDistance = Math.hypot(endX - tapStartX, endY - tapStartY);
   const endedTouchCount = event.changedTouches ? event.changedTouches.length : 1; 
 
+  // Tap
   const isTap = (!didMove && dragDistance < DRAG_THRESHOLD_PIX && endedTouchCount === 1 && duration < TAP_THRESHOLD_MS);
   if (isTap) {
     simulateTapSelect(endX, endY);
   }
 
+  // Geste beenden
   gestureActive = false;
   isDraggingModel = false; 
   initialModelScale = placementGroup.scale.x;
@@ -628,14 +621,17 @@ function onTouchEnd(event) {
 function simulateTapSelect(tapX, tapY) {
   if (!modelLoaded) return;
 
-  // 1. TAP: PLATZIEREN (Hover -> Ground)
+  // 1. Tap: Platzieren (Hover -> Ground)
   if (!isPlaced) {
+    // Tap in Nähe der Hover-Position erlaubt Platzieren
     if ((havePose || hasBeenMoved) && isNearHoverPos(tapX, tapY, PLACE_TAP_RADIUS_PX)) {
       isPlaced = true;
       hasBeenMoved = true;
 
+      // Ground-Snap
       placementGroup.position.y = 0;
       
+      // Ersten Platzier-Rotation aus Hit-Test übernehmen, falls noch nicht gedreht
       if (havePose && placementGroup.rotation.y === 0) {
         const q = new THREE.Quaternion().setFromRotationMatrix(lastPoseMatrix);
         const e = new THREE.Euler().setFromQuaternion(q, 'YXZ');
@@ -644,30 +640,29 @@ function simulateTapSelect(tapX, tapY) {
 
       placementRect.visible = false;
       initialModelScale = placementGroup.scale.x;
-      updateMsg("Objekt platziert. Tippe erneut auf das Objekt (oder Long-Press), um es anzuheben.");
+      
+      updateMsg("Objekt platziert. Tippe erneut auf das Objekt oder in die Nähe, um es anzuheben.");
     } else {
       updateMsg("Tippe in die Nähe der Zielmarkierung, um abzusetzen.");
     }
     return;
   }
  
-  // 2. TAP: ANHEBEN (Ground -> Hover)
+  // 2. Tap: Anheben (Ground -> Hover)
+  // Erlaube Anheben durch Treffer auf das Modell ODER Tap nahe des Modellzentrums
   const tapHitsModel = isTapOnModel(tapX, tapY);
   const tapNearCenter = isNearModelCenter(tapX, tapY, TAP_NEAR_MODEL_RADIUS_PX);
   if (!tapHitsModel && !tapNearCenter) {
-      updateMsg("Tippe nahe des 3D-Modells oder nutze einen Long-Press, um es anzuheben.");
+      updateMsg("Tippe in der Nähe des 3D-Modells, um es anzuheben.");
       return;
   }
-  liftToHover();
-  updateMsg("Objekt angehoben. Ziehe zum Verschieben, wische daneben zum Drehen, 2-Finger zum Skalieren. Tippe zum Absetzen.");
-}
-
-function liftToHover() {
-  if (!modelLoaded) return;
+  
+  // Reposition starten: zurück in Hover
   isPlaced = false;
-  hasBeenMoved = false;
+  hasBeenMoved = false; // Auto-Follow erlauben
   placementRect.visible = true;
   placementGroup.position.y = HOVER_HEIGHT;
+  updateMsg("Schwebemodus: 1-Finger bewegen (auf Modell), 1-Finger rotieren (außerhalb, mit Abstand), 2-Finger skalieren. Tippe zum Absetzen.");
 }
 
 // UI-Helfer
