@@ -109,7 +109,8 @@
   <div id="gesture-layer"></div>
 </div>
 
-<audio id="ar-audio" loop playsinline preload="auto"></audio>
+<!-- Audio: wichtig für iOS/Autoplay -->
+<audio id="ar-audio" loop playsinline preload="auto" crossorigin="anonymous"></audio>
 
 <script type="module">
 import * as THREE from 'three';
@@ -222,10 +223,92 @@ let SCENE_JSON_URL = '';
 let MODEL_URL = '';
 let AUDIO_URL = '';
 
+// --- Audio ---
+const audioEl = document.getElementById('ar-audio');
+const btnMute = document.getElementById('btn-mute');
+let isMuted = false;
+let audioReady = false;      // wird true, wenn Audio geladen und abspielbar ist
+let userGestureUnlocked = false; // iOS/WebAudio Unlock
+
+// WebAudio Unlock (iOS Safari) – auf erste User-Geste AudioContext resume
+let audioCtx = null;
+function ensureAudioUnlocked() {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume().then(() => { userGestureUnlocked = true; }).catch(() => {});
+    } else {
+      userGestureUnlocked = true;
+    }
+  } catch (e) {
+    // Wenn kein AudioContext verfügbar, weiterhin HTMLAudio nutzen
+    userGestureUnlocked = true;
+  }
+}
+
+function setupAudio(audioCfg) {
+  // Button sichtbar machen
+  btnMute.style.display = 'flex';
+  btnMute.textContent = '🔊';
+
+  // Quelle setzen (CORS erlaubt über crossorigin="anonymous")
+  audioEl.crossOrigin = 'anonymous';
+  audioEl.src = AUDIO_URL;
+  audioEl.loop = !!audioCfg.loop;
+  audioEl.volume = audioCfg.volume ?? 0.8;
+
+  // Listener für Ladebereitschaft
+  const markReady = () => { audioReady = true; };
+  audioEl.addEventListener('canplay', markReady, { once: true });
+  audioEl.addEventListener('canplaythrough', markReady, { once: true });
+
+  // Mute-Button
+  btnMute.onclick = () => {
+    isMuted = !isMuted;
+    audioEl.muted = isMuted;
+    btnMute.textContent = isMuted ? '🔇' : '🔊';
+    // Wenn entmutet und bereit, sofort starten
+    if (!isMuted && audioReady) {
+      audioEl.play().catch(() => {});
+    }
+  };
+}
+
+// Versuche Audio zu starten – sicher mit User-Geste
+async function tryStartAudio() {
+  if (!AUDIO_URL) return;
+  // iOS benötigt User Gesture Unlock
+  ensureAudioUnlocked();
+  // Laden anstoßen
+  if (!audioReady) {
+    try { await audioEl.load(); } catch(e) {}
+  }
+  // Abspielen versuchen
+  try {
+    await audioEl.play();
+  } catch (e) {
+    // Autoplay-Policy blockiert – Hinweis geben, Button bleibt sichtbar
+    console.warn('Audio play blocked:', e);
+    updateMsg('Audio bereit. Tippe auf 🔊 zum Abspielen.');
+  }
+}
+
+// URL laden/boot
 async function boot() {
   if (!navigator.xr) {
     showErr("WebXR nicht unterstützt.");
     return;
+  }
+
+  // Optional: Support-Check
+  try {
+    const xrSupported = navigator.xr && (navigator.xr.isSessionSupported ? await navigator.xr.isSessionSupported('immersive-ar') : true);
+    if (!xrSupported) {
+      showErr('AR wird auf diesem Gerät/Browser nicht unterstützt.');
+      return;
+    }
+  } catch(e) {
+    console.warn('isSessionSupported check failed:', e);
   }
 
   if (sceneParam) {
@@ -254,7 +337,16 @@ async function boot() {
   initThree();
   loadModel();
   
-  document.getElementById('btn-enter-ar').addEventListener('click', onStartAR);
+  document.getElementById('btn-enter-ar').addEventListener('click', async () => {
+    // Erstes: Audio entsperren/versuchen zu starten im Rahmen der User-Geste
+    await tryStartAudio();
+    // Dann AR starten
+    onStartAR().catch(err => {
+      console.error('AR-Session Start Error:', err);
+      document.getElementById('start-screen').style.display = 'flex';
+      showErr('AR konnte nicht gestartet werden:\n' + (err?.message || 'Unbekannter Fehler beim Start'));
+    });
+  });
 
   document.getElementById('btn-close').addEventListener('click', async () => {
     const s = renderer.xr.getSession();
@@ -370,28 +462,11 @@ async function loadModel() {
   }
 }
 
-// --- Audio ---
-const audioEl = document.getElementById('ar-audio');
-const btnMute = document.getElementById('btn-mute');
-let isMuted = false;
-
-function setupAudio(audioCfg) {
-  audioEl.src = AUDIO_URL;
-  audioEl.loop = !!audioCfg.loop;
-  audioEl.volume = audioCfg.volume || 0.8;
-  btnMute.style.display = 'flex';
-  btnMute.addEventListener('click', () => {
-    isMuted = !isMuted;
-    audioEl.muted = isMuted;
-    btnMute.textContent = isMuted ? '🔇' : '🔊';
-  });
-}
-
 // --- WebXR Session ---
 
 async function onStartAR() {
+  // Start-Screen ausblenden (User-Geste ist aktiv)
   document.getElementById('start-screen').style.display = 'none';
-  if(AUDIO_URL) audioEl.play().catch(e => console.warn("Audio Autoplay:", e));
 
   const session = await navigator.xr.requestSession('immersive-ar', {
     requiredFeatures: ['hit-test', 'local-floor'],
@@ -416,6 +491,12 @@ async function onStartAR() {
 
   renderer.xr.setReferenceSpaceType('local-floor');
   await renderer.xr.setSession(session);
+
+  // Audio ggf. starten, falls erst nach Session erlaubt
+  if (AUDIO_URL && audioReady && !isMuted) {
+    audioEl.play().catch(e => console.warn('Audio after session:', e));
+  }
+
   renderer.setAnimationLoop(render);
 }
 
@@ -512,7 +593,6 @@ function onTouchStart(event) {
   clearTimeout(longPressTimer);
   if (isPlaced) {
     longPressTimer = setTimeout(() => {
-      // Cooldown prüfen, um Doppel-Trigger zu vermeiden
       if (performance.now() - lastPlacedAt < LIFT_COOLDOWN_MS) return;
       liftToHover();
       updateMsg("Objekt angehoben (Long-Press). Ziehe zum Verschieben, tippe zum Absetzen.");
@@ -542,14 +622,12 @@ function onTouchStart(event) {
           hasBeenMoved = true; // auch bei Rotation: Tracking aus
           updateMsg("Modell wird gedreht (1 Finger Drag außerhalb des Modells)");
         } else {
-          // zu nah am Zentrum: Drag/Rotate unterdrücken -> Tap möglich
           gestureActive = false;
           return;
         }
       }
     }
   } else {
-    // platziert: erst Long-Press oder Tap auf Modell/Nähe zum Anheben
     gestureActive = false;
   }
 }
@@ -557,7 +635,6 @@ function onTouchStart(event) {
 function onTouchMove(event) {
   currentTouches = event.touches ? Array.from(event.touches) : [event];
 
-  // Long-Press abbrechen, sobald Finger bewegt
   if (longPressTimer) {
     clearTimeout(longPressTimer);
     longPressTimer = null;
@@ -615,7 +692,6 @@ function onTouchEnd(event) {
   const endedTouch = event.changedTouches ? event.changedTouches[0] : event;
   if (!endedTouch) return;
 
-  // Long-Press ggf. abbrechen
   if (longPressTimer) {
     clearTimeout(longPressTimer);
     longPressTimer = null;
