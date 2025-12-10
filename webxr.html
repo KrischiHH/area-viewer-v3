@@ -32,8 +32,10 @@
     padding: 12px 24px; border-radius: 30px;
     font-weight: 600; font-size: 16px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    /* FIX V23: Touch-Optimierung für schnelle Klicks */
+    touch-action: manipulation;
   }
-
+  
   /* UI-Reihe: Liegt ganz oben (z-index 20) */
   .ui-row {
     padding: 20px; 
@@ -41,7 +43,7 @@
     display: flex; 
     justify-content: space-between; 
     align-items: flex-start;
-    pointer-events: none; /* Die Reihe selbst ist durchlässig */
+    pointer-events: none;
     position: relative; 
     z-index: 20; 
   }
@@ -74,10 +76,9 @@
     border-radius: 8px; font-size: 12px; display: none; z-index: 30;
   }
 
-  /* Gesture-Layer: Dient nur als visueller Platzhalter im DOM, Logik läuft global */
+  /* Gesture-Layer: Pointer-Events ist auf NONE, da wir Gesten am DOCUMENT abfangen (V22) */
   #gesture-layer {
     position: absolute; inset: 0; z-index: 5;
-    /* WICHTIG: none, damit Klicks auf Buttons nicht blockiert werden */
     pointer-events: none; 
   }
 </style>
@@ -153,7 +154,6 @@ const DRAG_THRESHOLD_PIX = 24;
 const ROTATION_FACTOR = 0.005;  
 const SCALE_FACTOR = 0.005;     
 const ROTATE_EXCLUSION_RADIUS_PX = 100;
-// FIX V22: Radius deutlich erhöht für besseres Anheben
 const LIFT_TAP_RADIUS_PX = 220; 
 
 // 2-Finger Skalierung
@@ -169,7 +169,7 @@ const raycaster = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
 const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
-// NDC Hilfsfunktion mit Canvasgröße
+// NDC Hilfsfunktion
 function toNDC(clientX, clientY) {
   const w = renderer.domElement.clientWidth || window.innerWidth;
   const h = renderer.domElement.clientHeight || window.innerHeight;
@@ -188,7 +188,7 @@ function worldToScreenPx(vec3World) {
   };
 }
 
-// FIX V22: Dynamischer Bildschirm-Radius basierend auf Modellgröße
+// Dynamischer Bildschirm-Radius basierend auf Modellgröße
 function getModelScreenRadiusPx() {
   if (!model || !camera) return 0;
   const bbox = new THREE.Box3().setFromObject(model);
@@ -202,21 +202,12 @@ function getModelScreenRadiusPx() {
   return screenRadius;
 }
 
-// Prüfe, ob Finger weit genug vom Modellzentrum entfernt ist (für Rotation)
-function isFarFromModelCenter(clientX, clientY, radiusPx = ROTATE_EXCLUSION_RADIUS_PX) {
-  if (!placementGroup) return true; 
-  const centerPx = worldToScreenPx(placementGroup.position);
-  const dist = Math.hypot(clientX - centerPx.x, clientY - centerPx.y);
-  return dist > radiusPx;
-}
-
-// FIX V22: Tolerantere Tap-Prüfung für das Anheben (Dynamisch + Fixer Mindestradius)
+// Tap-Prüfung für das Anheben
 function isTapNearModelCenter(clientX, clientY) {
   if (!placementGroup) return false;
   const centerPx = worldToScreenPx(placementGroup.position);
   
   const modelRadius = getModelScreenRadiusPx();
-  // Nimm den größeren Wert: Entweder die tatsächliche Größe oder den großen Mindestradius
   const hitRadius = Math.max(LIFT_TAP_RADIUS_PX, modelRadius * 1.2); 
 
   const dist = Math.hypot(clientX - centerPx.x, clientY - centerPx.y);
@@ -231,6 +222,15 @@ function isTapOnModel(clientX, clientY) {
   const hits = raycaster.intersectObject(model, true);
   return hits.length > 0;
 }
+
+// Prüfe, ob Finger weit genug vom Modellzentrum entfernt ist (für Rotation)
+function isFarFromModelCenter(clientX, clientY, radiusPx = ROTATE_EXCLUSION_RADIUS_PX) {
+  if (!placementGroup) return true; 
+  const centerPx = worldToScreenPx(placementGroup.position);
+  const dist = Math.hypot(clientX - centerPx.x, clientY - centerPx.y);
+  return dist > radiusPx;
+}
+
 
 // URL-Parameter
 const qs = new URLSearchParams(location.search);
@@ -272,12 +272,19 @@ async function boot() {
   initThree();
   loadModel();
   
-  document.getElementById('btn-enter-ar').addEventListener('click', onStartAR);
+// --- FIX V23: Start Button Handler mit touchstart und stopPropagation ---
+const btnEnter = document.getElementById('btn-enter-ar');
+const enterHandler = (ev) => {
+  ev.stopPropagation();
+  ev.preventDefault();
+  onStartAR();
+};
+btnEnter.addEventListener('click', enterHandler, { passive: false });
+btnEnter.addEventListener('touchstart', enterHandler, { passive: false });
 
-// FIX V22: Close Handler mit stopPropagation und Fallback
+// --- Close Button Handler (aus V22) ---
 const btnClose = document.getElementById('btn-close');
 const closeHandler = async (ev) => {
-    // Verhindert, dass der Klick an den Document-Listener durchgereicht wird
     ev.stopPropagation(); 
     ev.preventDefault();
 
@@ -303,28 +310,22 @@ const closeHandler = async (ev) => {
         updateMsg("Bewege dein Gerät um Fläche zu finden...");
     }
 };
-// Auf beide Events hören für maximale Kompatibilität
 btnClose.addEventListener('click', closeHandler, { passive: false });
 btnClose.addEventListener('touchstart', closeHandler, { passive: false });
 
-// FIX V22: Mute Button Handler (ebenfalls stopPropagation)
+// --- Mute Button Handler (aus V22) ---
 const btnMute = document.getElementById('btn-mute');
-btnMute.addEventListener('click', (ev) => {
+const muteHandler = (ev) => {
     ev.stopPropagation();
     ev.preventDefault();
     isMuted = !isMuted;
     audioEl.muted = isMuted;
     btnMute.textContent = isMuted ? '🔇' : '🔊';
-}, { passive: false });
-btnMute.addEventListener('touchstart', (ev) => {
-    ev.stopPropagation();
-    ev.preventDefault();
-    isMuted = !isMuted;
-    audioEl.muted = isMuted;
-    btnMute.textContent = isMuted ? '🔇' : '🔊';
-}, { passive: false });
+};
+btnMute.addEventListener('click', muteHandler, { passive: false });
+btnMute.addEventListener('touchstart', muteHandler, { passive: false });
 
-  // FIX V22: Gesten global am Document abfangen, damit pointer-events: none auf dem Layer funktioniert
+  // --- Gesten global am Document abfangen (V22) ---
   document.addEventListener('touchstart', onTouchStart, { passive: false });
   document.addEventListener('touchmove', onTouchMove, { passive: false });
   document.addEventListener('touchend', onTouchEnd, { passive: false });
@@ -337,6 +338,7 @@ btnMute.addEventListener('touchstart', (ev) => {
 }
 
 function initThree() {
+// ... (initThree unverändert)
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.01, 20);
 
@@ -399,7 +401,9 @@ function initThree() {
   placementGroup.add(placementRect);
 }
 
+
 async function loadModel() {
+// ... (loadModel unverändert)
   const loader = new GLTFLoader();
   const draco = new DRACOLoader();
   draco.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
@@ -423,9 +427,8 @@ async function loadModel() {
   }
 }
 
-// --- Audio ---
+// ... (setupAudio unverändert)
 const audioEl = document.getElementById('ar-audio');
-// btn-mute handler is now in boot()
 let isMuted = false;
 
 function setupAudio(audioCfg) {
@@ -434,6 +437,7 @@ function setupAudio(audioCfg) {
   audioEl.volume = audioCfg.volume || 0.8;
   document.getElementById('btn-mute').style.display = 'flex';
 }
+
 
 // --- WebXR Session ---
 
@@ -471,7 +475,7 @@ async function onStartAR() {
   renderer.setAnimationLoop(render);
 }
 
-// --- Render Loop & Hit Test ---
+// ... (render und Gestenlogik unverändert)
 
 function render(timestamp, frame) {
   if (!frame) return;
@@ -527,45 +531,37 @@ function render(timestamp, frame) {
   renderer.render(scene, camera);
 }
 
-// --- Gesten-Handler ---
-
 function getDistance(touch1, touch2) {
   return Math.hypot(touch2.clientX - touch1.clientX, touch2.clientY - touch1.clientY);
 }
 
-// Raycast-Prüfung, ob Tap das Modell traf
-function isTapOnModel(clientX, clientY) {
-  if (!model) return false;
-  toNDC(clientX, clientY);
-  raycaster.setFromCamera(ndc, camera);
-  const hits = raycaster.intersectObject(model, true);
-  return hits.length > 0;
-}
-
 function onTouchStart(event) {
-  // DOM-Elemente nicht blockieren: Kein globales preventDefault hier!
   currentTouches = event.touches ? Array.from(event.touches) : [event];
 
   if (currentTouches.length === 0) return;
   
+  // Überprüfung, ob der Touch auf einem Button gestartet wurde
+  const target = event.target;
+  if (target.closest('.btn-icon') || target.closest('.btn-start')) {
+    // Wenn auf einem Button gestartet, ignorieren wir die Geste, da der Button selbst das Event stoppen muss
+    gestureActive = false;
+    return;
+  }
+  
   gestureStartTime = performance.now();
   didMove = false;
   
-  // TAP Startpunkte speichern
   tapStartX = currentTouches[0].clientX;
   tapStartY = currentTouches[0].clientY;
   
   isDraggingModel = false; 
 
-  // Gesten sind nur im Hover-Modus aktiv
   if (!isPlaced) {
       if (currentTouches.length === 2) {
-        // 2-Finger Geste: Skalieren
         gestureActive = true;
         initialPinchDistance = getDistance(currentTouches[0], currentTouches[1]);
         initialModelScale = placementGroup.scale.x;
       } else if (currentTouches.length === 1) {
-        // 1-Finger Geste: Rotation/Bewegung trennen
         if (havePose || placementGroup.visible || hasBeenMoved) {
             gestureActive = true;
             lastMoveX = currentTouches[0].clientX;
@@ -575,13 +571,13 @@ function onTouchStart(event) {
             const farEnoughForRotate = isFarFromModelCenter(tapStartX, tapStartY);
 
             if (tapHitsModel) {
-                isDraggingModel = true; // MOVE Geste
+                isDraggingModel = true;
                 updateMsg("Modell wird verschoben (1 Finger Drag auf Modell)");
             } else if (farEnoughForRotate) {
-                isDraggingModel = false; // ROTATE Geste
+                isDraggingModel = false;
                 updateMsg("Modell wird gedreht (1 Finger Drag außerhalb des Modells)");
             } else {
-                isDraggingModel = true; // Zu nah am Zentrum -> Drag (Fallback)
+                isDraggingModel = true;
                 updateMsg("Zu nah am Modell: Drag statt Rotation");
             }
         }
@@ -595,14 +591,13 @@ function onTouchMove(event) {
   currentTouches = event.touches ? Array.from(event.touches) : [event];
   
   if (isPlaced) {
-    if (currentTouches.length > 1) event.preventDefault(); // 2-Finger Skalierung im platzierten Zustand erlaubt
+    if (currentTouches.length > 1) event.preventDefault(); 
     return;
   } 
 
   const isTwoFinger = currentTouches.length === 2;
   const isOneFinger = currentTouches.length === 1;
 
-  // Nur verhindern, wenn tatsächlich eine Geste läuft
   if (isTwoFinger || (gestureActive && isOneFinger)) {
     event.preventDefault();
   }
@@ -616,7 +611,6 @@ function onTouchMove(event) {
   }
   
   if (isTwoFinger) {
-    // 2-Finger Geste: Skalieren
     const newDist = getDistance(currentTouches[0], currentTouches[1]);
     const scaleDelta = newDist - initialPinchDistance;
     let newScale = initialModelScale + scaleDelta * SCALE_FACTOR;
@@ -629,7 +623,6 @@ function onTouchMove(event) {
     const dx = t.clientX - lastMoveX;
     
     if (isDraggingModel) {
-      // AKTION: VERSCHIEBEN (Move)
       toNDC(t.clientX, t.clientY);
       raycaster.setFromCamera(ndc, camera);
       const hit = new THREE.Vector3();
@@ -637,7 +630,6 @@ function onTouchMove(event) {
         placementGroup.position.set(hit.x, HOVER_HEIGHT, hit.z);
       }
     } else {
-      // AKTION: ROTIEREN (Rotate)
       placementGroup.rotation.y += dx * ROTATION_FACTOR;
     }
     
@@ -693,7 +685,7 @@ function simulateTapSelect(tapX, tapY) {
     return;
   }
  
-  // 2. TAP: ANHEBEN (Ground -> Hover) - FIX V22
+  // 2. TAP: ANHEBEN (Ground -> Hover)
   const hitModel = isTapOnModel(tapX, tapY);
   const nearCenter = isTapNearModelCenter(tapX, tapY);
 
