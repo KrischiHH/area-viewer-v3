@@ -12,10 +12,10 @@
     overflow: hidden;
   }
   
-  /* DOM Overlay MUSS Events akzeptieren */
+  /* DOM Overlay */
   #overlay {
     position: fixed; inset: 0;
-    pointer-events: auto;
+    pointer-events: none; /* Container lässt Events durch */
     display: flex; flex-direction: column; justify-content: space-between;
     z-index: 10;
   }
@@ -34,16 +34,19 @@
     box-shadow: 0 4px 12px rgba(0,0,0,0.3);
   }
 
-  /* WICHTIG: Anpassung für Safe Area (Notch) */
+  /* UI-Reihe: Liegt ganz oben (z-index 20) */
   .ui-row {
     padding: 20px; 
-    /* Fügt den Safe Area Abstand oben hinzu, damit die Elemente unterhalb der Notch liegen */
     padding-top: calc(20px + env(safe-area-inset-top)); 
     display: flex; 
     justify-content: space-between; 
     align-items: flex-start;
-    pointer-events: none;
+    pointer-events: none; /* Die Reihe selbst ist durchlässig */
+    position: relative; 
+    z-index: 20; 
   }
+  
+  /* Buttons sind interaktiv */
   .pointer-auto { pointer-events: auto; }
 
   .btn-icon {
@@ -53,10 +56,13 @@
     border-radius: 50%; display: flex; align-items: center; justify-content: center;
     font-size: 20px; backdrop-filter: blur(10px);
     transition: transform 0.1s;
+    cursor: pointer;
+    /* Optimierung für Touch */
+    touch-action: manipulation;
   }
   .btn-icon:active { transform: scale(0.95); }
 
-  #msg-container { text-align: center; padding-bottom: 40px; pointer-events: none; }
+  #msg-container { text-align: center; padding-bottom: 40px; pointer-events: none; position: relative; z-index: 20; }
   #msg {
     background: rgba(0,0,0,0.5); padding: 8px 16px;
     border-radius: 20px; display: inline-block; font-size: 14px; opacity: 0.9;
@@ -68,10 +74,11 @@
     border-radius: 8px; font-size: 12px; display: none; z-index: 30;
   }
 
-  /* Gesture-Layer innerhalb des Overlay */
+  /* Gesture-Layer: Dient nur als visueller Platzhalter im DOM, Logik läuft global */
   #gesture-layer {
     position: absolute; inset: 0; z-index: 5;
-    pointer-events: auto;
+    /* WICHTIG: none, damit Klicks auf Buttons nicht blockiert werden */
+    pointer-events: none; 
   }
 </style>
 <script type="importmap">
@@ -92,6 +99,8 @@
 </div>
 
 <div id="overlay">
+  <div id="gesture-layer"></div>
+
   <div class="ui-row">
     <button class="btn-icon pointer-auto" id="btn-close">✕</button>
     <button class="btn-icon pointer-auto" id="btn-mute" style="display:none">🔊</button>
@@ -100,8 +109,6 @@
   <div id="msg-container">
     <div id="msg">Bewege dein Gerät um Fläche zu finden...</div>
   </div>
-
-  <div id="gesture-layer"></div>
 </div>
 
 <audio id="ar-audio" loop playsinline preload="auto"></audio>
@@ -127,9 +134,9 @@ let havePose = false;
 
 // State & Config
 const HOVER_HEIGHT = 0.1; // 10 cm
-let isPlaced = false; // FALSE = Editier-Modus (Hover), TRUE = Platziert-Modus (Ground)
+let isPlaced = false; 
 let modelLoaded = false;
-let hasBeenMoved = false; // Flag, ob der Benutzer die Position manuell gesetzt hat (verhindert Zurückschnappen)
+let hasBeenMoved = false; 
 
 // Gesten
 let currentTouches = []; 
@@ -145,10 +152,9 @@ const TAP_THRESHOLD_MS = 350;
 const DRAG_THRESHOLD_PIX = 24;
 const ROTATION_FACTOR = 0.005;  
 const SCALE_FACTOR = 0.005;     
-// Radius um Modellzentrum, in dem Rotation ignoriert wird
 const ROTATE_EXCLUSION_RADIUS_PX = 100;
-// V20: Toleranter Screen‑Space‑Radius für Tap‑Lift im platzierten Zustand
-const LIFT_TAP_RADIUS_PX = 120; 
+// FIX V22: Radius deutlich erhöht für besseres Anheben
+const LIFT_TAP_RADIUS_PX = 220; 
 
 // 2-Finger Skalierung
 let initialPinchDistance = 0;
@@ -182,6 +188,20 @@ function worldToScreenPx(vec3World) {
   };
 }
 
+// FIX V22: Dynamischer Bildschirm-Radius basierend auf Modellgröße
+function getModelScreenRadiusPx() {
+  if (!model || !camera) return 0;
+  const bbox = new THREE.Box3().setFromObject(model);
+  const sphere = bbox.getBoundingSphere(new THREE.Sphere());
+  
+  const centerPx = worldToScreenPx(sphere.center);
+  const edgeWorld = sphere.center.clone().add(new THREE.Vector3(sphere.radius, 0, 0)); 
+  const edgePx = worldToScreenPx(edgeWorld);
+  
+  const screenRadius = Math.hypot(edgePx.x - centerPx.x, edgePx.y - centerPx.y);
+  return screenRadius;
+}
+
 // Prüfe, ob Finger weit genug vom Modellzentrum entfernt ist (für Rotation)
 function isFarFromModelCenter(clientX, clientY, radiusPx = ROTATE_EXCLUSION_RADIUS_PX) {
   if (!placementGroup) return true; 
@@ -190,16 +210,20 @@ function isFarFromModelCenter(clientX, clientY, radiusPx = ROTATE_EXCLUSION_RADI
   return dist > radiusPx;
 }
 
-// Prüfe, ob Tap nahe am Modellzentrum liegt (für Anheben)
-function isTapNearModelCenter(clientX, clientY, radiusPx = LIFT_TAP_RADIUS_PX) {
-  if (!placementGroup) return false;
-  const centerPx = worldToScreenPx(placementGroup.position);
-  const dist = Math.hypot(clientX - centerPx.x, clientY - centerPx.y);
-  return dist <= radiusPx;
+// FIX V22: Tolerantere Tap-Prüfung für das Anheben (Dynamisch + Fixer Mindestradius)
+function isTapNearModelCenter(clientX, clientY) {
+  if (!placementGroup) return false;
+  const centerPx = worldToScreenPx(placementGroup.position);
+  
+  const modelRadius = getModelScreenRadiusPx();
+  // Nimm den größeren Wert: Entweder die tatsächliche Größe oder den großen Mindestradius
+  const hitRadius = Math.max(LIFT_TAP_RADIUS_PX, modelRadius * 1.2); 
+
+  const dist = Math.hypot(clientX - centerPx.x, clientY - centerPx.y);
+  return dist <= hitRadius;
 }
 
-
-// Raycast-Prüfung, ob Tap das Modell traf
+// Raycast-Prüfung
 function isTapOnModel(clientX, clientY) {
   if (!model) return false;
   toNDC(clientX, clientY);
@@ -250,23 +274,24 @@ async function boot() {
   
   document.getElementById('btn-enter-ar').addEventListener('click', onStartAR);
 
-// ** FIX V20: Robuster Click-Handler für den Schließen-Button mit Fallback **
-document.getElementById('btn-close').addEventListener('click', async () => {
+// FIX V22: Close Handler mit stopPropagation und Fallback
+const btnClose = document.getElementById('btn-close');
+const closeHandler = async (ev) => {
+    // Verhindert, dass der Klick an den Document-Listener durchgereicht wird
+    ev.stopPropagation(); 
+    ev.preventDefault();
+
     try {
         const s = renderer?.xr?.getSession?.();
         if (s) {
-            // Versuche, die Session zu beenden
             const endPromise = s.end().catch(() => {});
-            // Setze einen kurzen Timeout, um den lokalen Reset zu erzwingen, falls das 'end'-Event hängt
             const timeout = new Promise(resolve => setTimeout(resolve, 500));
             await Promise.race([endPromise, timeout]);
         }
     } finally {
-        // Lokaler Reset: Stellt sicher, dass die UI und der State zurückgesetzt werden (Fallback)
         try { await renderer.xr.setSession(null); } catch {}
-        renderer.setAnimationLoop(null); // Stoppt den Render-Loop
+        renderer.setAnimationLoop(null);
 
-        // Zustände und UI zurücksetzen
         document.getElementById('start-screen').style.display = 'flex';
         audioEl.pause();
         havePose = false;
@@ -277,19 +302,38 @@ document.getElementById('btn-close').addEventListener('click', async () => {
         placementGroup.position.y = HOVER_HEIGHT;
         updateMsg("Bewege dein Gerät um Fläche zu finden...");
     }
-});
-// --------------------------------------------------------------------
-  
-  const gestureLayer = document.getElementById('gesture-layer');
-  gestureLayer.addEventListener('touchstart', onTouchStart, { passive: false });
-  gestureLayer.addEventListener('touchmove', onTouchMove, { passive: false });
-  gestureLayer.addEventListener('touchend', onTouchEnd, { passive: false });
-  gestureLayer.addEventListener('touchcancel', onTouchEnd, { passive: false });
+};
+// Auf beide Events hören für maximale Kompatibilität
+btnClose.addEventListener('click', closeHandler, { passive: false });
+btnClose.addEventListener('touchstart', closeHandler, { passive: false });
 
-  // Maus-Unterstützung (Desktop testing)
-  gestureLayer.addEventListener('mousedown', onTouchStart, { passive: false });
-  gestureLayer.addEventListener('mousemove', onTouchMove, { passive: false });
-  gestureLayer.addEventListener('mouseup', onTouchEnd, { passive: false });
+// FIX V22: Mute Button Handler (ebenfalls stopPropagation)
+const btnMute = document.getElementById('btn-mute');
+btnMute.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    ev.preventDefault();
+    isMuted = !isMuted;
+    audioEl.muted = isMuted;
+    btnMute.textContent = isMuted ? '🔇' : '🔊';
+}, { passive: false });
+btnMute.addEventListener('touchstart', (ev) => {
+    ev.stopPropagation();
+    ev.preventDefault();
+    isMuted = !isMuted;
+    audioEl.muted = isMuted;
+    btnMute.textContent = isMuted ? '🔇' : '🔊';
+}, { passive: false });
+
+  // FIX V22: Gesten global am Document abfangen, damit pointer-events: none auf dem Layer funktioniert
+  document.addEventListener('touchstart', onTouchStart, { passive: false });
+  document.addEventListener('touchmove', onTouchMove, { passive: false });
+  document.addEventListener('touchend', onTouchEnd, { passive: false });
+  document.addEventListener('touchcancel', onTouchEnd, { passive: false });
+
+  // Maus-Unterstützung
+  document.addEventListener('mousedown', onTouchStart, { passive: false });
+  document.addEventListener('mousemove', onTouchMove, { passive: false });
+  document.addEventListener('mouseup', onTouchEnd, { passive: false });
 }
 
 function initThree() {
@@ -381,19 +425,14 @@ async function loadModel() {
 
 // --- Audio ---
 const audioEl = document.getElementById('ar-audio');
-const btnMute = document.getElementById('btn-mute');
+// btn-mute handler is now in boot()
 let isMuted = false;
 
 function setupAudio(audioCfg) {
   audioEl.src = AUDIO_URL;
   audioEl.loop = !!audioCfg.loop;
   audioEl.volume = audioCfg.volume || 0.8;
-  btnMute.style.display = 'flex';
-  btnMute.addEventListener('click', () => {
-    isMuted = !isMuted;
-    audioEl.muted = isMuted;
-    btnMute.textContent = isMuted ? '🔇' : '🔊';
-  });
+  document.getElementById('btn-mute').style.display = 'flex';
 }
 
 // --- WebXR Session ---
@@ -459,7 +498,6 @@ function render(timestamp, frame) {
       const hit = results[0];
       const pose = hit.getPose(refSpace);
       
-      // Hit-Test-Positionierung nur ausführen, wenn das Modell NICHT platziert IST UND NOCH NICHT VOM BENUTZER BEWEGT WURDE.
       if (pose && !isPlaced && !hasBeenMoved) {
         lastPoseMatrix.fromArray(pose.transform.matrix);
         lastPosePos.set(
@@ -478,7 +516,6 @@ function render(timestamp, frame) {
         updateMsg("1-Finger: Modell berühren zum Bewegen, daneben wischen zum Drehen. 2-Finger: Skalieren. Tippe zum Platzieren");
       }
     } else {
-      // Unsichtbar, wenn keine Fläche gefunden und nicht platziert und nicht bereits bewegt
       if (!isPlaced && !hasBeenMoved) {
         placementGroup.visible = false;
         havePose = false;
@@ -496,9 +533,17 @@ function getDistance(touch1, touch2) {
   return Math.hypot(touch2.clientX - touch1.clientX, touch2.clientY - touch1.clientY);
 }
 
+// Raycast-Prüfung, ob Tap das Modell traf
+function isTapOnModel(clientX, clientY) {
+  if (!model) return false;
+  toNDC(clientX, clientY);
+  raycaster.setFromCamera(ndc, camera);
+  const hits = raycaster.intersectObject(model, true);
+  return hits.length > 0;
+}
+
 function onTouchStart(event) {
-  // event.preventDefault() entfernt, um Klicks auf DOM-Elemente (z.B. X-Button) zu erlauben.
-  
+  // DOM-Elemente nicht blockieren: Kein globales preventDefault hier!
   currentTouches = event.touches ? Array.from(event.touches) : [event];
 
   if (currentTouches.length === 0) return;
@@ -530,16 +575,13 @@ function onTouchStart(event) {
             const farEnoughForRotate = isFarFromModelCenter(tapStartX, tapStartY);
 
             if (tapHitsModel) {
-                // Treffer auf Modell -> Verschieben
-                isDraggingModel = true;
+                isDraggingModel = true; // MOVE Geste
                 updateMsg("Modell wird verschoben (1 Finger Drag auf Modell)");
             } else if (farEnoughForRotate) {
-                // KEIN Treffer UND weit genug entfernt -> Rotation
-                isDraggingModel = false;
+                isDraggingModel = false; // ROTATE Geste
                 updateMsg("Modell wird gedreht (1 Finger Drag außerhalb des Modells)");
             } else {
-                // KEIN Treffer, ABER zu nah am Modellzentrum (im Ausschlussradius) -> Als Verschieben behandeln
-                isDraggingModel = true;
+                isDraggingModel = true; // Zu nah am Zentrum -> Drag (Fallback)
                 updateMsg("Zu nah am Modell: Drag statt Rotation");
             }
         }
@@ -552,16 +594,15 @@ function onTouchStart(event) {
 function onTouchMove(event) {
   currentTouches = event.touches ? Array.from(event.touches) : [event];
   
-  // WICHTIG: Gesten nur im Hover-Modus erlauben
   if (isPlaced) {
-    if (currentTouches.length > 1) event.preventDefault(); // Erlaube 2-Finger Pinch im platzierten Zustand zur Skalierung
+    if (currentTouches.length > 1) event.preventDefault(); // 2-Finger Skalierung im platzierten Zustand erlaubt
     return;
   } 
 
   const isTwoFinger = currentTouches.length === 2;
   const isOneFinger = currentTouches.length === 1;
 
-  // Klare preventDefault-Bedingungen (Verhindert Scrollen während einer Geste)
+  // Nur verhindern, wenn tatsächlich eine Geste läuft
   if (isTwoFinger || (gestureActive && isOneFinger)) {
     event.preventDefault();
   }
@@ -592,9 +633,7 @@ function onTouchMove(event) {
       toNDC(t.clientX, t.clientY);
       raycaster.setFromCamera(ndc, camera);
       const hit = new THREE.Vector3();
-      // Projektion auf die Boden-Ebene (y=0)
       if (raycaster.ray.intersectPlane(floorPlane, hit)) {
-        // Y-Koordinate bleibt auf HOVER_HEIGHT
         placementGroup.position.set(hit.x, HOVER_HEIGHT, hit.z);
       }
     } else {
@@ -607,7 +646,6 @@ function onTouchMove(event) {
 }
 
 function onTouchEnd(event) {
-  // Behandle nur Touch-End des letzten Fingers (wenn event.touches leer ist) oder MouseUp
   if (event.touches && event.touches.length > 0) return; 
 
   const endedTouch = event.changedTouches ? event.changedTouches[0] : event;
@@ -619,13 +657,11 @@ function onTouchEnd(event) {
   const dragDistance = Math.hypot(endX - tapStartX, endY - tapStartY);
   const endedTouchCount = event.changedTouches ? event.changedTouches.length : 1; 
 
-  // Tap → Platzieren / Reposition (nur wenn es ein Tap war und nur 1 Finger beteiligt war)
   const isTap = (!didMove && dragDistance < DRAG_THRESHOLD_PIX && endedTouchCount === 1 && duration < TAP_THRESHOLD_MS);
   if (isTap) {
     simulateTapSelect(endX, endY);
   }
 
-  // Geste beenden und Baselines aktualisieren
   gestureActive = false;
   isDraggingModel = false; 
   initialModelScale = placementGroup.scale.x;
@@ -637,15 +673,12 @@ function simulateTapSelect(tapX, tapY) {
 
   // 1. TAP: PLATZIEREN (Hover -> Ground)
   if (!isPlaced) {
-    // Erlaubt das Platzieren, wenn eine gültige Pose vorliegt ODER der Nutzer das Modell bereits manuell bewegt hat.
     if (havePose || hasBeenMoved) {
       isPlaced = true;
-      hasBeenMoved = true; // Bleibt true, bis manuell angehoben wird
+      hasBeenMoved = true; 
 
-      // Ground-Snap (y=0)
       placementGroup.position.y = 0;
       
-      // Rotation: Nur beim ersten Platzieren die Yaw des Hit-Tests übernehmen (falls noch nicht gedreht)
       if (havePose && placementGroup.rotation.y === 0) {
         const q = new THREE.Quaternion().setFromRotationMatrix(lastPoseMatrix);
         const e = new THREE.Euler().setFromQuaternion(q, 'YXZ');
@@ -660,7 +693,7 @@ function simulateTapSelect(tapX, tapY) {
     return;
   }
  
-  // 2. TAP: ANHEBEN (Ground -> Hover) nur bei Tap auf Modell ODER nahe am Modellzentrum
+  // 2. TAP: ANHEBEN (Ground -> Hover) - FIX V22
   const hitModel = isTapOnModel(tapX, tapY);
   const nearCenter = isTapNearModelCenter(tapX, tapY);
 
@@ -669,15 +702,13 @@ function simulateTapSelect(tapX, tapY) {
       return;
   }
   
-  // Reposition starten: zurück in Hover
   isPlaced = false;
-  hasBeenMoved = false; // Setze hasBeenMoved zurück, um Auto-Follow zu erlauben
+  hasBeenMoved = false; 
   placementRect.visible = true;
   placementGroup.position.y = HOVER_HEIGHT;
   updateMsg("1-Finger: Modell berühren zum Bewegen, daneben wischen zum Drehen. 2-Finger: Skalieren. Tippe zum Absetzen");
 }
 
-// UI-Helfer
 function showErr(txt) {
   const e = document.getElementById('err');
   e.textContent = txt;
