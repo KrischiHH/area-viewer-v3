@@ -32,7 +32,13 @@
     padding: 12px 24px; border-radius: 30px;
     font-weight: 600; font-size: 16px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    touch-action: manipulation; /* schnelle, klare Tap-Interaktion */
+    touch-action: manipulation; 
+    transition: opacity 0.2s;
+  }
+  /* Fix: Button muss bei Deaktivierung visuell gekennzeichnet werden */
+  .btn-start:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
   }
   
   /* UI über Gesture-Layer */
@@ -40,13 +46,13 @@
     padding: 20px; 
     padding-top: calc(20px + env(safe-area-inset-top)); 
     display: flex; 
-    justify-content: space-between; 
+    justify-content: flex-end; /* Jetzt nur noch rechts der Mute-Button */
     align-items: flex-start;
-    pointer-events: none; /* UI-Row selbst ist transparent */
+    pointer-events: none; 
     position: relative; 
     z-index: 20; 
   }
-  .pointer-auto { pointer-events: auto; } /* Buttons sind interaktiv */
+  .pointer-auto { pointer-events: auto; } 
 
   .btn-icon {
     background: rgba(20,20,30,0.6);
@@ -56,7 +62,7 @@
     font-size: 20px; backdrop-filter: blur(10px);
     transition: transform 0.1s;
     cursor: pointer;
-    touch-action: manipulation; /* verhindert Zoom/Scroll-Gesten auf Buttons */
+    touch-action: manipulation; 
   }
   .btn-icon:active { transform: scale(0.95); }
 
@@ -75,8 +81,8 @@
   /* Gesture-Layer darunter; ausschließlich hier Gesten abhören */
   #gesture-layer {
     position: absolute; inset: 0; z-index: 5;
-    pointer-events: auto; /* WICHTIG: Erlaubt Gesten-Events */
-    touch-action: none; /* verhindert Browser-Scroll/Zoom bei Gesten */
+    pointer-events: auto; 
+    touch-action: none; 
   }
 </style>
 <script type="importmap">
@@ -100,7 +106,6 @@
   <div id="gesture-layer"></div>
 
   <div class="ui-row">
-    <button class="btn-icon pointer-auto" id="btn-close">✕</button>
     <button class="btn-icon pointer-auto" id="btn-mute" style="display:none">🔊</button>
   </div>
   
@@ -226,14 +231,7 @@ function isFarFromModelCenter(clientX, clientY, radiusPx = ROTATE_EXCLUSION_RADI
   return dist > radiusPx;
 }
 
-// URL-Parameter
-const qs = new URLSearchParams(location.search);
-const workerBase = (qs.get('base') || 'https://area-publish-proxy.area-webar.workers.dev').replace(/\/$/, '');
-const sceneParam = qs.get('scene') || qs.get('src');
-let SCENE_JSON_URL = '';
-let MODEL_URL = '';
-let AUDIO_URL = '';
-
+// Dynamische Steuerung des Gesture Layers
 function setGestureLayerEnabled(enabled) {
   const gl = document.getElementById('gesture-layer');
   gl.style.pointerEvents = enabled ? 'auto' : 'none';
@@ -244,6 +242,14 @@ async function boot() {
     showErr("WebXR nicht unterstützt.");
     return;
   }
+
+  // --- URL Parameter und JSON Laden ---
+  const qs = new URLSearchParams(location.search);
+  const workerBase = (qs.get('base') || 'https://area-publish-proxy.area-webar.workers.dev').replace(/\/$/, '');
+  const sceneParam = qs.get('scene') || qs.get('src');
+  let SCENE_JSON_URL = '';
+  let MODEL_URL = '';
+  let AUDIO_URL = '';
 
   if (sceneParam) {
     if (sceneParam.endsWith('.glb')) MODEL_URL = sceneParam;
@@ -267,11 +273,12 @@ async function boot() {
       showErr("Fehler beim Laden der Szene.");
     }
   }
+  // --- Ende URL Parameter und JSON Laden ---
 
   initThree();
-  loadModel();
+  loadModel(MODEL_URL);
   
-  // Gesten nur am Gesture-Layer abhören (KEINE globalen Document Listener mehr)
+  // Gesten nur am Gesture-Layer abhören 
   const gestureLayer = document.getElementById('gesture-layer');
   gestureLayer.addEventListener('touchstart', onTouchStart, { passive: false });
   gestureLayer.addEventListener('touchmove', onTouchMove, { passive: false });
@@ -281,56 +288,31 @@ async function boot() {
   gestureLayer.addEventListener('mousemove', onTouchMove, { passive: false });
   gestureLayer.addEventListener('mouseup', onTouchEnd, { passive: false });
 
-  // Start-Button: click + touchstart
+  // Start-Button: click + touchstart Handler
   const btnEnter = document.getElementById('btn-enter-ar');
   const enterHandler = (ev) => {
     ev.stopPropagation();
     ev.preventDefault();
-    onStartAR();
+    
+    // NEU: Race Condition Schutz (Verhindert Doppelklick-Konflikt)
+    if (btnEnter.disabled) return;
+    btnEnter.disabled = true; 
+    
+    onStartAR().finally(() => {
+      // Button wird nur wieder aktiviert, wenn er NICHT erfolgreich gestartet wurde (d.h. start-screen sichtbar ist)
+      if (document.getElementById('start-screen').style.display !== 'none') {
+        btnEnter.disabled = false;
+      }
+    });
   };
   btnEnter.addEventListener('click', enterHandler, { passive: false });
   btnEnter.addEventListener('touchstart', enterHandler, { passive: false });
 
-  // Close-Button: robustes Beenden, Events hart stoppen
-  const btnClose = document.getElementById('btn-close');
-  const closeHandler = async (ev) => {
-    ev.stopPropagation();
-    ev.preventDefault();
-    if (typeof ev.stopImmediatePropagation === 'function') ev.stopImmediatePropagation(); // NEU: Hartes stoppen
-    
-    try {
-      const s = renderer?.xr?.getSession?.();
-      if (s) {
-        const endPromise = s.end().catch(() => {});
-        const timeout = new Promise(resolve => setTimeout(resolve, 500));
-        await Promise.race([endPromise, timeout]);
-      }
-    } finally {
-      try { await renderer.xr.setSession(null); } catch {}
-      renderer.setAnimationLoop(null);
-
-      // UI/State Reset
-      document.getElementById('start-screen').style.display = 'flex';
-      setGestureLayerEnabled(false); // NEU: Gesture-Layer deaktivieren
-      audioEl.pause();
-      havePose = false;
-      isPlaced = false;
-      hasBeenMoved = false;
-      placementGroup.visible = false;
-      placementRect.visible = true;
-      placementGroup.position.y = HOVER_HEIGHT;
-      updateMsg("Bewege dein Gerät um Fläche zu finden...");
-    }
-  };
-  btnClose.addEventListener('click', closeHandler, { passive: false });
-  btnClose.addEventListener('touchstart', closeHandler, { passive: false });
-
-  // Initial: Gesten Layer deaktivieren, um Button-Interaktion zu gewährleisten
+  // Initial: Gesten Layer deaktivieren
   setGestureLayerEnabled(false);
 }
 
 function initThree() {
-// ... (unverändert) ...
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.01, 20);
 
@@ -393,8 +375,7 @@ function initThree() {
   placementGroup.add(placementRect);
 }
 
-async function loadModel() {
-// ... (unverändert) ...
+async function loadModel(MODEL_URL) {
   const loader = new GLTFLoader();
   const draco = new DRACOLoader();
   draco.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
@@ -457,7 +438,7 @@ async function onStartAR() {
     // GESTURE LAYER AKTIVIEREN, SOBALD SESSION ERFOLGREICH GESTARTET
     setGestureLayerEnabled(true); 
 
-    // Zentraler Session-End Listener
+    // Zentraler Session-End Listener (Wird nur bei externer Beendigung ausgelöst, z.B. Home-Button)
     session.addEventListener('end', async () => {
       hitTestSourceRequested = false;
       hitTestSource = null;
@@ -466,7 +447,8 @@ async function onStartAR() {
       
       // Zustände und UI zurücksetzen
       document.getElementById('start-screen').style.display = 'flex';
-      setGestureLayerEnabled(false); // NEU: Gesture-Layer deaktivieren
+      setGestureLayerEnabled(false); 
+      document.getElementById('btn-enter-ar').disabled = false; 
       audioEl.pause();
       havePose = false;
       isPlaced = false;
@@ -482,17 +464,26 @@ async function onStartAR() {
     renderer.setAnimationLoop(render);
 
   } catch (e) {
+      // FEHLERBEHANDLUNG: Button wieder aktivieren und Fehler anzeigen
+      document.getElementById('btn-enter-ar').disabled = false; 
+      
       document.getElementById('start-screen').style.display = 'flex';
       setGestureLayerEnabled(false);
-      console.error("AR Startfehler:", e);
-      showErr("AR-Start fehlgeschlagen. Ist die Kamera erlaubt? (" + e.message + ")");
+      
+      let errMsg = "AR-Start fehlgeschlagen. Ist die Kamera erlaubt?";
+      if (e.message.includes("user activation")) {
+          // Klarer Hinweis, dass der Benutzer nur noch einmal tippen muss.
+          errMsg = "AR-Start benötigt eine direkte Benutzeraktion. Bitte erneut tippen."; 
+      }
+      showErr(errMsg);
+      
+      throw e; 
   }
 }
 
 // --- Render Loop & Hit Test ---
 
 function render(timestamp, frame) {
-// ... (unverändert) ...
   if (!frame) return;
 
   const session = renderer.xr.getSession();
@@ -557,7 +548,7 @@ function onTouchStart(event) {
   currentTouches = event.touches ? Array.from(event.touches) : [event];
   if (currentTouches.length === 0) return;
   
-  // Stellen Sie sicher, dass keine Button-Taps hier landen. Der Button muss stopPropagation() machen.
+  // Stellen Sie sicher, dass keine Button-Taps hier landen
   const target = event.target;
   if (target.closest('.btn-icon') || target.closest('.btn-start')) {
     gestureActive = false;
@@ -603,7 +594,6 @@ function onTouchStart(event) {
 }
 
 function onTouchMove(event) {
-// ... (unverändert) ...
   currentTouches = event.touches ? Array.from(event.touches) : [event];
   
   if (isPlaced) {
@@ -700,7 +690,6 @@ function simulateTapSelect(tapX, tapY) {
   const hitModel = isTapOnModel(tapX, tapY);
   const nearCenter = isTapNearModelCenter(tapX, tapY);
   if (!hitModel && !nearCenter) {
-      // Meldung bleibt, da der Tap nicht zum Anheben berechtigt war
       return;
   }
   
