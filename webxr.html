@@ -5,91 +5,90 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover"/>
 <title>ARea WebXR Viewer</title>
 
-<!-- Import Maps Polyfill -->
 <script async src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
 
 <script type="importmap">
 {
-  "imports": {
-    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-  }
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
 }
 </script>
 <style>
-  html, body {
-    margin: 0; padding: 0; width: 100%; height: 100%;
-    background-color: #111; color: #fff;
-    font-family: system-ui, -apple-system, sans-serif;
-    overflow: hidden;
-  }
-  
-  #overlay {
-    position: fixed; inset: 0;
-    pointer-events: auto;
-    display: flex; flex-direction: column; justify-content: space-between;
-    z-index: 10;
-  }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background-color: #111; color: #fff;
+    font-family: system-ui, -apple-system, sans-serif;
+    overflow: hidden;
+  }
+  
+  #overlay {
+    position: fixed; inset: 0;
+    pointer-events: auto;
+    display: flex; flex-direction: column; justify-content: space-between;
+    z-index: 10;
+  }
 
-  #start-screen {
-    position: absolute; inset: 0;
-    background: rgba(0,0,0,0.6);
-    display: flex; align-items: center; justify-content: center;
-    pointer-events: auto; z-index: 20;
-    backdrop-filter: blur(5px);
-    display: flex;
-  }
-  .btn-start {
-    background: white; color: black; border: none;
-    padding: 12px 24px; border-radius: 30px;
-    font-weight: 600; font-size: 16px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-  }
+  #start-screen {
+    position: absolute; inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: auto; z-index: 20;
+    backdrop-filter: blur(5px);
+    display: flex;
+  }
+  .btn-start {
+    background: white; color: black; border: none;
+    padding: 12px 24px; border-radius: 30px;
+    font-weight: 600; font-size: 16px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  }
 
-  .ui-row {
-    padding: 20px; 
-    padding-top: calc(20px + env(safe-area-inset-top)); 
-    display: flex; 
-    justify-content: space-between; 
-    align-items: flex-start;
-    pointer-events: none;
-    gap: 10px;
-    z-index: 10;
-  }
-  .pointer-auto { pointer-events: auto; }
+  .ui-row {
+    padding: 20px; 
+    padding-top: calc(20px + env(safe-area-inset-top)); 
+    display: flex; 
+    justify-content: space-between; 
+    align-items: flex-start;
+    pointer-events: none;
+    gap: 10px;
+    z-index: 10;
+  }
+  .pointer-auto { pointer-events: auto; }
 
-  .btn-icon {
-    background: rgba(20,20,30,0.6);
-    border: 1px solid rgba(255,255,255,0.2);
-    color: white; width: 44px; height: 44px;
-    border-radius: 50%; display: flex; align-items: center; justify-content: center;
-    font-size: 20px; backdrop-filter: blur(10px);
-    transition: transform 0.1s;
-  }
-  .btn-icon:active { transform: scale(0.95); }
+  .btn-icon {
+    background: rgba(20,20,30,0.6);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: white; width: 44px; height: 44px;
+    border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-size: 20px; backdrop-filter: blur(10px);
+    transition: transform 0.1s;
+  }
+  .btn-icon:active { transform: scale(0.95); }
 
-  #msg-container { 
-    text-align: center; 
-    padding-bottom: calc(40px + env(safe-area-inset-bottom)); 
-    pointer-events: none; 
-  }
-  #msg {
-    background: rgba(0,0,0,0.5); padding: 8px 16px;
-    border-radius: 20px; display: inline-block; font-size: 14px; opacity: 0.9;
-  }
+  #msg-container { 
+    text-align: center; 
+    padding-bottom: calc(40px + env(safe-area-inset-bottom)); 
+    pointer-events: none; 
+  }
+  #msg {
+    background: rgba(0,0,0,0.5); padding: 8px 16px;
+    border-radius: 20px; display: inline-block; font-size: 14px; opacity: 0.9;
+  }
 
-  #err {
-    position: absolute; top: 10px; left: 10px; right: 10px;
-    background: #b00020; color: white; padding: 10px;
-    border-radius: 8px; font-size: 12px; display: none; z-index: 30;
-  }
+  #err {
+    position: absolute; top: 10px; left: 10px; right: 10px;
+    background: #b00020; color: white; padding: 10px;
+    border-radius: 8px; font-size: 12px; display: none; z-index: 30;
+  }
 
-  #gesture-layer {
-    position: absolute; inset: 0; 
-    z-index: 0;
-    pointer-events: auto;
-    touch-action: none;
-  }
+  #gesture-layer {
+    position: absolute; inset: 0; 
+    z-index: 0;
+    pointer-events: auto;
+    touch-action: none;
+  }
 </style>
 </head>
 <body>
@@ -97,22 +96,22 @@
 <div id="err"></div>
 
 <div id="start-screen">
-  <button class="btn-start" id="btn-enter-ar">AR Starten</button>
+  <button class="btn-start" id="btn-enter-ar">AR Starten</button>
 </div>
 
 <div id="overlay">
-  <div class="ui-row">
-    <div style="display:flex; gap:8px">
-      <button class="btn-icon pointer-auto" id="btn-close">✕</button>
-      <button class="btn-icon pointer-auto" id="btn-mute" style="display:none">🔊</button>
-    </div>
-  </div>
-  
-  <div id="msg-container">
-    <div id="msg">Bewege dein Gerät um Fläche zu finden...</div>
-  </div>
+  <div class="ui-row">
+    <div style="display:flex; gap:8px">
+      <button class="btn-icon pointer-auto" id="btn-close">✕</button>
+      <button class="btn-icon pointer-auto" id="btn-mute" style="display:none">🔊</button>
+    </div>
+  </div>
+  
+  <div id="msg-container">
+    <div id="msg">Bewege dein Gerät um Fläche zu finden...</div>
+  </div>
 
-  <div id="gesture-layer"></div>
+  <div id="gesture-layer"></div>
 </div>
 
 <audio id="ar-audio" loop playsinline preload="auto" crossorigin="anonymous"></audio>
@@ -125,20 +124,20 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 // --- Globals ---
 let camera, scene, renderer;
 let hitTestSource = null;
-let placementGroup; 
+let placementGroup; 
 let placementRect;
 let model;
 let mixer;
 const clock = new THREE.Clock();
 
 // State & Config
-let isModelPlaced = false; 
+let isModelPlaced = false; 
 let modelLoaded = false;
 let isEditing = false;
-let isHovering = false; 
+let isHovering = false; 
 
 // Gesten
-let currentTouches = []; 
+let currentTouches = []; 
 let gestureStartTime = 0;
 let tapStartX = 0;
 let tapStartY = 0;
@@ -148,15 +147,15 @@ let isRotatingModel = false;
 let isScalingModel = false;
 
 const ROTATION_FACTOR = 0.018;
-const SCALE_FACTOR = 0.005;     
+const SCALE_FACTOR = 0.005;     
 const DRAG_THRESHOLD_PIX = 18;
 const TAP_THRESHOLD_MS = 350;
-const EDIT_TOUCH_RADIUS_PX = 250; 
+const EDIT_TOUCH_RADIUS_PX = 250; 
 const RECT_SIZE = 0.5;
 
 let initialPinchDistance = 0;
 let initialModelScale = 1;
-let lastMoveX = 0; 
+let lastMoveX = 0; 
 
 // Ray/Planes
 const raycaster = new THREE.Raycaster();
@@ -178,520 +177,530 @@ let isMuted = false;
 let audioCtx = null;
 
 function ensureAudioUnlocked() {
-  try {
-    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    if (audioCtx.state === 'suspended') {
-      audioCtx.resume().catch(() => {});
-    }
-  } catch (e) { /* ignore */ }
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume().catch(() => {});
+    }
+  } catch (e) { /* ignore */ }
 }
 
 function setupAudio(audioCfg) {
-  btnMute.style.display = 'flex';
-  btnMute.textContent = '🔊';
-  audioEl.crossOrigin = 'anonymous';
-  audioEl.src = AUDIO_URL;
-  audioEl.loop = !!audioCfg.loop;
-  audioEl.volume = audioCfg.volume ?? 0.8;
+  btnMute.style.display = 'flex';
+  btnMute.textContent = '🔊';
+  audioEl.crossOrigin = 'anonymous';
+  audioEl.src = AUDIO_URL;
+  audioEl.loop = !!audioCfg.loop;
+  audioEl.volume = audioCfg.volume ?? 0.8;
 
-  try { audioEl.load(); } catch(e) {}
+  try { audioEl.load(); } catch(e) {}
 
-  audioEl.addEventListener('error', (e) => {
-    console.error('Audio load error:', e);
-  });
+  audioEl.addEventListener('error', (e) => {
+    console.error('Audio load error:', e);
+  });
 
-  btnMute.onclick = async () => {
-    isMuted = !isMuted;
-    audioEl.muted = isMuted;
-    btnMute.textContent = isMuted ? '🔇' : '🔊';
-    if (!isMuted) {
-      ensureAudioUnlocked();
-      audioEl.play().catch(() => tryStartAudioAfterGesture());
-      const msgEl = document.getElementById('msg');
-      if (msgEl.textContent.includes('Audio blockiert')) updateMsg('');
-    } else {
-      audioEl.pause();
-    }
-  };
+  btnMute.onclick = async () => {
+    isMuted = !isMuted;
+    audioEl.muted = isMuted;
+    btnMute.textContent = isMuted ? '🔇' : '🔊';
+    if (!isMuted) {
+      ensureAudioUnlocked();
+      audioEl.play().catch(() => tryStartAudioAfterGesture());
+      const msgEl = document.getElementById('msg');
+      if (msgEl.textContent.includes('Audio blockiert')) updateMsg('');
+    } else {
+      audioEl.pause();
+    }
+  };
 }
 
 async function tryStartAudioAfterGesture() {
-  if (!AUDIO_URL || isMuted) return;
-  ensureAudioUnlocked();
-  const HAVE_CURRENT_DATA = 2;
-  
-  if (audioEl.readyState < HAVE_CURRENT_DATA) {
-    audioEl.load();
-    try {
-      await new Promise((resolve, reject) => {
-        const onReady = () => { cleanup(); resolve(); };
-        const onError = (e) => { cleanup(); reject(e); };
-        const cleanup = () => {
-          audioEl.removeEventListener('canplay', onReady);
-          audioEl.removeEventListener('error', onError);
-        };
-        audioEl.addEventListener('canplay', onReady, { once: true });
-        audioEl.addEventListener('error', onError, { once: true });
-        setTimeout(() => { if (audioEl.readyState < HAVE_CURRENT_DATA) reject(new Error('Audio Timeout')); }, 6000);
-      });
-    } catch(e) {
-      console.warn('Audio load failed:', e);
-      return;
-    }
-  }
-  try {
-    await audioEl.play();
-  } catch (e) {
-    console.warn('Fallback play blocked:', e);
-    updateMsg('Audio blockiert. Tippe auf 🔊 zum Abspielen.');
-  }
+  if (!AUDIO_URL || isMuted) return;
+  ensureAudioUnlocked();
+  const HAVE_CURRENT_DATA = 2;
+  
+  if (audioEl.readyState < HAVE_CURRENT_DATA) {
+    audioEl.load();
+    try {
+      await new Promise((resolve, reject) => {
+        const onReady = () => { cleanup(); resolve(); };
+        const onError = (e) => { cleanup(); reject(e); };
+        const cleanup = () => {
+          audioEl.removeEventListener('canplay', onReady);
+          audioEl.removeEventListener('error', onError);
+        };
+        audioEl.addEventListener('canplay', onReady, { once: true });
+        audioEl.addEventListener('error', onError, { once: true });
+        setTimeout(() => { if (audioEl.readyState < HAVE_CURRENT_DATA) reject(new Error('Audio Timeout')); }, 6000);
+      });
+    } catch(e) {
+      console.warn('Audio load failed:', e);
+      return;
+    }
+  }
+  try {
+    await audioEl.play();
+  } catch (e) {
+    console.warn('Fallback play blocked:', e);
+    updateMsg('Audio blockiert. Tippe auf 🔊 zum Abspielen.');
+  }
 }
 
 // --- UI helpers ---
 function showErr(txt) {
-  const e = document.getElementById('err');
-  e.textContent = txt;
-  e.style.display = 'block';
-  setTimeout(() => e.style.display='none', 5000);
+  const e = document.getElementById('err');
+  e.textContent = txt;
+  e.style.display = 'block';
+  setTimeout(() => e.style.display='none', 5000);
 }
 let lastMsg = '';
 let lastMsgTime = 0;
-const MSG_DEBOUNCE_MS = 400; 
+const MSG_DEBOUNCE_MS = 400; 
 function updateMsg(txt) {
-  const now = performance.now();
-  if (txt === lastMsg && (now - lastMsgTime) < MSG_DEBOUNCE_MS) return;
-  lastMsg = txt;
-  lastMsgTime = now;
-  document.getElementById('msg').textContent = txt;
+  const now = performance.now();
+  if (txt === lastMsg && (now - lastMsgTime) < MSG_DEBOUNCE_MS) return;
+  lastMsg = txt;
+  lastMsgTime = now;
+  document.getElementById('msg').textContent = txt;
 }
 
 // --- NDC helper ---
 function toNDC(clientX, clientY) {
-  const w = renderer.domElement.clientWidth || window.innerWidth;
-  const h = renderer.domElement.clientHeight || window.innerHeight;
-  ndc.x = (clientX / w) * 2 - 1;
-  ndc.y = -(clientY / h) * 2 + 1;
+  const w = renderer.domElement.clientWidth || window.innerWidth;
+  const h = renderer.domElement.clientHeight || window.innerHeight;
+  ndc.x = (clientX / w) * 2 - 1;
+  ndc.y = -(clientY / h) * 2 + 1;
 }
 function worldToScreenPx(vec3World) {
-  const w = renderer.domElement.clientWidth || window.innerWidth;
-  const h = renderer.domElement.clientHeight || window.innerHeight;
-  const v = vec3World.clone().project(camera);
-  return { x: (v.x * 0.5 + 0.5) * w, y: (-v.y * 0.5 + 0.5) * h };
+  const w = renderer.domElement.clientWidth || window.innerWidth;
+  const h = renderer.domElement.clientHeight || window.innerHeight;
+  const v = vec3World.clone().project(camera);
+  return { x: (v.x * 0.5 + 0.5) * w, y: (-v.y * 0.5 + 0.5) * h };
 }
 
 // Tap innerhalb der Zielmarkierung (weltkoordinaten, inkl. Scale)
 function isTapInsidePlacementRect(clientX, clientY) {
-  if (!placementGroup || !placementRect || !placementRect.visible || !isHovering) return false;
+  if (!placementGroup || !placementRect || !placementRect.visible || !isHovering) return false;
 
-  toNDC(clientX, clientY);
-  raycaster.setFromCamera(ndc, camera);
+  toNDC(clientX, clientY);
+  raycaster.setFromCamera(ndc, camera);
 
-  const hit = new THREE.Vector3();
-  if (raycaster.ray.intersectPlane(floorPlane, hit) === null) {
-    return false; 
-  }
-  const rectWorldPos = placementGroup.position;
-  const dx = hit.x - rectWorldPos.x;
-  const dz = hit.z - rectWorldPos.z;
+  const hit = new THREE.Vector3();
+  if (raycaster.ray.intersectPlane(floorPlane, hit) === null) {
+    return false; 
+  }
+  const rectWorldPos = placementGroup.position;
+  const dx = hit.x - rectWorldPos.x;
+  const dz = hit.z - rectWorldPos.z;
 
-  const halfSize = (RECT_SIZE * placementGroup.scale.x * 1.05) / 2 + 0.05; 
-  return (Math.abs(dx) <= halfSize) && (Math.abs(dz) <= halfSize);
+  const halfSize = (RECT_SIZE * placementGroup.scale.x * 1.05) / 2 + 0.05; 
+  return (Math.abs(dx) <= halfSize) && (Math.abs(dz) <= halfSize);
 }
 
 function isTouchNearModel(clientX, clientY, radiusPx = EDIT_TOUCH_RADIUS_PX) {
-  if (!isModelPlaced || !placementGroup.visible) return false;
-  const centerPx = worldToScreenPx(placementGroup.position);
-  const dist = Math.hypot(clientX - centerPx.x, clientY - centerPx.y);
-  return dist <= radiusPx;
+  if (!isModelPlaced || !placementGroup.visible) return false;
+  const centerPx = worldToScreenPx(placementGroup.position);
+  const dist = Math.hypot(clientX - centerPx.x, clientY - centerPx.y);
+  return dist <= radiusPx;
 }
 
 // --- Boot & Three init ---
 async function boot() {
-  if (!navigator.xr) { showErr("WebXR nicht unterstützt."); return; }
-  try {
-    const xrSupported = navigator.xr && (navigator.xr.isSessionSupported ? await navigator.xr.isSessionSupported('immersive-ar') : true);
-    if (!xrSupported) { showErr('AR wird auf diesem Gerät/Browser nicht unterstützt.'); return; }
-  } catch(e) { console.warn('isSessionSupported check failed:', e); }
+  if (!navigator.xr) { showErr("WebXR nicht unterstützt."); return; }
+  try {
+    const xrSupported = navigator.xr && (navigator.xr.isSessionSupported ? await navigator.xr.isSessionSupported('immersive-ar') : true);
+    if (!xrSupported) { showErr('AR wird auf diesem Gerät/Browser nicht unterstützt.'); return; }
+  } catch(e) { console.warn('isSessionSupported check failed:', e); }
 
-  if (sceneParam) {
-    if (sceneParam.endsWith('.glb')) MODEL_URL = sceneParam;
-    else SCENE_JSON_URL = `${workerBase}/scenes/${sceneParam}/scene.json`;
-  } else {
-    MODEL_URL = 'https://modelviewer.dev/shared-assets/models/Astronaut.glb';
-  }
+  if (sceneParam) {
+    if (sceneParam.endsWith('.glb')) MODEL_URL = sceneParam;
+    else SCENE_JSON_URL = `${workerBase}/scenes/${sceneParam}/scene.json`;
+  } else {
+    MODEL_URL = 'https://modelviewer.dev/shared-assets/models/Astronaut.glb';
+  }
 
-  if (SCENE_JSON_URL) {
-    try {
-      const res = await fetch(SCENE_JSON_URL);
-      if(!res.ok) throw new Error('Scene JSON Error');
-      const json = await res.json();
-      if(json.model?.url) MODEL_URL = `${workerBase}/scenes/${sceneParam}/${json.model.url}`;
-      if(json.audio?.url) {
-        AUDIO_URL = `${workerBase}/scenes/${sceneParam}/${json.audio.url}`;
-        setupAudio(json.audio);
-      }
-    } catch(e) {
-      console.error(e);
-      showErr("Fehler beim Laden der Szene.");
-      return;
-    }
-  }
+  if (SCENE_JSON_URL) {
+    try {
+      const res = await fetch(SCENE_JSON_URL);
+      if(!res.ok) throw new Error('Scene JSON Error');
+      const json = await res.json();
+      if(json.model?.url) MODEL_URL = `${workerBase}/scenes/${sceneParam}/${json.model.url}`;
+      if(json.audio?.url) {
+        AUDIO_URL = `${workerBase}/scenes/${sceneParam}/${json.audio.url}`;
+        setupAudio(json.audio);
+      }
+    } catch(e) {
+      console.error(e);
+      showErr("Fehler beim Laden der Szene.");
+      return;
+    }
+  }
 
-  initThree();
-  await loadModel();
+  initThree();
+  await loadModel();
 
-  window.addEventListener('resize', onResize);
+  window.addEventListener('resize', onResize);
 
-  document.getElementById('btn-enter-ar').addEventListener('click', async () => {
-    if (AUDIO_URL && !isMuted) {
-      ensureAudioUnlocked();
-      audioEl.play().catch(() => tryStartAudioAfterGesture());
-    }
-    
-    onStartAR().catch(err => {
-      console.error('AR-Session Start Error:', err);
-      document.getElementById('start-screen').style.display = 'flex';
-      showErr('AR konnte nicht gestartet werden:\n' + (err?.message || 'Unbekannter Fehler'));
-    });
-  });
+  document.getElementById('btn-enter-ar').addEventListener('click', async () => {
+    if (AUDIO_URL && !isMuted) {
+      ensureAudioUnlocked();
+      audioEl.play().catch(() => tryStartAudioAfterGesture());
+    }
+    
+    onStartAR().catch(err => {
+      console.error('AR-Session Start Error:', err);
+      document.getElementById('start-screen').style.display = 'flex';
+      showErr('AR konnte nicht gestartet werden:\n' + (err?.message || 'Unbekannter Fehler'));
+    });
+  });
 
-  document.getElementById('btn-close').addEventListener('click', async () => {
-    const s = renderer.xr.getSession();
-    if (s) { await s.end(); } 
-    else { 
-      document.getElementById('start-screen').style.display = 'flex';
-      audioEl.pause();
-      isModelPlaced = false;
-      isEditing = false;
-      placementGroup.visible = false;
-      updateMsg("Bewege dein Gerät um Fläche zu finden...");
-    }
-  });
-  
-  const gestureLayer = document.getElementById('gesture-layer');
-  gestureLayer.addEventListener('touchstart', onTouchStart, { passive: false });
-  gestureLayer.addEventListener('touchmove', onTouchMove, { passive: false });
-  gestureLayer.addEventListener('touchend', onTouchEnd, { passive: false });
-  gestureLayer.addEventListener('touchcancel', onTouchEnd, { passive: false });
-  gestureLayer.addEventListener('mousedown', onTouchStart, { passive: false });
-  gestureLayer.addEventListener('mousemove', onTouchMove, { passive: false });
-  gestureLayer.addEventListener('mouseup', onTouchEnd, { passive: false });
+  document.getElementById('btn-close').addEventListener('click', async () => {
+    const s = renderer.xr.getSession();
+    if (s) { await s.end(); } 
+    else { 
+      document.getElementById('start-screen').style.display = 'flex';
+      audioEl.pause();
+      isModelPlaced = false;
+      isEditing = false;
+      placementGroup.visible = false;
+      updateMsg("Bewege dein Gerät um Fläche zu finden...");
+    }
+  });
+  
+  const gestureLayer = document.getElementById('gesture-layer');
+  gestureLayer.addEventListener('touchstart', onTouchStart, { passive: false });
+  gestureLayer.addEventListener('touchmove', onTouchMove, { passive: false });
+  gestureLayer.addEventListener('touchend', onTouchEnd, { passive: false });
+  gestureLayer.addEventListener('touchcancel', onTouchEnd, { passive: false });
+  gestureLayer.addEventListener('mousedown', onTouchStart, { passive: false });
+  gestureLayer.addEventListener('mousemove', onTouchMove, { passive: false });
+  gestureLayer.addEventListener('mouseup', onTouchEnd, { passive: false });
 
-  document.getElementById('start-screen').style.display = 'flex';
+  document.getElementById('start-screen').style.display = 'flex';
 }
 
 function initThree() {
-  scene = new THREE.Scene();
-  camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.01, 20);
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.01, 20);
 
-  const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1.2);
-  scene.add(light);
-  
-  const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
-  dirLight.position.set(2, 8, 4);
-  dirLight.castShadow = true;
-  dirLight.shadow.mapSize.set(1024, 1024);
-  scene.add(dirLight);
+  const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1.2);
+  scene.add(light);
+  
+  const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+  dirLight.position.set(2, 8, 4);
+  dirLight.castShadow = true;
+  dirLight.shadow.mapSize.set(1024, 1024);
+  scene.add(dirLight);
 
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  renderer.setPixelRatio(window.devicePixelRatio);
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.xr.enabled = true;
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
-  document.body.appendChild(renderer.domElement);
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.xr.enabled = true;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
+  document.body.appendChild(renderer.domElement);
 
-  placementGroup = new THREE.Group();
-  placementGroup.visible = false;
-  scene.add(placementGroup);
+  placementGroup = new THREE.Group();
+  placementGroup.visible = false;
+  scene.add(placementGroup);
 
-  const shadowPlaneGeo = new THREE.PlaneGeometry(10, 10);
-  shadowPlaneGeo.rotateX(-Math.PI / 2);
-  const shadowPlaneMat = new THREE.ShadowMaterial({ opacity: 0.3 });
-  const shadowPlane = new THREE.Mesh(shadowPlaneGeo, shadowPlaneMat);
-  shadowPlane.position.y = 0;
-  shadowPlane.receiveShadow = true;
-  scene.add(shadowPlane); 
+  const shadowPlaneGeo = new THREE.PlaneGeometry(10, 10);
+  shadowPlaneGeo.rotateX(-Math.PI / 2);
+  const shadowPlaneMat = new THREE.ShadowMaterial({ opacity: 0.3 });
+  const shadowPlane = new THREE.Mesh(shadowPlaneGeo, shadowPlaneMat);
+  shadowPlane.position.y = 0;
+  shadowPlane.receiveShadow = true;
+  scene.add(shadowPlane); 
 
-  // Zielrechteck
-  const radius = 0.05;
-  const rectShape = new THREE.Shape();
-  rectShape.moveTo(0, radius);
-  rectShape.lineTo(0, RECT_SIZE - radius);
-  rectShape.quadraticCurveTo(0, RECT_SIZE, radius, RECT_SIZE);
-  rectShape.lineTo(RECT_SIZE - radius, RECT_SIZE);
-  rectShape.quadraticCurveTo(RECT_SIZE, RECT_SIZE, RECT_SIZE, RECT_SIZE - radius);
-  rectShape.lineTo(RECT_SIZE, radius);
-  rectShape.quadraticCurveTo(RECT_SIZE, 0, RECT_SIZE - radius, 0);
-  rectShape.lineTo(radius, 0);
-  rectShape.quadraticCurveTo(0, 0, 0, radius);
-  const outlineGeo = new THREE.ShapeGeometry(rectShape);
-  outlineGeo.translate(-RECT_SIZE / 2, -RECT_SIZE / 2, 0);
-  const edges = new THREE.EdgesGeometry(outlineGeo);
-  const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, opacity: 0.8, transparent: true });
-  placementRect = new THREE.LineSegments(edges, lineMat);
-  placementRect.rotation.x = -Math.PI / 2;
-  placementRect.position.y = 0.005;
-  placementRect.scale.set(1.05, 1.05, 1.05);
-  placementRect.visible = true;
-  placementGroup.add(placementRect);
+  // Zielrechteck
+  const radius = 0.05;
+  const rectShape = new THREE.Shape();
+  rectShape.moveTo(0, radius);
+  rectShape.lineTo(0, RECT_SIZE - radius);
+  rectShape.quadraticCurveTo(0, RECT_SIZE, radius, RECT_SIZE);
+  rectShape.lineTo(RECT_SIZE - radius, RECT_SIZE);
+  rectShape.quadraticCurveTo(RECT_SIZE, RECT_SIZE, RECT_SIZE, RECT_SIZE - radius);
+  rectShape.lineTo(RECT_SIZE, radius);
+  rectShape.quadraticCurveTo(RECT_SIZE, 0, RECT_SIZE - radius, 0);
+  rectShape.lineTo(radius, 0);
+  rectShape.quadraticCurveTo(0, 0, 0, radius);
+  const outlineGeo = new THREE.ShapeGeometry(rectShape);
+  outlineGeo.translate(-RECT_SIZE / 2, -RECT_SIZE / 2, 0);
+  const edges = new THREE.EdgesGeometry(outlineGeo);
+  const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, opacity: 0.8, transparent: true });
+  placementRect = new THREE.LineSegments(edges, lineMat);
+  placementRect.rotation.x = -Math.PI / 2;
+  placementRect.position.y = 0.005;
+  placementRect.scale.set(1.05, 1.05, 1.05);
+  placementRect.visible = true;
+  placementGroup.add(placementRect);
 }
 
 async function loadModel() {
-  const loader = new GLTFLoader();
-  const draco = new DRACOLoader();
-  draco.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
-  loader.setDRACOLoader(draco);
+  const loader = new GLTFLoader();
+  const draco = new DRACOLoader();
+  draco.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
+  loader.setDRACOLoader(draco);
 
-  try {
-    const gltf = await loader.loadAsync(MODEL_URL);
-    model = gltf.scene;
-    model.traverse((node) => { if (node.isMesh) { node.castShadow = true; node.receiveShadow = false; } });
-    model.scale.setScalar(0.5); 
-    if(gltf.animations?.length) {
-      mixer = new THREE.AnimationMixer(model);
-      gltf.animations.forEach(clip => mixer.clipAction(clip).play());
-    }
-    placementGroup.add(model);
-    modelLoaded = true;
-    updateMsg("Bewege dein Gerät um Fläche zu finden...");
-  } catch(e) {
-    showErr("Modell konnte nicht geladen werden.");
-    console.error(e);
-  }
+  try {
+    const gltf = await loader.loadAsync(MODEL_URL);
+    model = gltf.scene;
+    model.traverse((node) => { if (node.isMesh) { node.castShadow = true; node.receiveShadow = false; } });
+    model.scale.setScalar(0.5); 
+    if(gltf.animations?.length) {
+      mixer = new THREE.AnimationMixer(model);
+      gltf.animations.forEach(clip => mixer.clipAction(clip).play());
+    }
+    placementGroup.add(model);
+    modelLoaded = true;
+    updateMsg("Bewege dein Gerät um Fläche zu finden...");
+  } catch(e) {
+    showErr("Modell konnte nicht geladen werden.");
+    console.error(e);
+  }
 }
 
 // --- AR Session ---
 async function onStartAR() {
-  if (!modelLoaded) {
-    throw new Error("Modell noch nicht geladen. Bitte kurz warten.");
-  }
-  document.getElementById('start-screen').style.display = 'none';
+  if (!modelLoaded) {
+    throw new Error("Modell noch nicht geladen. Bitte kurz warten.");
+  }
+  document.getElementById('start-screen').style.display = 'none';
 
-  const session = await navigator.xr.requestSession('immersive-ar', {
-    requiredFeatures: ['hit-test', 'local-floor'],
-    optionalFeatures: ['dom-overlay'],
-    domOverlay: { root: document.getElementById('overlay') }
-  });
+  const session = await navigator.xr.requestSession('immersive-ar', {
+    requiredFeatures: ['hit-test', 'local-floor'],
+    optionalFeatures: ['dom-overlay'],
+    domOverlay: { root: document.getElementById('overlay') }
+  });
 
-  session.addEventListener('end', async () => {
-    hitTestSource = null;
-    renderer.setAnimationLoop(null);
-    await renderer.xr.setSession(null);
-     
-    document.getElementById('start-screen').style.display = 'flex';
-    audioEl.pause();
-    isModelPlaced = false;
-    isEditing = false;
-    placementGroup.visible = false;
-    updateMsg("Bewege dein Gerät um Fläche zu finden...");
-  });
+  session.addEventListener('end', async () => {
+    hitTestSource = null;
+    renderer.setAnimationLoop(null);
+    await renderer.xr.setSession(null);
+     
+    document.getElementById('start-screen').style.display = 'flex';
+    audioEl.pause();
+    isModelPlaced = false;
+    isEditing = false;
+    placementGroup.visible = false;
+    updateMsg("Bewege dein Gerät um Fläche zu finden...");
+  });
 
-  session.requestReferenceSpace('viewer').then((refSpace) => {
-    session.requestHitTestSource({ space: refSpace }).then((source) => {
-      hitTestSource = source;
-    });
-  });
+  session.requestReferenceSpace('viewer').then((refSpace) => {
+    session.requestHitTestSource({ space: refSpace }).then((source) => {
+      hitTestSource = source;
+    });
+  });
 
-  renderer.xr.setReferenceSpaceType('local-floor');
-  await renderer.xr.setSession(session);
-  renderer.setAnimationLoop(render);
+  renderer.xr.setReferenceSpaceType('local-floor');
+  await renderer.xr.setSession(session);
+  renderer.setAnimationLoop(render);
 }
 
 // --- Resize ---
 function onResize() {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
 // --- Render Loop ---
 function render(timestamp, frame) {
-  if (!frame) return;
+  if (!frame) return;
 
-  const dt = clock.getDelta();
-  if(mixer) mixer.update(dt);
+  const dt = clock.getDelta();
+  if(mixer) mixer.update(dt);
 
-  // Hover/Hit-Test solange nicht platziert
-  if (hitTestSource && !isModelPlaced) {
-    const refSpace = renderer.xr.getReferenceSpace();
-    const results = frame.getHitTestResults(hitTestSource);
+  // Hover/Hit-Test solange nicht platziert
+  if (hitTestSource && !isModelPlaced) {
+    const refSpace = renderer.xr.getReferenceSpace();
+    const results = frame.getHitTestResults(hitTestSource);
 
-    if (results.length > 0) {
-      const hit = results[0];
-      const pose = hit.getPose(refSpace);
-      
-      if (pose) {
-        const matrix = new THREE.Matrix4().fromArray(pose.transform.matrix);
-        placementGroup.position.setFromMatrixPosition(matrix);
-        placementGroup.position.y = 0;
+    if (results.length > 0) {
+      const hit = results[0];
+      const pose = hit.getPose(refSpace);
+      
+      if (pose) {
+        const matrix = new THREE.Matrix4().fromArray(pose.transform.matrix);
+        placementGroup.position.setFromMatrixPosition(matrix);
+        placementGroup.position.y = 0;
 
-        const q = new THREE.Quaternion().setFromRotationMatrix(matrix);
-        const e = new THREE.Euler().setFromQuaternion(q, 'YXZ');
-        placementGroup.rotation.y = e.y;
-        
-        placementGroup.visible = true;
-        placementRect.visible = true;
-        isHovering = true;
-        updateMsg("Tippe, um das Modell zu platzieren.");
-      }
-    } else {
-      placementGroup.visible = false;
-      placementRect.visible = false; 
-      isHovering = false;
-      updateMsg("Suche Boden...");
-    }
-  }
+        const q = new THREE.Quaternion().setFromRotationMatrix(matrix);
+        const e = new THREE.Euler().setFromQuaternion(q, 'YXZ');
+        placementGroup.rotation.y = e.y;
+        
+        placementGroup.visible = true;
+        placementRect.visible = true;
+        isHovering = true;
+        updateMsg("Tippe, um das Modell zu platzieren.");
+      }
+    } else {
+      placementGroup.visible = false;
+      placementRect.visible = false; 
+      isHovering = false;
+      updateMsg("Suche Boden...");
+    }
+  }
 
-  if (isModelPlaced) {
-    placementRect.visible = isEditing;
-  }
-  
-  renderer.render(scene, camera);
+  if (isModelPlaced) {
+    placementRect.visible = isEditing;
+  }
+  
+  renderer.render(scene, camera);
 }
 
 // --- Gesten ---
 function getDistance(touch1, touch2) {
-  return Math.hypot(touch2.clientX - touch1.clientX, touch2.clientY - touch1.clientY);
+  return Math.hypot(touch2.clientX - touch1.clientX, touch2.clientY - touch1.clientY);
 }
 
 function onTouchStart(event) {
-  currentTouches = event.touches ? Array.from(event.touches) : [event];
-  if (currentTouches.length === 0) return;
-  
-  gestureStartTime = performance.now();
-  didMove = false;
-  isEditing = false;
-  
-  tapStartX = currentTouches[0].clientX;
-  tapStartY = currentTouches[0].clientY;
-  lastMoveX = tapStartX;
-  
-  // Reset Flags
-  isDraggingModel = false;
-  isRotatingModel = false;
-  isScalingModel = false;
+  currentTouches = event.touches ? Array.from(event.touches) : [event];
+  if (currentTouches.length === 0) return;
+  
+  gestureStartTime = performance.now();
+  didMove = false;
+  isEditing = false;
+  
+  tapStartX = currentTouches[0].clientX;
+  tapStartY = currentTouches[0].clientY;
+  lastMoveX = tapStartX;
+  
+  // Reset Flags
+  isDraggingModel = false;
+  isRotatingModel = false;
+  isScalingModel = false;
 
-  if (currentTouches.length === 2) {
-    isEditing = true;
-    isScalingModel = true;
-    initialPinchDistance = getDistance(currentTouches[0], currentTouches[1]);
-    initialModelScale = placementGroup.scale.x;
-    updateMsg("Skalieren (Pinch)");
-    
-  } else if (currentTouches.length === 1 && isModelPlaced) {
-    if (isTouchNearModel(tapStartX, tapStartY)) {
-      isEditing = true;
-      isDraggingModel = true;
-      updateMsg("Modell verschieben (Drag)");
-    } else {
-      isEditing = true;
-      isRotatingModel = true;
-      updateMsg("Modell drehen (Swipe)");
-    }
-  }
-  
-  if (isEditing) event.preventDefault();
+  if (currentTouches.length === 2) {
+    isEditing = true;
+    isScalingModel = true;
+    initialPinchDistance = getDistance(currentTouches[0], currentTouches[1]);
+    initialModelScale = placementGroup.scale.x;
+    updateMsg("Skalieren (Pinch)");
+    
+  } else if (currentTouches.length === 1 && isModelPlaced) {
+    if (isTouchNearModel(tapStartX, tapStartY)) {
+      isEditing = true;
+      isDraggingModel = true;
+      updateMsg("Modell verschieben (Drag)");
+    } else {
+      isEditing = true;
+      isRotatingModel = true;
+      updateMsg("Modell drehen (Swipe)");
+    }
+  }
+  
+  if (isEditing) event.preventDefault();
 }
 
 function onTouchMove(event) {
-  currentTouches = event.touches ? Array.from(event.touches) : [event];
+  currentTouches = event.touches ? Array.from(event.touches) : [event];
 
-  const touchCount = currentTouches.length;
+  const touchCount = currentTouches.length;
 
-  // Dynamisches Umschalten der Modi
-  if (isModelPlaced) {
-    if (touchCount === 2) {
-      if (!isScalingModel) {
-        isScalingModel = true;
-        isDraggingModel = false;
-        isRotatingModel = false;
-        isEditing = true;
-        initialPinchDistance = getDistance(currentTouches[0], currentTouches[1]);
-        initialModelScale = placementGroup.scale.x;
-        updateMsg("Skalieren (Pinch)");
-      }
-    } else if (touchCount === 1 && isScalingModel) {
-      isScalingModel = false;
-      const t = currentTouches[0];
-      if (isTouchNearModel(t.clientX, t.clientY)) {
-        isDraggingModel = true;
-        isRotatingModel = false;
-        updateMsg("Modell verschieben (Drag)");
-      } else {
-        isDraggingModel = false;
-        isRotatingModel = true;
-        updateMsg("Modell drehen (Swipe)");
-      }
-    }
+  // V44 FIX: Verhindere jegliches natives Browser-Verhalten (Scrollen/Zoomen),
+  // sobald wir wissen, dass wir eine aktive Geste oder eine 2-Finger-Geste haben.
+  if (isEditing || touchCount > 1) { 
+      event.preventDefault();
   }
 
-  if (!isEditing || !isModelPlaced) {
-    if (touchCount > 1) event.preventDefault();
-    return;
-  }
+  // Dynamisches Umschalten der Modi
+  if (isModelPlaced) {
+    if (touchCount === 2) {
+      if (!isScalingModel) {
+        isScalingModel = true;
+        isDraggingModel = false;
+        isRotatingModel = false;
+        isEditing = true;
+        initialPinchDistance = getDistance(currentTouches[0], currentTouches[1]);
+        initialModelScale = placementGroup.scale.x;
+        updateMsg("Skalieren (Pinch)");
+      }
+    } else if (touchCount === 1 && isScalingModel) {
+      isScalingModel = false;
+      const t = currentTouches[0];
+      if (isTouchNearModel(t.clientX, t.clientY)) {
+        isDraggingModel = true;
+        isRotatingModel = false;
+        updateMsg("Modell verschieben (Drag)");
+      } else {
+        isDraggingModel = false;
+        isRotatingModel = true;
+        updateMsg("Modell drehen (Swipe)");
+      }
+    }
+  }
 
-  const isTwoFinger = touchCount === 2;
-  const isOneFinger = touchCount === 1;
-
-  if (isTwoFinger || isOneFinger) event.preventDefault();
-
-  const dragDistanceTotal = Math.hypot(currentTouches[0].clientX - tapStartX, currentTouches[0].clientY - tapStartY);
-  if (dragDistanceTotal > DRAG_THRESHOLD_PIX) {
-    didMove = true;
-  }
+  // Muss NACH der dynamischen Umschaltung geprüft werden
+  if (!isEditing || !isModelPlaced) {
+    return;
+  }
+  // Der folgende Code wird nur ausgeführt, wenn isEditing = true UND isModelPlaced = true
   
-  if (isScalingModel && isTwoFinger) {
-    const newDist = getDistance(currentTouches[0], currentTouches[1]);
-    const scaleDelta = newDist - initialPinchDistance;
-    const newScale = initialModelScale + scaleDelta * SCALE_FACTOR;
-    const clamped = Math.max(0.25, Math.min(3.0, newScale)); // V42: konservativeres Clamping
-    placementGroup.scale.setScalar(clamped);
-    
-  } else if (isOneFinger) {
-    const t = currentTouches[0];
-    const dx = t.clientX - lastMoveX;
+  const isTwoFinger = touchCount === 2;
+  const isOneFinger = touchCount === 1;
 
-    if (isDraggingModel) {
-      toNDC(t.clientX, t.clientY);
-      raycaster.setFromCamera(ndc, camera);
-      const hit = new THREE.Vector3();
-      if (raycaster.ray.intersectPlane(floorPlane, hit)) {
-        placementGroup.position.set(hit.x, 0, hit.z);
-      }
-    }
-    if (isRotatingModel) {
-      placementGroup.rotation.y += dx * ROTATION_FACTOR;
-    }
+  // event.preventDefault() ist jetzt am Anfang
 
-    lastMoveX = t.clientX;
-  }
+  const dragDistanceTotal = Math.hypot(currentTouches[0].clientX - tapStartX, currentTouches[0].clientY - tapStartY);
+  if (dragDistanceTotal > DRAG_THRESHOLD_PIX) {
+    didMove = true;
+  }
+  
+  if (isScalingModel && isTwoFinger) {
+    const newDist = getDistance(currentTouches[0], currentTouches[1]);
+    const scaleDelta = newDist - initialPinchDistance;
+    const newScale = initialModelScale + scaleDelta * SCALE_FACTOR;
+    const clamped = Math.max(0.25, Math.min(3.0, newScale)); 
+    placementGroup.scale.setScalar(clamped);
+    
+  } else if (isOneFinger) {
+    const t = currentTouches[0];
+    const dx = t.clientX - lastMoveX;
+
+    if (isDraggingModel) {
+      toNDC(t.clientX, t.clientY);
+      raycaster.setFromCamera(ndc, camera);
+      const hit = new THREE.Vector3();
+      if (raycaster.ray.intersectPlane(floorPlane, hit)) {
+        placementGroup.position.set(hit.x, 0, hit.z);
+      }
+    }
+    if (isRotatingModel) {
+      placementGroup.rotation.y += dx * ROTATION_FACTOR;
+    }
+
+    lastMoveX = t.clientX;
+  }
 }
 
 function onTouchEnd(event) {
-  if (event.touches && event.touches.length > 0) return;
-  
-  const gestureDuration = performance.now() - gestureStartTime;
-  const isTap = !didMove && gestureDuration < TAP_THRESHOLD_MS;
-  const endedTouch = event.changedTouches ? event.changedTouches[0] : event;
+  if (event.touches && event.touches.length > 0) return;
+  
+  const gestureDuration = performance.now() - gestureStartTime;
+  const isTap = !didMove && gestureDuration < TAP_THRESHOLD_MS;
+  const endedTouch = event.changedTouches ? event.changedTouches[0] : event;
 
-  // Platzierung nur bei Tap auf Zielmarkierung und ohne aktives Edit
-  if (!isModelPlaced && isTap && !isEditing) {
-    if (isHovering && isTapInsidePlacementRect(endedTouch.clientX, endedTouch.clientY)) {
-      isModelPlaced = true;
-      placementRect.visible = false;
-      updateMsg("Modell platziert. Ziehen/Pinch zum Bearbeiten.");
-    } 
-  }
+  // Platzierung nur bei Tap auf Zielmarkierung und OHNE aktives Edit
+  // HINWEIS: Dieser Block wird nur ausgeführt, wenn !isModelPlaced (Initialisierung).
+  if (!isModelPlaced && isTap && !isEditing) {
+    if (isHovering && isTapInsidePlacementRect(endedTouch.clientX, endedTouch.clientY)) {
+      isModelPlaced = true;
+      placementRect.visible = false;
+      updateMsg("Modell platziert. Ziehen/Pinch zum Bearbeiten.");
+    } 
+  }
 
-  if (isEditing) {
-    isEditing = false;
-    isDraggingModel = false;
-    isRotatingModel = false;
-    isScalingModel = false;
-    initialModelScale = placementGroup.scale.x;
-  }
+  if (isEditing) {
+    isEditing = false;
+    isDraggingModel = false;
+    isRotatingModel = false;
+    isScalingModel = false;
+    initialModelScale = placementGroup.scale.x;
+    
+    if (isModelPlaced) updateMsg("Modell verschoben/skaliert/gedreht. Tippe auf Modell zum erneuten Draggen.");
+  }
 }
 
 boot();
