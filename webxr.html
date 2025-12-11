@@ -151,7 +151,7 @@ const SCALE_FACTOR = 0.005;
 const DRAG_THRESHOLD_PIX = 18;
 const TAP_THRESHOLD_MS = 350;
 const EDIT_TOUCH_RADIUS_PX = 250; 
-const RECT_SIZE = 0.5; // Größe des Platzierungsrechtecks in Weltkoordinaten
+const RECT_SIZE = 0.5;
 
 let initialPinchDistance = 0;
 let initialModelScale = 1;
@@ -159,7 +159,6 @@ let lastMoveX = 0;
 
 const raycaster = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
-// Plane (y=0) für die Drag-Projektion
 const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
 function toNDC(clientX, clientY) {
@@ -180,28 +179,21 @@ function worldToScreenPx(vec3World) {
 function isTapInsidePlacementRect(clientX, clientY) {
   if (!placementGroup || !placementRect || !placementRect.visible || !isHovering) return false;
 
-  // 1. Raycaster auf die Tap-Position setzen
   toNDC(clientX, clientY);
   raycaster.setFromCamera(ndc, camera);
 
-  // 2. Tap-Ray auf die Bodenebene (y=0) projizieren
   const hit = new THREE.Vector3();
   if (raycaster.ray.intersectPlane(floorPlane, hit) === null) {
-    return false; // Kein Treffer auf dem Boden
+    return false; 
   }
 
-  // 3. Trefferposition gegen die tatsächliche, skalierte Rechteckgröße prüfen
   const rectWorldPos = placementGroup.position;
   
-  // Abstand in XZ-Ebene (Boden)
   const dx = hit.x - rectWorldPos.x;
   const dz = hit.z - rectWorldPos.z;
 
-  // Die Rechteck-Hälfte (inkl. Scale * 1.05 für Rahmen + etwas Puffer)
-  // Wir verwenden die Platzierungsskala, da das Modell skaliert wird
   const halfSize = (RECT_SIZE * placementGroup.scale.x * 1.05) / 2 + 0.05; 
   
-  // Prüfen, ob der Tap innerhalb des Rechteck-Bereichs liegt (inklusive Puffer)
   return (Math.abs(dx) <= halfSize) && (Math.abs(dz) <= halfSize);
 }
 
@@ -221,7 +213,7 @@ let SCENE_JSON_URL = '';
 let MODEL_URL = '';
 let AUDIO_URL = '';
 
-// --- Audio (Unverändert) ---
+// --- Audio ---
 const audioEl = document.getElementById('ar-audio');
 const btnMute = document.getElementById('btn-mute');
 let isMuted = false;
@@ -300,7 +292,7 @@ async function tryStartAudioAfterGesture() {
   }
 }
 
-// URL laden/boot (Unverändert)
+// URL laden/boot
 async function boot() {
   
   if (!navigator.xr) { showErr("WebXR nicht unterstützt."); return; }
@@ -335,6 +327,9 @@ async function boot() {
 
   initThree();
   await loadModel();
+
+  // WICHTIG: Resize Listener Hinzufügen
+  window.addEventListener('resize', onResize);
 
   document.getElementById('btn-enter-ar').addEventListener('click', async () => {
     if (AUDIO_URL && !isMuted) {
@@ -375,8 +370,6 @@ async function boot() {
 
   document.getElementById('start-screen').style.display = 'flex';
 }
-
-// ... (initThree und loadModel bleiben unverändert)
 
 function initThree() {
   scene = new THREE.Scene();
@@ -498,6 +491,14 @@ async function onStartAR() {
   renderer.setAnimationLoop(render);
 }
 
+// NEU: Fenster-Resize: Kamera + Renderer aktualisieren
+function onResize() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+
 function render(timestamp, frame) {
   if (!frame) return;
 
@@ -529,7 +530,7 @@ function render(timestamp, frame) {
       }
     } else {
       placementGroup.visible = false;
-      placementRect.visible = false; // KORRIGIERT: Rechteck verschwindet, wenn kein Boden gefunden
+      placementRect.visible = false; 
       isHovering = false;
       updateMsg("Suche Boden...");
     }
@@ -629,6 +630,7 @@ function onTouchMove(event) {
   }
 }
 
+// KORRIGIERT: Zusätzliche Prüfung auf !isEditing
 function onTouchEnd(event) {
   if (event.touches && event.touches.length > 0) return;
   
@@ -637,12 +639,11 @@ function onTouchEnd(event) {
   const endedTouch = event.changedTouches ? event.changedTouches[0] : event;
 
 
-  // === Platzierungs-Logik: Tap muss auf der Zielmarkierung landen ===
-  if (!isModelPlaced && isTap) {
+  // === Platzierungs-Logik: Tap muss auf der Zielmarkierung landen UND kein Edit aktiv sein ===
+  if (!isModelPlaced && isTap && !isEditing) {
     if (isHovering && isTapInsidePlacementRect(endedTouch.clientX, endedTouch.clientY)) {
-      // Platzierung wird bestätigt
       isModelPlaced = true;
-      placementRect.visible = false; // UI-Fix: Sofort ausblenden
+      placementRect.visible = false;
       updateMsg("Modell platziert. Ziehen/Pinch zum Bearbeiten.");
     } 
   }
@@ -654,7 +655,6 @@ function onTouchEnd(event) {
     isRotatingModel = false;
     isScalingModel = false;
     initialModelScale = placementGroup.scale.x;
-    // updateMsg wird durch den Tap-Zweig oder den nächsten Render-Frame aktualisiert.
   }
 }
 
