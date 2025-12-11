@@ -15,6 +15,7 @@
   }
 }
 </script>
+
 <style>
   html, body {
     margin: 0; padding: 0; width: 100%; height: 100%;
@@ -30,14 +31,13 @@
     z-index: 10;
   }
 
-  /* Startscreen: Sichtbarkeit wird per JS gesteuert */
+  /* Startscreen: Sichtbarkeit per JS gesteuert */
   #start-screen {
     position: absolute; inset: 0;
     background: rgba(0,0,0,0.6);
-    display: none; /* initial per CSS aus, JS zeigt ihn in boot() */
+    display: none; /* Initial per CSS aus, boot() zeigt ihn */
     align-items: center; justify-content: center;
-    pointer-events: auto;
-    z-index: 100; /* Sicher über Gesten-Layer und Overlay */
+    pointer-events: auto; z-index: 100;
     backdrop-filter: blur(5px);
   }
   .btn-start {
@@ -152,7 +152,6 @@ const ROTATION_FACTOR = 0.018;
 const SCALE_FACTOR = 0.005;     
 const DRAG_THRESHOLD_PIX = 18;
 const TAP_THRESHOLD_MS = 350;
-const EDIT_TOUCH_RADIUS_PX = 250; 
 const RECT_SIZE = 0.5;
 
 let initialPinchDistance = 0;
@@ -274,7 +273,7 @@ function toNDC(clientX, clientY) {
   ndc.y = -(clientY / h) * 2 + 1;
 }
 
-// Tap innerhalb der Zielmarkierung (weltkoordinaten, inkl. Scale)
+// Tap innerhalb der Zielmarkierung (Weltkoordinaten inkl. Scale)
 function isTapInsidePlacementRect(clientX, clientY) {
   if (!placementGroup || !placementRect || !placementRect.visible || !isHovering) return false;
 
@@ -282,6 +281,7 @@ function isTapInsidePlacementRect(clientX, clientY) {
   raycaster.setFromCamera(ndc, camera);
 
   const hit = new THREE.Vector3();
+  // Raycast gegen die Bodenebene
   if (raycaster.ray.intersectPlane(floorPlane, hit) === null) {
     return false; 
   }
@@ -289,17 +289,17 @@ function isTapInsidePlacementRect(clientX, clientY) {
   const dx = hit.x - rectWorldPos.x;
   const dz = hit.z - rectWorldPos.z;
 
+  // Prüfen, ob der Hit innerhalb des Rechtecks liegt
   const halfSize = (RECT_SIZE * placementGroup.scale.x * 1.05) / 2 + 0.05; 
   return (Math.abs(dx) <= halfSize) && (Math.abs(dz) <= halfSize);
 }
 
-// Prüft, ob ein Mesh direkt angetroffen wurde (präziser für Drag)
+// Präzise Drag-Erkennung via Mesh-Raycast
 function isTouchOnModel(clientX, clientY) {
   if (!model || !isModelPlaced) return false;
   toNDC(clientX, clientY);
   raycaster.setFromCamera(ndc, camera);
-  // Prüfen Sie alle Objekte im 'model' (dem geladenen GLTF-Scene-Root)
-  const hits = raycaster.intersectObject(model, true); 
+  const hits = raycaster.intersectObject(model, true);
   return hits.length > 0;
 }
 
@@ -351,11 +351,11 @@ async function boot() {
 
   window.addEventListener('resize', onResize);
 
-  // V45: Startscreen zeigen (einheitlich nur hier am Ende des Boot-Prozesses)
+  // Startscreen zeigen
   startScreen.style.display = 'flex';
 
   document.getElementById('btn-enter-ar').addEventListener('click', async () => {
-    // V45: Startscreen sofort ausblenden bei Klick (bevor AR-Session startet)
+    // Startscreen ausblenden
     startScreen.style.display = 'none';
 
     if (AUDIO_URL && !isMuted) {
@@ -365,7 +365,6 @@ async function boot() {
     
     onStartAR().catch(err => {
       console.error('AR-Session Start Error:', err);
-      // Bei Fehler wieder anzeigen
       startScreen.style.display = 'flex';
       showErr('AR konnte nicht gestartet werden:\n' + (err?.message || 'Unbekannter Fehler'));
     });
@@ -375,12 +374,13 @@ async function boot() {
     const s = renderer.xr.getSession();
     if (s) { await s.end(); } 
     else { 
-      // V45: Konsistenter Rückfall
+      // Fallback-Zustand setzen
       startScreen.style.display = 'flex';
       audioEl.pause();
       isModelPlaced = false;
       isEditing = false;
       placementGroup.visible = false;
+      placementRect.visible = false;
       updateMsg("Bewege dein Gerät um Fläche zu finden...");
     }
   });
@@ -449,7 +449,7 @@ function initThree() {
   placementRect.rotation.x = -Math.PI / 2;
   placementRect.position.y = 0.005;
   placementRect.scale.set(1.05, 1.05, 1.05);
-  placementRect.visible = true;
+  placementRect.visible = false; // sichtbar nur im Hover/Edit
   placementGroup.add(placementRect);
 }
 
@@ -500,6 +500,7 @@ async function onStartAR() {
     isModelPlaced = false;
     isEditing = false;
     placementGroup.visible = false;
+    placementRect.visible = false;
     updateMsg("Bewege dein Gerät um Fläche zu finden...");
   });
 
@@ -547,19 +548,21 @@ function render(timestamp, frame) {
         placementGroup.rotation.y = e.y;
         
         placementGroup.visible = true;
-        placementRect.visible = true;
+        placementRect.visible = true; // Zielmarkierung im Hover sichtbar
         isHovering = true;
-        updateMsg("Tippe, um das Modell zu platzieren.");
+        updateMsg("Tippe auf die Zielmarkierung, um das Modell zu platzieren.");
       }
     } else {
       placementGroup.visible = false;
-      placementRect.visible = false; 
+      placementRect.visible = false;
       isHovering = false;
       updateMsg("Suche Boden...");
     }
   }
 
+  // Rechteck nur im Edit-Modus zeigen, wenn platziert
   if (isModelPlaced) {
+    // Wenn nicht editiert wird, soll die Zielmarkierung verschwinden
     placementRect.visible = isEditing;
   }
   
@@ -588,22 +591,28 @@ function onTouchStart(event) {
   isRotatingModel = false;
   isScalingModel = false;
 
+  // Während Hover (vor Platzierung) keine Edits starten
+  if (!isModelPlaced) return;
+
   if (currentTouches.length === 2) {
     isEditing = true;
     isScalingModel = true;
     initialPinchDistance = getDistance(currentTouches[0], currentTouches[1]);
     initialModelScale = placementGroup.scale.x;
+    placementRect.visible = true;
     updateMsg("Skalieren (Pinch)");
     
-  } else if (currentTouches.length === 1 && isModelPlaced) {
-    // Drag nur bei tatsächlichem Mesh-Hit; sonst Rotation
+  } else if (currentTouches.length === 1) {
+    // Drag nur bei Mesh-Hit (isTouchOnModel), sonst Rotation
     if (isTouchOnModel(tapStartX, tapStartY)) {
       isEditing = true;
       isDraggingModel = true;
+      placementRect.visible = true;
       updateMsg("Modell verschieben (Drag)");
     } else {
       isEditing = true;
       isRotatingModel = true;
+      placementRect.visible = true;
       updateMsg("Modell drehen (Swipe)");
     }
   }
@@ -616,44 +625,16 @@ function onTouchMove(event) {
 
   const touchCount = currentTouches.length;
 
-  // Verhindere natives Browser-Verhalten während aktiver Gesten
-  if (isEditing || touchCount > 1) { 
+  // Natives Verhalten blockieren, wenn aktiv
+  if (isEditing || touchCount > 1) {
     event.preventDefault();
-  }
-
-  // Dynamisches Umschalten der Modi
-  if (isModelPlaced) {
-    if (touchCount === 2) {
-      if (!isScalingModel) {
-        isScalingModel = true;
-        isDraggingModel = false;
-        isRotatingModel = false;
-        isEditing = true;
-        initialPinchDistance = getDistance(currentTouches[0], currentTouches[1]);
-        initialModelScale = placementGroup.scale.x;
-        updateMsg("Skalieren (Pinch)");
-      }
-    } else if (touchCount === 1 && isScalingModel) {
-      isScalingModel = false;
-      const t = currentTouches[0];
-      // Nach dem Ende von Pinch neu „armen“: Mesh-Hit => Drag; sonst Rotation
-      if (isTouchOnModel(t.clientX, t.clientY)) {
-        isDraggingModel = true;
-        isRotatingModel = false;
-        updateMsg("Modell verschieben (Drag)");
-      } else {
-        isDraggingModel = false;
-        isRotatingModel = true;
-        updateMsg("Modell drehen (Swipe)");
-      }
-    }
   }
 
   // Nur ausführen, wenn Edit aktiv und Modell platziert
   if (!isEditing || !isModelPlaced) {
     return;
   }
-  
+
   const isTwoFinger = touchCount === 2;
   const isOneFinger = touchCount === 1;
 
@@ -662,13 +643,35 @@ function onTouchMove(event) {
     didMove = true;
   }
   
-  if (isScalingModel && isTwoFinger) {
+  if (isTwoFinger) {
+    if (!isScalingModel) {
+      // Wechsel in Scale, wenn zweiter Finger dazu kommt
+      isScalingModel = true;
+      isDraggingModel = false;
+      isRotatingModel = false;
+      initialPinchDistance = getDistance(currentTouches[0], currentTouches[1]);
+      initialModelScale = placementGroup.scale.x;
+      updateMsg("Skalieren (Pinch)");
+    }
     const newDist = getDistance(currentTouches[0], currentTouches[1]);
     const scaleDelta = newDist - initialPinchDistance;
     const newScale = initialModelScale + scaleDelta * SCALE_FACTOR;
-    const clamped = Math.max(0.25, Math.min(3.0, newScale)); 
+    const clamped = Math.max(0.25, Math.min(3.0, newScale));
     placementGroup.scale.setScalar(clamped);
     
+  } else if (isScalingModel && isOneFinger) {
+    // Pinch beendet -> Mode neu armen (Drag bei Hit, sonst Rotation)
+    isScalingModel = false;
+    const t = currentTouches[0];
+    if (isTouchOnModel(t.clientX, t.clientY)) {
+      isDraggingModel = true;
+      isRotatingModel = false;
+      updateMsg("Modell verschieben (Drag)");
+    } else {
+      isDraggingModel = false;
+      isRotatingModel = true;
+      updateMsg("Modell drehen (Swipe)");
+    }
   } else if (isOneFinger) {
     const t = currentTouches[0];
     const dx = t.clientX - lastMoveX;
@@ -691,18 +694,18 @@ function onTouchMove(event) {
 
 function onTouchEnd(event) {
   if (event.touches && event.touches.length > 0) return;
-  
+
   const gestureDuration = performance.now() - gestureStartTime;
   const isTap = !didMove && gestureDuration < TAP_THRESHOLD_MS;
   const endedTouch = event.changedTouches ? event.changedTouches[0] : event;
 
-  // Platzierung nur bei Tap auf Zielmarkierung und OHNE aktives Edit (nur initial)
-  if (!isModelPlaced && isTap && !isEditing) {
+  // Platzierung nur in der Hover-Phase durch Tap auf Zielmarkierung
+  if (!isModelPlaced && isTap) {
     if (isHovering && isTapInsidePlacementRect(endedTouch.clientX, endedTouch.clientY)) {
       isModelPlaced = true;
       placementRect.visible = false;
       updateMsg("Modell platziert. Ziehen/Pinch zum Bearbeiten.");
-    } 
+    }
   }
 
   if (isEditing) {
@@ -711,8 +714,8 @@ function onTouchEnd(event) {
     isRotatingModel = false;
     isScalingModel = false;
     initialModelScale = placementGroup.scale.x;
-    
-    if (isModelPlaced) updateMsg("Modell verschoben/skaliert/gedreht. Tippe auf Modell zum erneuten Draggen.");
+    placementRect.visible = false;
+    if (isModelPlaced) updateMsg("Bearbeitung beendet. Tippe auf Modell zum erneuten Draggen.");
   }
 }
 
