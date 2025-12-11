@@ -271,7 +271,7 @@ function setupAudio(audioCfg) {
   };
 }
 
-// NEU: Logik zum Starten des Audios nach der Nutzergeste (AR Starten)
+// Logik zum Starten des Audios nach der Nutzergeste (AR Starten)
 async function tryStartAudioAfterGesture() {
   if (!AUDIO_URL || isMuted) return;
 
@@ -315,8 +315,11 @@ async function tryStartAudioAfterGesture() {
 
 // URL laden/boot
 async function boot() {
+  const startScreen = document.getElementById('start-screen'); // NEU: Referenz holen
+
   if (!navigator.xr) {
     showErr("WebXR nicht unterstützt.");
+    startScreen.style.display = 'flex'; // Sicherstellen, dass der Startbildschirm sichtbar bleibt
     return;
   }
 
@@ -324,6 +327,7 @@ async function boot() {
     const xrSupported = navigator.xr && (navigator.xr.isSessionSupported ? await navigator.xr.isSessionSupported('immersive-ar') : true);
     if (!xrSupported) {
       showErr('AR wird auf diesem Gerät/Browser nicht unterstützt.');
+      startScreen.style.display = 'flex'; // Sicherstellen, dass der Startbildschirm sichtbar bleibt
       return;
     }
   } catch(e) {
@@ -350,6 +354,9 @@ async function boot() {
     } catch(e) {
       console.error(e);
       showErr("Fehler beim Laden der Szene.");
+      // NEU: Wenn Szene nicht lädt, Start-Button wieder anzeigen
+      startScreen.style.display = 'flex';
+      return;
     }
   }
 
@@ -487,31 +494,38 @@ async function onStartAR() {
     tryStartAudioAfterGesture();
   }
 
-  const session = await navigator.xr.requestSession('immersive-ar', {
-    requiredFeatures: ['hit-test', 'local-floor'],
-    optionalFeatures: ['dom-overlay'],
-    domOverlay: { root: document.getElementById('overlay') }
-  });
+  try {
+    const session = await navigator.xr.requestSession('immersive-ar', {
+      requiredFeatures: ['hit-test', 'local-floor'],
+      optionalFeatures: ['dom-overlay'],
+      domOverlay: { root: document.getElementById('overlay') }
+    });
 
-  session.addEventListener('end', async () => {
-    hitTestSourceRequested = false;
-    hitTestSource = null;
-    renderer.setAnimationLoop(null);
-    await renderer.xr.setSession(null);
-    
+    session.addEventListener('end', async () => {
+      hitTestSourceRequested = false;
+      hitTestSource = null;
+      renderer.setAnimationLoop(null);
+      await renderer.xr.setSession(null);
+      
+      document.getElementById('start-screen').style.display = 'flex';
+      audioEl.pause();
+      havePose = false;
+      isPlaced = false;
+      hasBeenMoved = false; 
+      placementGroup.visible = false;
+      updateMsg("Bewege dein Gerät um Fläche zu finden...");
+    });
+
+    renderer.xr.setReferenceSpaceType('local-floor');
+    await renderer.xr.setSession(session);
+
+    renderer.setAnimationLoop(render);
+
+  } catch (err) {
+    // Wenn AR-Session fehlschlägt, Start-Screen wieder anzeigen.
     document.getElementById('start-screen').style.display = 'flex';
-    audioEl.pause();
-    havePose = false;
-    isPlaced = false;
-    hasBeenMoved = false; 
-    placementGroup.visible = false;
-    updateMsg("Bewege dein Gerät um Fläche zu finden...");
-  });
-
-  renderer.xr.setReferenceSpaceType('local-floor');
-  await renderer.xr.setSession(session);
-
-  renderer.setAnimationLoop(render);
+    throw err; // Fehler weitergeben für die Konsolen-Ausgabe
+  }
 }
 
 // --- Render Loop & Hit Test ---
@@ -623,6 +637,8 @@ function onTouchStart(event) {
           updateMsg("Modell wird gedreht (1 Finger Drag außerhalb des Modells)");
         } else {
           gestureActive = false;
+          // Korrektur: Füge hier ein 'return' ein, damit der Event nicht unnötig verarbeitet wird, 
+            // obwohl die Geste nicht aktiv ist (ansonsten wird es eventuell als Tap gewertet).
           return;
         }
       }
