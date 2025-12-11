@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover"/>
 <title>ARea WebXR Viewer</title>
 
+<!-- Import Maps Polyfill -->
 <script async src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
 
 <script type="importmap">
@@ -36,7 +37,7 @@
     display: flex; align-items: center; justify-content: center;
     pointer-events: auto; z-index: 20;
     backdrop-filter: blur(5px);
-    display: flex; 
+    display: flex;
   }
   .btn-start {
     background: white; color: black; border: none;
@@ -123,7 +124,7 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
 // --- Globals ---
 let camera, scene, renderer;
-let hitTestSource = null, hitTestSourceRequested = false;
+let hitTestSource = null;
 let placementGroup; 
 let placementRect;
 let model;
@@ -157,53 +158,10 @@ let initialPinchDistance = 0;
 let initialModelScale = 1;
 let lastMoveX = 0; 
 
+// Ray/Planes
 const raycaster = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
 const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-
-function toNDC(clientX, clientY) {
-  const w = renderer.domElement.clientWidth || window.innerWidth;
-  const h = renderer.domElement.clientHeight || window.innerHeight;
-  ndc.x = (clientX / w) * 2 - 1;
-  ndc.y = -(clientY / h) * 2 + 1;
-}
-
-function worldToScreenPx(vec3World) {
-  const w = renderer.domElement.clientWidth || window.innerWidth;
-  const h = renderer.domElement.clientHeight || window.innerHeight;
-  const v = vec3World.clone().project(camera);
-  return { x: (v.x * 0.5 + 0.5) * w, y: (-v.y * 0.5 + 0.5) * h };
-}
-
-// KORRIGIERT: Exakte Tap-in-Rechteck-Prüfung in Weltkoordinaten
-function isTapInsidePlacementRect(clientX, clientY) {
-  if (!placementGroup || !placementRect || !placementRect.visible || !isHovering) return false;
-
-  toNDC(clientX, clientY);
-  raycaster.setFromCamera(ndc, camera);
-
-  const hit = new THREE.Vector3();
-  if (raycaster.ray.intersectPlane(floorPlane, hit) === null) {
-    return false; 
-  }
-
-  const rectWorldPos = placementGroup.position;
-  
-  const dx = hit.x - rectWorldPos.x;
-  const dz = hit.z - rectWorldPos.z;
-
-  const halfSize = (RECT_SIZE * placementGroup.scale.x * 1.05) / 2 + 0.05; 
-  
-  return (Math.abs(dx) <= halfSize) && (Math.abs(dz) <= halfSize);
-}
-
-
-function isTouchNearModel(clientX, clientY, radiusPx = EDIT_TOUCH_RADIUS_PX) {
-  if (!isModelPlaced || !placementGroup.visible) return false;
-  const centerPx = worldToScreenPx(placementGroup.position);
-  const dist = Math.hypot(clientX - centerPx.x, clientY - centerPx.y);
-  return dist <= radiusPx;
-}
 
 // URL Params
 const qs = new URLSearchParams(location.search);
@@ -248,10 +206,7 @@ function setupAudio(audioCfg) {
     btnMute.textContent = isMuted ? '🔇' : '🔊';
     if (!isMuted) {
       ensureAudioUnlocked();
-      audioEl.play().catch(e => {
-        console.warn('Mute-Button Play blocked, trying fallback', e);
-        tryStartAudioAfterGesture();
-      });
+      audioEl.play().catch(() => tryStartAudioAfterGesture());
       const msgEl = document.getElementById('msg');
       if (msgEl.textContent.includes('Audio blockiert')) updateMsg('');
     } else {
@@ -292,9 +247,66 @@ async function tryStartAudioAfterGesture() {
   }
 }
 
-// URL laden/boot
+// --- UI helpers ---
+function showErr(txt) {
+  const e = document.getElementById('err');
+  e.textContent = txt;
+  e.style.display = 'block';
+  setTimeout(() => e.style.display='none', 5000);
+}
+let lastMsg = '';
+let lastMsgTime = 0;
+const MSG_DEBOUNCE_MS = 400; 
+function updateMsg(txt) {
+  const now = performance.now();
+  if (txt === lastMsg && (now - lastMsgTime) < MSG_DEBOUNCE_MS) return;
+  lastMsg = txt;
+  lastMsgTime = now;
+  document.getElementById('msg').textContent = txt;
+}
+
+// --- NDC helper ---
+function toNDC(clientX, clientY) {
+  const w = renderer.domElement.clientWidth || window.innerWidth;
+  const h = renderer.domElement.clientHeight || window.innerHeight;
+  ndc.x = (clientX / w) * 2 - 1;
+  ndc.y = -(clientY / h) * 2 + 1;
+}
+function worldToScreenPx(vec3World) {
+  const w = renderer.domElement.clientWidth || window.innerWidth;
+  const h = renderer.domElement.clientHeight || window.innerHeight;
+  const v = vec3World.clone().project(camera);
+  return { x: (v.x * 0.5 + 0.5) * w, y: (-v.y * 0.5 + 0.5) * h };
+}
+
+// Tap innerhalb der Zielmarkierung (weltkoordinaten, inkl. Scale)
+function isTapInsidePlacementRect(clientX, clientY) {
+  if (!placementGroup || !placementRect || !placementRect.visible || !isHovering) return false;
+
+  toNDC(clientX, clientY);
+  raycaster.setFromCamera(ndc, camera);
+
+  const hit = new THREE.Vector3();
+  if (raycaster.ray.intersectPlane(floorPlane, hit) === null) {
+    return false; 
+  }
+  const rectWorldPos = placementGroup.position;
+  const dx = hit.x - rectWorldPos.x;
+  const dz = hit.z - rectWorldPos.z;
+
+  const halfSize = (RECT_SIZE * placementGroup.scale.x * 1.05) / 2 + 0.05; 
+  return (Math.abs(dx) <= halfSize) && (Math.abs(dz) <= halfSize);
+}
+
+function isTouchNearModel(clientX, clientY, radiusPx = EDIT_TOUCH_RADIUS_PX) {
+  if (!isModelPlaced || !placementGroup.visible) return false;
+  const centerPx = worldToScreenPx(placementGroup.position);
+  const dist = Math.hypot(clientX - centerPx.x, clientY - centerPx.y);
+  return dist <= radiusPx;
+}
+
+// --- Boot & Three init ---
 async function boot() {
-  
   if (!navigator.xr) { showErr("WebXR nicht unterstützt."); return; }
   try {
     const xrSupported = navigator.xr && (navigator.xr.isSessionSupported ? await navigator.xr.isSessionSupported('immersive-ar') : true);
@@ -328,15 +340,12 @@ async function boot() {
   initThree();
   await loadModel();
 
-  // WICHTIG: Resize Listener Hinzufügen
   window.addEventListener('resize', onResize);
 
   document.getElementById('btn-enter-ar').addEventListener('click', async () => {
     if (AUDIO_URL && !isMuted) {
       ensureAudioUnlocked();
-      audioEl.play().catch(err => {
-         tryStartAudioAfterGesture(); 
-      });
+      audioEl.play().catch(() => tryStartAudioAfterGesture());
     }
     
     onStartAR().catch(err => {
@@ -405,7 +414,7 @@ function initThree() {
   shadowPlane.receiveShadow = true;
   scene.add(shadowPlane); 
 
-  // Rectangle
+  // Zielrechteck
   const radius = 0.05;
   const rectShape = new THREE.Shape();
   rectShape.moveTo(0, radius);
@@ -453,6 +462,7 @@ async function loadModel() {
   }
 }
 
+// --- AR Session ---
 async function onStartAR() {
   if (!modelLoaded) {
     throw new Error("Modell noch nicht geladen. Bitte kurz warten.");
@@ -466,7 +476,6 @@ async function onStartAR() {
   });
 
   session.addEventListener('end', async () => {
-    hitTestSourceRequested = false;
     hitTestSource = null;
     renderer.setAnimationLoop(null);
     await renderer.xr.setSession(null);
@@ -482,7 +491,6 @@ async function onStartAR() {
   session.requestReferenceSpace('viewer').then((refSpace) => {
     session.requestHitTestSource({ space: refSpace }).then((source) => {
       hitTestSource = source;
-      hitTestSourceRequested = true;
     });
   });
 
@@ -491,21 +499,21 @@ async function onStartAR() {
   renderer.setAnimationLoop(render);
 }
 
-// NEU: Fenster-Resize: Kamera + Renderer aktualisieren
+// --- Resize ---
 function onResize() {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-
+// --- Render Loop ---
 function render(timestamp, frame) {
   if (!frame) return;
 
   const dt = clock.getDelta();
   if(mixer) mixer.update(dt);
 
-  // === Hit-Test für Hover-Position (Nur wenn noch nicht platziert) ===
+  // Hover/Hit-Test solange nicht platziert
   if (hitTestSource && !isModelPlaced) {
     const refSpace = renderer.xr.getReferenceSpace();
     const results = frame.getHitTestResults(hitTestSource);
@@ -543,6 +551,7 @@ function render(timestamp, frame) {
   renderer.render(scene, camera);
 }
 
+// --- Gesten ---
 function getDistance(touch1, touch2) {
   return Math.hypot(touch2.clientX - touch1.clientX, touch2.clientY - touch1.clientY);
 }
@@ -558,6 +567,8 @@ function onTouchStart(event) {
   tapStartX = currentTouches[0].clientX;
   tapStartY = currentTouches[0].clientY;
   lastMoveX = tapStartX;
+  
+  // Reset Flags
   isDraggingModel = false;
   isRotatingModel = false;
   isScalingModel = false;
@@ -587,17 +598,44 @@ function onTouchStart(event) {
 function onTouchMove(event) {
   currentTouches = event.touches ? Array.from(event.touches) : [event];
 
+  const touchCount = currentTouches.length;
+
+  // Dynamisches Umschalten der Modi
+  if (isModelPlaced) {
+    if (touchCount === 2) {
+      if (!isScalingModel) {
+        isScalingModel = true;
+        isDraggingModel = false;
+        isRotatingModel = false;
+        isEditing = true;
+        initialPinchDistance = getDistance(currentTouches[0], currentTouches[1]);
+        initialModelScale = placementGroup.scale.x;
+        updateMsg("Skalieren (Pinch)");
+      }
+    } else if (touchCount === 1 && isScalingModel) {
+      isScalingModel = false;
+      const t = currentTouches[0];
+      if (isTouchNearModel(t.clientX, t.clientY)) {
+        isDraggingModel = true;
+        isRotatingModel = false;
+        updateMsg("Modell verschieben (Drag)");
+      } else {
+        isDraggingModel = false;
+        isRotatingModel = true;
+        updateMsg("Modell drehen (Swipe)");
+      }
+    }
+  }
+
   if (!isEditing || !isModelPlaced) {
-    if (currentTouches.length > 1) event.preventDefault();
+    if (touchCount > 1) event.preventDefault();
     return;
   }
 
-  const isTwoFinger = currentTouches.length === 2;
-  const isOneFinger = currentTouches.length === 1;
+  const isTwoFinger = touchCount === 2;
+  const isOneFinger = touchCount === 1;
 
-  if (isTwoFinger || isOneFinger) {
-    event.preventDefault();
-  }
+  if (isTwoFinger || isOneFinger) event.preventDefault();
 
   const dragDistanceTotal = Math.hypot(currentTouches[0].clientX - tapStartX, currentTouches[0].clientY - tapStartY);
   if (dragDistanceTotal > DRAG_THRESHOLD_PIX) {
@@ -607,14 +645,14 @@ function onTouchMove(event) {
   if (isScalingModel && isTwoFinger) {
     const newDist = getDistance(currentTouches[0], currentTouches[1]);
     const scaleDelta = newDist - initialPinchDistance;
-    let newScale = initialModelScale + scaleDelta * SCALE_FACTOR;
-    let clamped = Math.max(0.1, Math.min(5, newScale)); 
+    const newScale = initialModelScale + scaleDelta * SCALE_FACTOR;
+    const clamped = Math.max(0.25, Math.min(3.0, newScale)); // V42: konservativeres Clamping
     placementGroup.scale.setScalar(clamped);
     
   } else if (isOneFinger) {
     const t = currentTouches[0];
     const dx = t.clientX - lastMoveX;
-    
+
     if (isDraggingModel) {
       toNDC(t.clientX, t.clientY);
       raycaster.setFromCamera(ndc, camera);
@@ -622,15 +660,15 @@ function onTouchMove(event) {
       if (raycaster.ray.intersectPlane(floorPlane, hit)) {
         placementGroup.position.set(hit.x, 0, hit.z);
       }
-    } else if (isRotatingModel) {
+    }
+    if (isRotatingModel) {
       placementGroup.rotation.y += dx * ROTATION_FACTOR;
     }
-    
+
     lastMoveX = t.clientX;
   }
 }
 
-// KORRIGIERT: Zusätzliche Prüfung auf !isEditing
 function onTouchEnd(event) {
   if (event.touches && event.touches.length > 0) return;
   
@@ -638,8 +676,7 @@ function onTouchEnd(event) {
   const isTap = !didMove && gestureDuration < TAP_THRESHOLD_MS;
   const endedTouch = event.changedTouches ? event.changedTouches[0] : event;
 
-
-  // === Platzierungs-Logik: Tap muss auf der Zielmarkierung landen UND kein Edit aktiv sein ===
+  // Platzierung nur bei Tap auf Zielmarkierung und ohne aktives Edit
   if (!isModelPlaced && isTap && !isEditing) {
     if (isHovering && isTapInsidePlacementRect(endedTouch.clientX, endedTouch.clientY)) {
       isModelPlaced = true;
@@ -648,7 +685,6 @@ function onTouchEnd(event) {
     } 
   }
 
-  // === Edit-Logik: Edits abschließen, wenn Geste beendet ===
   if (isEditing) {
     isEditing = false;
     isDraggingModel = false;
@@ -656,24 +692,6 @@ function onTouchEnd(event) {
     isScalingModel = false;
     initialModelScale = placementGroup.scale.x;
   }
-}
-
-function showErr(txt) {
-  const e = document.getElementById('err');
-  e.textContent = txt;
-  e.style.display = 'block';
-  setTimeout(() => e.style.display='none', 5000);
-}
-
-let lastMsg = '';
-let lastMsgTime = 0;
-const MSG_DEBOUNCE_MS = 400; 
-function updateMsg(txt) {
-  const now = performance.now();
-  if (txt === lastMsg && (now - lastMsgTime) < MSG_DEBOUNCE_MS) return;
-  lastMsg = txt;
-  lastMsgTime = now;
-  document.getElementById('msg').textContent = txt;
 }
 
 boot();
