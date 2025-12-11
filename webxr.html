@@ -9,10 +9,10 @@
 
 <script type="importmap">
 {
-  "imports": {
-    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-  }
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
 }
 </script>
 <style>
@@ -34,10 +34,10 @@
   #start-screen {
     position: absolute; inset: 0;
     background: rgba(0,0,0,0.6);
-    display: none; /* NEU: initial per CSS aus, JS zeigt ihn in boot() */
+    display: none; /* initial per CSS aus, JS zeigt ihn in boot() */
     align-items: center; justify-content: center;
     pointer-events: auto;
-    z-index: 100; /* GEÄNDERT: sicher über Gesten-Layer und Overlay */
+    z-index: 100; /* Sicher über Gesten-Layer und Overlay */
     backdrop-filter: blur(5px);
   }
   .btn-start {
@@ -82,7 +82,7 @@
   #err {
     position: absolute; top: 10px; left: 10px; right: 10px;
     background: #b00020; color: white; padding: 10px;
-    border-radius: 8px; font-size: 12px; display: none; z-index: 120; /* GEÄNDERT */
+    border-radius: 8px; font-size: 12px; display: none; z-index: 120;
   }
 
   #gesture-layer {
@@ -295,7 +295,7 @@ function isTapInsidePlacementRect(clientX, clientY) {
 
 // Prüft, ob ein Mesh direkt angetroffen wurde (präziser für Drag)
 function isTouchOnModel(clientX, clientY) {
-  if (!model || !isModelPlaced) return false; // Nur bei platziertem Modell prüfen
+  if (!model || !isModelPlaced) return false;
   toNDC(clientX, clientY);
   raycaster.setFromCamera(ndc, camera);
   // Prüfen Sie alle Objekte im 'model' (dem geladenen GLTF-Scene-Root)
@@ -482,7 +482,6 @@ async function onStartAR() {
   if (!modelLoaded) {
     throw new Error("Modell noch nicht geladen. Bitte kurz warten.");
   }
-  // V45: Startscreen-Steuerung findet jetzt im Button-Click-Handler statt
 
   const session = await navigator.xr.requestSession('immersive-ar', {
     requiredFeatures: ['hit-test', 'local-floor'],
@@ -496,7 +495,7 @@ async function onStartAR() {
     await renderer.xr.setSession(null);
      
     const startScreen = document.getElementById('start-screen');
-    startScreen.style.display = 'flex'; // V45: Zeigt Startscreen nach Session-End
+    startScreen.style.display = 'flex'; // Zeigt Startscreen nach Session-End
     audioEl.pause();
     isModelPlaced = false;
     isEditing = false;
@@ -597,7 +596,7 @@ function onTouchStart(event) {
     updateMsg("Skalieren (Pinch)");
     
   } else if (currentTouches.length === 1 && isModelPlaced) {
-    // V45: Drag nur bei tatsächlichem Mesh-Hit; sonst Rotation
+    // Drag nur bei tatsächlichem Mesh-Hit; sonst Rotation
     if (isTouchOnModel(tapStartX, tapStartY)) {
       isEditing = true;
       isDraggingModel = true;
@@ -617,7 +616,7 @@ function onTouchMove(event) {
 
   const touchCount = currentTouches.length;
 
-  // V45: Verhindere natives Browser-Verhalten während aktiver Gesten
+  // Verhindere natives Browser-Verhalten während aktiver Gesten
   if (isEditing || touchCount > 1) { 
     event.preventDefault();
   }
@@ -637,7 +636,7 @@ function onTouchMove(event) {
     } else if (touchCount === 1 && isScalingModel) {
       isScalingModel = false;
       const t = currentTouches[0];
-      // V45: Nach dem Ende von Pinch neu „armen“: Mesh-Hit => Drag; sonst Rotation
+      // Nach dem Ende von Pinch neu „armen“: Mesh-Hit => Drag; sonst Rotation
       if (isTouchOnModel(t.clientX, t.clientY)) {
         isDraggingModel = true;
         isRotatingModel = false;
