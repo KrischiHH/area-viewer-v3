@@ -257,38 +257,74 @@ function setupAudio(audioCfg) {
   audioEl.loop = !!audioCfg.loop;
   audioEl.volume = audioCfg.volume ?? 0.8;
 
-  // Listener für Ladebereitschaft
-  const markReady = () => { audioReady = true; };
-  audioEl.addEventListener('canplay', markReady, { once: true });
-  audioEl.addEventListener('canplaythrough', markReady, { once: true });
+  // Optional: Fehlerprotokollierung
+  audioEl.addEventListener('error', (e) => {
+    console.error('Audio load error:', e);
+  });
 
   // Mute-Button
   btnMute.onclick = () => {
     isMuted = !isMuted;
     audioEl.muted = isMuted;
     btnMute.textContent = isMuted ? '🔇' : '🔊';
-    // Wenn entmutet und bereit, sofort starten
-    if (!isMuted && audioReady) {
-      audioEl.play().catch(() => {});
+    if (!isMuted) {
+      // Beim Entmuten erneut innerhalb der Geste versuchen
+      ensureAudioUnlocked();
+      tryStartAudio();
+    } else {
+      audioEl.pause();
     }
   };
 }
 
 // Versuche Audio zu starten – sicher mit User-Geste
 async function tryStartAudio() {
-  if (!AUDIO_URL) return;
+  if (!AUDIO_URL || isMuted) return;
+
   // iOS benötigt User Gesture Unlock
   ensureAudioUnlocked();
-  // Laden anstoßen
+
+  // Laden sicherstellen
   if (!audioReady) {
-    try { await audioEl.load(); } catch(e) {}
+    // Wenn bereits genügend Daten gepuffert sind, sofort als ready markieren
+    if (audioEl.readyState >= 3 /* HAVE_FUTURE_DATA */) {
+      audioReady = true;
+    } else {
+      const loadPromise = new Promise((resolve) => {
+        const onCPT = () => {
+          audioReady = true;
+          audioEl.removeEventListener('canplaythrough', onCPT);
+          resolve();
+        };
+        audioEl.addEventListener('canplaythrough', onCPT, { once: true });
+        try { audioEl.load(); } catch(e) {}
+      });
+
+      try {
+        // Timeout, falls canplaythrough nicht feuert (z.B. Netzwerkproblem)
+        await Promise.race([
+          loadPromise,
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Audio load timeout')), 5000))
+        ]);
+      } catch (e) {
+        console.warn('Audio load failed or timed out:', e);
+        showErr('Audio konnte nicht geladen werden.');
+        return;
+      }
+    }
   }
-  // Abspielen versuchen
+
+  // Abspielen versuchen (innerhalb User-Geste aufgerufen)
   try {
     await audioEl.play();
+    // Hinweistext ggf. bereinigen, falls zuvor Autoplay-Block-Hinweis gesetzt wurde
+    const msgEl = document.getElementById('msg');
+    if (msgEl.textContent.includes('Audio bereit. Tippe auf 🔊 zum Abspielen.')) {
+      updateMsg(''); // oder einen neutralen/aktuellen Hinweis setzen
+    }
   } catch (e) {
-    // Autoplay-Policy blockiert – Hinweis geben, Button bleibt sichtbar
-    console.warn('Audio play blocked:', e);
+    // Autoplay-Policy blockiert – Nutzer informieren
+    console.warn('Audio play blocked (Autoplay Policy):', e);
     updateMsg('Audio bereit. Tippe auf 🔊 zum Abspielen.');
   }
 }
@@ -338,9 +374,9 @@ async function boot() {
   loadModel();
   
   document.getElementById('btn-enter-ar').addEventListener('click', async () => {
-    // Erstes: Audio entsperren/versuchen zu starten im Rahmen der User-Geste
+    // 1) Audio im Rahmen der Benutzergeste entsperren und starten
     await tryStartAudio();
-    // Dann AR starten
+    // 2) AR starten
     onStartAR().catch(err => {
       console.error('AR-Session Start Error:', err);
       document.getElementById('start-screen').style.display = 'flex';
@@ -492,9 +528,9 @@ async function onStartAR() {
   renderer.xr.setReferenceSpaceType('local-floor');
   await renderer.xr.setSession(session);
 
-  // Audio ggf. starten, falls erst nach Session erlaubt
-  if (AUDIO_URL && audioReady && !isMuted) {
-    audioEl.play().catch(e => console.warn('Audio after session:', e));
+  // Audio nach Session-Start erneut (möglichst im Gesten-Kontext) versuchen
+  if (AUDIO_URL && !isMuted) {
+    tryStartAudio();
   }
 
   renderer.setAnimationLoop(render);
