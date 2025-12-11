@@ -30,13 +30,15 @@
     z-index: 10;
   }
 
+  /* Startscreen: Sichtbarkeit wird per JS gesteuert */
   #start-screen {
     position: absolute; inset: 0;
     background: rgba(0,0,0,0.6);
-    display: flex; align-items: center; justify-content: center;
-    pointer-events: auto; z-index: 20;
+    display: none; /* NEU: initial per CSS aus, JS zeigt ihn in boot() */
+    align-items: center; justify-content: center;
+    pointer-events: auto;
+    z-index: 100; /* GEÄNDERT: sicher über Gesten-Layer und Overlay */
     backdrop-filter: blur(5px);
-    display: flex;
   }
   .btn-start {
     background: white; color: black; border: none;
@@ -80,7 +82,7 @@
   #err {
     position: absolute; top: 10px; left: 10px; right: 10px;
     background: #b00020; color: white; padding: 10px;
-    border-radius: 8px; font-size: 12px; display: none; z-index: 30;
+    border-radius: 8px; font-size: 12px; display: none; z-index: 120; /* GEÄNDERT */
   }
 
   #gesture-layer {
@@ -271,12 +273,6 @@ function toNDC(clientX, clientY) {
   ndc.x = (clientX / w) * 2 - 1;
   ndc.y = -(clientY / h) * 2 + 1;
 }
-function worldToScreenPx(vec3World) {
-  const w = renderer.domElement.clientWidth || window.innerWidth;
-  const h = renderer.domElement.clientHeight || window.innerHeight;
-  const v = vec3World.clone().project(camera);
-  return { x: (v.x * 0.5 + 0.5) * w, y: (-v.y * 0.5 + 0.5) * h };
-}
 
 // Tap innerhalb der Zielmarkierung (weltkoordinaten, inkl. Scale)
 function isTapInsidePlacementRect(clientX, clientY) {
@@ -297,19 +293,32 @@ function isTapInsidePlacementRect(clientX, clientY) {
   return (Math.abs(dx) <= halfSize) && (Math.abs(dz) <= halfSize);
 }
 
-function isTouchNearModel(clientX, clientY, radiusPx = EDIT_TOUCH_RADIUS_PX) {
-  if (!isModelPlaced || !placementGroup.visible) return false;
-  const centerPx = worldToScreenPx(placementGroup.position);
-  const dist = Math.hypot(clientX - centerPx.x, clientY - centerPx.y);
-  return dist <= radiusPx;
+// Prüft, ob ein Mesh direkt angetroffen wurde (präziser für Drag)
+function isTouchOnModel(clientX, clientY) {
+  if (!model || !isModelPlaced) return false; // Nur bei platziertem Modell prüfen
+  toNDC(clientX, clientY);
+  raycaster.setFromCamera(ndc, camera);
+  // Prüfen Sie alle Objekte im 'model' (dem geladenen GLTF-Scene-Root)
+  const hits = raycaster.intersectObject(model, true); 
+  return hits.length > 0;
 }
 
 // --- Boot & Three init ---
 async function boot() {
-  if (!navigator.xr) { showErr("WebXR nicht unterstützt."); return; }
+  const startScreen = document.getElementById('start-screen');
+
+  if (!navigator.xr) { 
+    showErr("WebXR nicht unterstützt."); 
+    startScreen.style.display = 'flex';
+    return; 
+  }
   try {
     const xrSupported = navigator.xr && (navigator.xr.isSessionSupported ? await navigator.xr.isSessionSupported('immersive-ar') : true);
-    if (!xrSupported) { showErr('AR wird auf diesem Gerät/Browser nicht unterstützt.'); return; }
+    if (!xrSupported) { 
+      showErr('AR wird auf diesem Gerät/Browser nicht unterstützt.'); 
+      startScreen.style.display = 'flex';
+      return; 
+    }
   } catch(e) { console.warn('isSessionSupported check failed:', e); }
 
   if (sceneParam) {
@@ -332,6 +341,7 @@ async function boot() {
     } catch(e) {
       console.error(e);
       showErr("Fehler beim Laden der Szene.");
+      startScreen.style.display = 'flex';
       return;
     }
   }
@@ -341,7 +351,13 @@ async function boot() {
 
   window.addEventListener('resize', onResize);
 
+  // V45: Startscreen zeigen (einheitlich nur hier am Ende des Boot-Prozesses)
+  startScreen.style.display = 'flex';
+
   document.getElementById('btn-enter-ar').addEventListener('click', async () => {
+    // V45: Startscreen sofort ausblenden bei Klick (bevor AR-Session startet)
+    startScreen.style.display = 'none';
+
     if (AUDIO_URL && !isMuted) {
       ensureAudioUnlocked();
       audioEl.play().catch(() => tryStartAudioAfterGesture());
@@ -349,7 +365,8 @@ async function boot() {
     
     onStartAR().catch(err => {
       console.error('AR-Session Start Error:', err);
-      document.getElementById('start-screen').style.display = 'flex';
+      // Bei Fehler wieder anzeigen
+      startScreen.style.display = 'flex';
       showErr('AR konnte nicht gestartet werden:\n' + (err?.message || 'Unbekannter Fehler'));
     });
   });
@@ -358,7 +375,8 @@ async function boot() {
     const s = renderer.xr.getSession();
     if (s) { await s.end(); } 
     else { 
-      document.getElementById('start-screen').style.display = 'flex';
+      // V45: Konsistenter Rückfall
+      startScreen.style.display = 'flex';
       audioEl.pause();
       isModelPlaced = false;
       isEditing = false;
@@ -375,8 +393,6 @@ async function boot() {
   gestureLayer.addEventListener('mousedown', onTouchStart, { passive: false });
   gestureLayer.addEventListener('mousemove', onTouchMove, { passive: false });
   gestureLayer.addEventListener('mouseup', onTouchEnd, { passive: false });
-
-  document.getElementById('start-screen').style.display = 'flex';
 }
 
 function initThree() {
@@ -466,7 +482,7 @@ async function onStartAR() {
   if (!modelLoaded) {
     throw new Error("Modell noch nicht geladen. Bitte kurz warten.");
   }
-  document.getElementById('start-screen').style.display = 'none';
+  // V45: Startscreen-Steuerung findet jetzt im Button-Click-Handler statt
 
   const session = await navigator.xr.requestSession('immersive-ar', {
     requiredFeatures: ['hit-test', 'local-floor'],
@@ -479,7 +495,8 @@ async function onStartAR() {
     renderer.setAnimationLoop(null);
     await renderer.xr.setSession(null);
      
-    document.getElementById('start-screen').style.display = 'flex';
+    const startScreen = document.getElementById('start-screen');
+    startScreen.style.display = 'flex'; // V45: Zeigt Startscreen nach Session-End
     audioEl.pause();
     isModelPlaced = false;
     isEditing = false;
@@ -580,7 +597,8 @@ function onTouchStart(event) {
     updateMsg("Skalieren (Pinch)");
     
   } else if (currentTouches.length === 1 && isModelPlaced) {
-    if (isTouchNearModel(tapStartX, tapStartY)) {
+    // V45: Drag nur bei tatsächlichem Mesh-Hit; sonst Rotation
+    if (isTouchOnModel(tapStartX, tapStartY)) {
       isEditing = true;
       isDraggingModel = true;
       updateMsg("Modell verschieben (Drag)");
@@ -599,11 +617,10 @@ function onTouchMove(event) {
 
   const touchCount = currentTouches.length;
 
-  // V44 FIX: Verhindere jegliches natives Browser-Verhalten (Scrollen/Zoomen),
-  // sobald wir wissen, dass wir eine aktive Geste oder eine 2-Finger-Geste haben.
-  if (isEditing || touchCount > 1) { 
-      event.preventDefault();
-  }
+  // V45: Verhindere natives Browser-Verhalten während aktiver Gesten
+  if (isEditing || touchCount > 1) { 
+    event.preventDefault();
+  }
 
   // Dynamisches Umschalten der Modi
   if (isModelPlaced) {
@@ -620,7 +637,8 @@ function onTouchMove(event) {
     } else if (touchCount === 1 && isScalingModel) {
       isScalingModel = false;
       const t = currentTouches[0];
-      if (isTouchNearModel(t.clientX, t.clientY)) {
+      // V45: Nach dem Ende von Pinch neu „armen“: Mesh-Hit => Drag; sonst Rotation
+      if (isTouchOnModel(t.clientX, t.clientY)) {
         isDraggingModel = true;
         isRotatingModel = false;
         updateMsg("Modell verschieben (Drag)");
@@ -632,16 +650,13 @@ function onTouchMove(event) {
     }
   }
 
-  // Muss NACH der dynamischen Umschaltung geprüft werden
+  // Nur ausführen, wenn Edit aktiv und Modell platziert
   if (!isEditing || !isModelPlaced) {
     return;
   }
-  // Der folgende Code wird nur ausgeführt, wenn isEditing = true UND isModelPlaced = true
-  
+  
   const isTwoFinger = touchCount === 2;
   const isOneFinger = touchCount === 1;
-
-  // event.preventDefault() ist jetzt am Anfang
 
   const dragDistanceTotal = Math.hypot(currentTouches[0].clientX - tapStartX, currentTouches[0].clientY - tapStartY);
   if (dragDistanceTotal > DRAG_THRESHOLD_PIX) {
@@ -652,7 +667,7 @@ function onTouchMove(event) {
     const newDist = getDistance(currentTouches[0], currentTouches[1]);
     const scaleDelta = newDist - initialPinchDistance;
     const newScale = initialModelScale + scaleDelta * SCALE_FACTOR;
-    const clamped = Math.max(0.25, Math.min(3.0, newScale)); 
+    const clamped = Math.max(0.25, Math.min(3.0, newScale)); 
     placementGroup.scale.setScalar(clamped);
     
   } else if (isOneFinger) {
@@ -682,8 +697,7 @@ function onTouchEnd(event) {
   const isTap = !didMove && gestureDuration < TAP_THRESHOLD_MS;
   const endedTouch = event.changedTouches ? event.changedTouches[0] : event;
 
-  // Platzierung nur bei Tap auf Zielmarkierung und OHNE aktives Edit
-  // HINWEIS: Dieser Block wird nur ausgeführt, wenn !isModelPlaced (Initialisierung).
+  // Platzierung nur bei Tap auf Zielmarkierung und OHNE aktives Edit (nur initial)
   if (!isModelPlaced && isTap && !isEditing) {
     if (isHovering && isTapInsidePlacementRect(endedTouch.clientX, endedTouch.clientY)) {
       isModelPlaced = true;
