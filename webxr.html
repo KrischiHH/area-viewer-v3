@@ -35,27 +35,24 @@
   #start-screen {
     position: fixed; inset: 0;
     background: rgba(0,0,0,0.8);
-    display: none; /* in boot() -> flex */
+    display: none; 
     align-items: center; 
     justify-content: center;
     z-index: 100;
     pointer-events: auto;
     backdrop-filter: blur(5px);
-    /* NEU: Flex-Container für den Content-Wrapper */
     padding: 30px; 
   }
-    /* NEU: Wrapper für den Inhalt, zentriert und max. Breite */
     #start-content {
         display: flex; 
         flex-direction: column; 
         align-items: center;
         text-align: center;
-        max-width: 400px; /* Max. Breite für gute Lesbarkeit */
-        max-height: 100%; /* Wichtig für Scrollbarkeit */
-        overflow-y: auto; /* Scrollbar, wenn Inhalt zu lang */
-        padding-bottom: 20px; /* Abstand zum Button */
+        max-width: 400px; 
+        max-height: 100%; 
+        overflow-y: auto; 
+        padding-bottom: 20px; 
     }
-    /* NEU: Styles für die Content-Elemente */
     #start-image {
         width: 100%;
         max-width: 300px;
@@ -81,7 +78,7 @@
         margin-bottom: 30px;
         line-height: 1.4;
         color: rgba(255, 255, 255, 0.7);
-        text-align: left; /* Text linksbündig für bessere Lesbarkeit langer Absätze */
+        text-align: left;
     }
 
   .btn-start {
@@ -147,7 +144,7 @@
 
 <div id="start-screen">
     <div id="start-content">
-        <img id="start-image" style="display:none;"/>
+        <img id="start-image" style="display:none;" alt="Vorschaubild des AR-Erlebnisses"/>
         <h1 id="start-title"></h1>
         <p id="start-subline"></p>
         <p id="start-text"></p>
@@ -158,13 +155,13 @@
 <div id="overlay">
   <div class="ui-row">
     <div class="pointer-auto" style="display:flex; gap:8px;">
-      <button class="btn-icon" id="btn-close">✕</button>
-      <button class="btn-icon" id="btn-mute" style="display:none">🔊</button>
+              <button class="btn-icon" id="btn-close" aria-label="AR-Session beenden">✕</button>
+              <button class="btn-icon" id="btn-mute" style="display:none" aria-label="Audio umschalten">🔊</button>
     </div>
   </div>
   
   <div id="msg-container">
-    <div id="msg">Bewege dein Gerät um Fläche zu finden...</div>
+        <div id="msg" role="status" aria-live="polite">Bewege dein Gerät um Fläche zu finden...</div>
   </div>
 
   <div id="gesture-layer"></div>
@@ -243,6 +240,7 @@ function ensureAudioUnlocked() {
 function setupAudio(audioCfg) {
   btnMute.style.display = 'flex';
   btnMute.textContent = '🔊';
+  btnMute.setAttribute('aria-label', 'Audio ausschalten'); // Initialer Zustand
   audioEl.crossOrigin = 'anonymous';
   audioEl.src = AUDIO_URL;
   audioEl.loop = !!audioCfg.loop;
@@ -252,17 +250,20 @@ function setupAudio(audioCfg) {
 
   audioEl.addEventListener('error', (e) => {
     console.error('Audio load error:', e);
+    setUiState('audio_error', 'Audio konnte nicht geladen werden (CORS/Netzwerk).');
   });
 
   btnMute.onclick = async () => {
     isMuted = !isMuted;
     audioEl.muted = isMuted;
     btnMute.textContent = isMuted ? '🔇' : '🔊';
+    btnMute.setAttribute('aria-label', isMuted ? 'Audio einschalten' : 'Audio ausschalten');
     if (!isMuted) {
       ensureAudioUnlocked();
       audioEl.play().catch(() => tryStartAudioAfterGesture());
-      const msgEl = document.getElementById('msg');
-      if (msgEl.textContent.includes('Audio blockiert')) updateMsg('');
+      if (uiState === 'audio_blocked' || uiState === 'audio_error') {
+        setUiState('play_attempt', ''); 
+      }
     } else {
       audioEl.pause();
     }
@@ -297,7 +298,7 @@ async function tryStartAudioAfterGesture() {
     await audioEl.play();
   } catch (e) {
     console.warn('Fallback play blocked:', e);
-    updateMsg('Audio blockiert. Tippe auf 🔊 zum Abspielen.');
+    setUiState('audio_blocked', 'Audio blockiert. Tippe auf 🔊 zum Abspielen.');
   }
 }
 
@@ -308,16 +309,22 @@ function showErr(txt) {
   e.style.display = 'block';
   setTimeout(() => e.style.display='none', 5000);
 }
-let lastMsg = '';
-let lastMsgTime = 0;
-const MSG_DEBOUNCE_MS = 400; 
+
+// NEU: State-basiertes UI Messaging
+let uiState = '';
 function updateMsg(txt) {
-  const now = performance.now();
-  if (txt === lastMsg && (now - lastMsgTime) < MSG_DEBOUNCE_MS) return;
-  lastMsg = txt;
-  lastMsgTime = now;
-  document.getElementById('msg').textContent = txt;
+    document.getElementById('msg').textContent = txt;
 }
+function setUiState(nextState, msg) {
+    if (uiState !== nextState) {
+        uiState = nextState;
+        // console.log(`UI State: ${uiState} -> ${msg}`); // Debug
+        if (msg !== undefined) {
+            updateMsg(msg);
+        }
+    }
+}
+
 
 // --- NDC helper ---
 function toNDC(clientX, clientY) {
@@ -360,32 +367,35 @@ async function boot() {
   const startScreen = document.getElementById('start-screen');
   const overlay = document.getElementById('overlay');
   const btnEnterAR = document.getElementById('btn-enter-ar');
+  const startImage = document.getElementById('start-image');
 
-  // UI-Elemente für den Startscreen-Content
   const startTitle = document.getElementById('start-title');
   const startSubline = document.getElementById('start-subline');
   const startText = document.getElementById('start-text');
-  const startImage = document.getElementById('start-image');
-
-  // Initialer Zustand: Lade-Anzeige und AR-Button deaktivieren
+  
   startScreen.style.display = 'flex';
   overlay.style.pointerEvents = 'none'; 
   startTitle.textContent = 'Lade AR Erlebnis...';
   btnEnterAR.disabled = true;
   startImage.style.display = 'none';
 
-  if (!navigator.xr) { 
-    showErr("WebXR nicht unterstützt."); 
+  let xrSupported = false;
+  try {
+    xrSupported = !!(navigator.xr) &&
+      (navigator.xr.isSessionSupported
+        ? await navigator.xr.isSessionSupported('immersive-ar')
+        : false); 
+  } catch (e) {
+    console.warn('isSessionSupported check failed:', e);
+    xrSupported = false;
+  }
+  
+  if (!xrSupported) { 
+    showErr('AR wird auf diesem Gerät/Browser nicht unterstützt (WebXR fehlt oder Session nicht möglich).'); 
     return; 
   }
-  try {
-    const xrSupported = navigator.xr && (navigator.xr.isSessionSupported ? await navigator.xr.isSessionSupported('immersive-ar') : true);
-    if (!xrSupported) { 
-      showErr('AR wird auf diesem Gerät/Browser nicht unterstützt.'); 
-      return; 
-    }
-  } catch(e) { console.warn('isSessionSupported check failed:', e); }
-
+  
+  // URL Parsing und JSON-Laden
   if (sceneParam) {
     if (sceneParam.endsWith('.glb')) {
         MODEL_URL = sceneParam;
@@ -402,7 +412,6 @@ async function boot() {
       if(!res.ok) throw new Error(`Scene JSON Error: ${res.status} ${res.statusText}`);
       const json = await res.json();
       
-      // 1. Startscreen Content befüllen
       if (json.content) {
         startTitle.textContent = json.content.title || 'Augmented Reality Erlebnis';
         startSubline.textContent = json.content.subline || '';
@@ -417,11 +426,11 @@ async function boot() {
         const imageUrl = `${workerBase}/scenes/${sceneParam}/${json.image.url}`;
         startImage.src = imageUrl;
         startImage.style.display = 'block';
+        if (json.content?.title) startImage.alt = json.content.title + ' Vorschau';
       } else {
         startImage.style.display = 'none';
       }
       
-      // 2. MODEL_URL und AUDIO_URL setzen
       if(json.model?.url) {
         MODEL_URL = `${workerBase}/scenes/${sceneParam}/${json.model.url}`;
       } else {
@@ -442,34 +451,30 @@ async function boot() {
 
   initThree();
   
-  // 3. loadModel mit Fehlerbehandlung
   try {
     await loadModel();
   } catch(e) {
     showErr("Modell-Ladefehler: " + e.message);
     console.error("Modell-Ladefehler:", e);
-    btnEnterAR.disabled = true; // Doppelte Sicherstellung
+    btnEnterAR.disabled = true; 
     return;
   }
   
-  // Modell erfolgreich geladen, AR Start Button aktivieren
   btnEnterAR.disabled = false;
-  // Der Titel wurde bereits durch JSON-Daten überschrieben.
+  setUiState('ready', 'Modell geladen. Tippe auf AR Starten.');
+  // Beim Boot wird der Startscreen gezeigt, die AR-State-Nachricht muss nicht direkt aktualisiert werden
 
   window.addEventListener('resize', onResize);
 
-  // --- HIER STARTET DIE AR-SESSION UND DAS AUDIO ---
   btnEnterAR.addEventListener('click', async () => {
     if (!modelLoaded) { 
         showErr("Modell noch nicht vollständig geladen. Bitte warten Sie kurz."); 
         return; 
     }
 
-    // Startscreen ausblenden, Overlay interaktiv
     startScreen.style.display = 'none';
     overlay.style.pointerEvents = 'auto';
 
-    // Audio Start (VERZÖGERT)
     if (AUDIO_URL && !isMuted) {
       ensureAudioUnlocked();
       tryStartAudioAfterGesture();
@@ -477,26 +482,17 @@ async function boot() {
     
     onStartAR().catch(err => {
       console.error('AR-Session Start Error:', err);
-      // Zurück in sicheren Zustand
-      startScreen.style.display = 'flex';
-      overlay.style.pointerEvents = 'none';
+      resetARState();
       showErr('AR konnte nicht gestartet werden:\n' + (err?.message || 'Unbekannter Fehler'));
     });
   });
 
-  document.getElementById('btn-close').addEventListener('click', async () => {
+  document.getElementById('btn-close').addEventListener('click', () => {
     const s = renderer.xr.getSession();
-    if (s) { await s.end(); } 
-    else { 
-      // Startscreen wieder zeigen, Overlay nicht interaktiv
-      startScreen.style.display = 'flex';
-      overlay.style.pointerEvents = 'none';
-      audioEl.pause();
-      isModelPlaced = false;
-      isEditing = false;
-      placementGroup.visible = false;
-      placementRect.visible = false;
-      updateMsg("Bewege dein Gerät um Fläche zu finden...");
+    if (s) { 
+      s.end();
+    } else { 
+      resetARState();
     }
   });
   
@@ -508,6 +504,22 @@ async function boot() {
   gestureLayer.addEventListener('mousedown', onTouchStart, { passive: false });
   gestureLayer.addEventListener('mousemove', onTouchMove, { passive: false });
   gestureLayer.addEventListener('mouseup', onTouchEnd, { passive: false });
+}
+
+function resetARState() {
+  const startScreen = document.getElementById('start-screen');
+  const overlay = document.getElementById('overlay');
+  const btnEnterAR = document.getElementById('btn-enter-ar');
+  
+  startScreen.style.display = 'flex';
+  overlay.style.pointerEvents = 'none';
+  audioEl.pause();
+  isModelPlaced = false;
+  isEditing = false;
+  placementGroup.visible = false;
+  placementRect.visible = false;
+  btnEnterAR.disabled = !modelLoaded;
+  setUiState('initial', 'Bewege dein Gerät um Fläche zu finden...');
 }
 
 function initThree() {
@@ -524,7 +536,8 @@ function initThree() {
   scene.add(dirLight);
 
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  renderer.setPixelRatio(window.devicePixelRatio);
+  // KORREKTUR: Pixelratio auf max. 2 begrenzen für bessere FPS auf HiDPI-Geräten
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.xr.enabled = true;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -564,7 +577,7 @@ function initThree() {
   placementRect.rotation.x = -Math.PI / 2;
   placementRect.position.y = 0.005;
   placementRect.scale.set(1.05, 1.05, 1.05);
-  placementRect.visible = false; // sichtbar nur im Hover/Edit
+  placementRect.visible = false;
   placementGroup.add(placementRect);
 }
 
@@ -585,9 +598,8 @@ async function loadModel() {
     }
     placementGroup.add(model);
     modelLoaded = true;
-    updateMsg("Modell geladen. Tippe auf AR Starten.");
+    setUiState('loaded', 'Modell geladen. Tippe auf AR Starten.');
   } catch(e) {
-    // WICHTIG: Fehler weiterleiten, damit boot() ihn abfangen kann
     throw new Error(e.message || "Unbekannter Fehler beim Laden des 3D-Modells.");
   }
 }
@@ -596,32 +608,19 @@ async function loadModel() {
 async function onStartAR() {
   const overlay = document.getElementById('overlay');
 
-  // DIESER CHECK IST JETZT REDUNDANT, DA DER BUTTON DEAKTIVIERT IST, aber zur Sicherheit drin.
-  if (!modelLoaded) {
-    throw new Error("Modell noch nicht geladen. Bitte kurz warten.");
-  }
-
   const session = await navigator.xr.requestSession('immersive-ar', {
-    requiredFeatures: ['hit-test', 'local-floor', 'dom-overlay'],
+    requiredFeatures: ['hit-test', 'local-floor'],
+    optionalFeatures: ['dom-overlay'], // dom-overlay als optional für bessere Kompatibilität
     domOverlay: { root: overlay }
   });
 
-  session.addEventListener('end', async () => {
+  session.addEventListener('end', () => {
+    try { hitTestSource?.cancel?.(); } catch(e) { console.error("Hit test cancel failed", e); }
     hitTestSource = null;
     renderer.setAnimationLoop(null);
-    await renderer.xr.setSession(null);
-     
-    const startScreen = document.getElementById('start-screen');
-    const btnEnterAR = document.getElementById('btn-enter-ar');
-    startScreen.style.display = 'flex';
-    overlay.style.pointerEvents = 'none'; // Overlay wieder nicht interaktiv
-    audioEl.pause();
-    isModelPlaced = false;
-    isEditing = false;
-    placementGroup.visible = false;
-    placementRect.visible = false;
-    btnEnterAR.disabled = !modelLoaded; // AR Starten Button wieder aktivieren, wenn Modell geladen
-    updateMsg("Bewege dein Gerät um Fläche zu finden...");
+    renderer.xr.setSession(null); 
+    
+    resetARState();
   });
 
   session.requestReferenceSpace('viewer').then((refSpace) => {
@@ -649,7 +648,6 @@ function render(timestamp, frame) {
   const dt = clock.getDelta();
   if(mixer) mixer.update(dt);
 
-  // Hover/Hit-Test solange nicht platziert
   if (hitTestSource && !isModelPlaced) {
     const refSpace = renderer.xr.getReferenceSpace();
     const results = frame.getHitTestResults(hitTestSource);
@@ -670,17 +668,18 @@ function render(timestamp, frame) {
         placementGroup.visible = true;
         placementRect.visible = true;
         isHovering = true;
-        updateMsg("Tippe auf die Zielmarkierung, um das Modell zu platzieren.");
+        // NEU: UI State Update
+        setUiState('hover', "Tippe auf die Zielmarkierung, um das Modell zu platzieren.");
       }
     } else {
       placementGroup.visible = false;
       placementRect.visible = false;
       isHovering = false;
-      updateMsg("Suche Boden...");
+      // NEU: UI State Update
+      setUiState('search', "Suche Boden...");
     }
   }
 
-  // Rechteck nur im Edit-Modus zeigen, wenn platziert
   if (isModelPlaced) {
     placementRect.visible = isEditing;
   }
@@ -705,12 +704,10 @@ function onTouchStart(event) {
   tapStartY = currentTouches[0].clientY;
   lastMoveX = tapStartX;
   
-  // Reset Flags
   isDraggingModel = false;
   isRotatingModel = false;
   isScalingModel = false;
 
-  // Während Hover (vor Platzierung) keine Edits starten
   if (!isModelPlaced) return;
 
   if (currentTouches.length === 2) {
@@ -719,19 +716,19 @@ function onTouchStart(event) {
     initialPinchDistance = getDistance(currentTouches[0], currentTouches[1]);
     initialModelScale = placementGroup.scale.x;
     placementRect.visible = true;
-    updateMsg("Skalieren (Pinch)");
+    setUiState('scale', "Skalieren (Pinch)");
     
   } else if (currentTouches.length === 1) {
     if (isTouchOnModel(tapStartX, tapStartY)) {
       isEditing = true;
       isDraggingModel = true;
       placementRect.visible = true;
-      updateMsg("Modell verschieben (Drag)");
+      setUiState('drag', "Modell verschieben (Drag)");
     } else {
       isEditing = true;
       isRotatingModel = true;
       placementRect.visible = true;
-      updateMsg("Modell drehen (Swipe)");
+      setUiState('rotate', "Modell drehen (Swipe)");
     }
   }
   
@@ -766,7 +763,7 @@ function onTouchMove(event) {
       isRotatingModel = false;
       initialPinchDistance = getDistance(currentTouches[0], currentTouches[1]);
       initialModelScale = placementGroup.scale.x;
-      updateMsg("Skalieren (Pinch)");
+      setUiState('scale', "Skalieren (Pinch)");
     }
     const newDist = getDistance(currentTouches[0], currentTouches[1]);
     const scaleDelta = newDist - initialPinchDistance;
@@ -780,11 +777,11 @@ function onTouchMove(event) {
     if (isTouchOnModel(t.clientX, t.clientY)) {
       isDraggingModel = true;
       isRotatingModel = false;
-      updateMsg("Modell verschieben (Drag)");
+      setUiState('drag', "Modell verschieben (Drag)");
     } else {
       isDraggingModel = false;
       isRotatingModel = true;
-      updateMsg("Modell drehen (Swipe)");
+      setUiState('rotate', "Modell drehen (Swipe)");
     }
   } else if (isOneFinger) {
     const t = currentTouches[0];
@@ -817,7 +814,7 @@ function onTouchEnd(event) {
     if (isHovering && isTapInsidePlacementRect(endedTouch.clientX, endedTouch.clientY)) {
       isModelPlaced = true;
       placementRect.visible = false;
-      updateMsg("Modell platziert. Ziehen/Pinch zum Bearbeiten.");
+      setUiState('placed', "Modell platziert. Ziehen/Pinch zum Bearbeiten.");
     }
   }
 
@@ -828,7 +825,7 @@ function onTouchEnd(event) {
     isScalingModel = false;
     initialModelScale = placementGroup.scale.x;
     placementRect.visible = false;
-    if (isModelPlaced) updateMsg("Bearbeitung beendet. Tippe auf Modell zum erneuten Draggen.");
+    if (isModelPlaced) setUiState('placed', "Bearbeitung beendet. Tippe auf Modell zum erneuten Draggen.");
   }
 }
 
