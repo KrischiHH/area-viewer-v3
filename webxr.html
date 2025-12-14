@@ -17,6 +17,9 @@
 </script>
 
 <style>
+/* NEU: Globale Box-Sizing Regel für konsistente Padding/Border-Berechnung */
+* { box-sizing: border-box; }
+ 
   html, body {
     margin: 0; padding: 0; width: 100%; height: 100%;
     background-color: #111; color: #fff;
@@ -34,13 +37,14 @@
   /* Startscreen vollflächig oben drüber */
   #start-screen {
     position: fixed; inset: 0;
-    background: rgba(0,0,0,0.8);
+    /* FIX: backdrop-filter entfernt, Hintergrund auf 0.85 gesetzt */
+    background: rgba(0,0,0,0.85);
     display: none; 
     align-items: center; 
     justify-content: center;
     z-index: 100;
     pointer-events: auto;
-    backdrop-filter: blur(5px);
+    backdrop-filter: none; /* FIX: Deaktiviert */
     padding: 30px; 
   }
     #start-content {
@@ -94,18 +98,26 @@
     top: 0; left: 0; right: 0;
     padding: calc(12px + env(safe-area-inset-top)) 16px 12px;
     display: flex; justify-content: flex-start; align-items: center;
-    pointer-events: none;
+    /* FIX: Pointer-Events auf Auto setzen, da der vorherige Zustand zu fehleranfällig war */
+    pointer-events: auto; 
     gap: 10px;
     z-index: 20;
   }
+  /* .pointer-auto Klasse ist nicht mehr nötig, bleibt aber unschädlich */
   .pointer-auto { pointer-events: auto; }
 
   .btn-icon {
     background: rgba(20,20,30,0.6);
     border: 1px solid rgba(255,255,255,0.2);
     color: white; width: 44px; height: 44px;
-    border-radius: 50%; display: flex; align-items: center; justify-content: center;
-    font-size: 20px; backdrop-filter: blur(10px);
+    /* FIX: inline-flex und line-height für stabile Icon-Zentrierung */
+    display: inline-flex; 
+    align-items: center; 
+    justify-content: center;
+    font-size: 20px; 
+    line-height: 1; 
+    border-radius: 50%; 
+    backdrop-filter: blur(10px);
     transition: transform 0.1s;
   }
   .btn-icon:active { transform: scale(0.95); }
@@ -155,13 +167,13 @@
 <div id="overlay">
   <div class="ui-row">
     <div class="pointer-auto" style="display:flex; gap:8px;">
-              <button class="btn-icon" id="btn-close" aria-label="AR-Session beenden">✕</button>
-              <button class="btn-icon" id="btn-mute" style="display:none" aria-label="Audio umschalten">🔊</button>
+              <button class="btn-icon" id="btn-close" aria-label="AR-Session beenden">×</button>
+      <button class="btn-icon" id="btn-mute" style="display:none" aria-label="Audio umschalten">🔊</button>
     </div>
   </div>
   
   <div id="msg-container">
-        <div id="msg" role="status" aria-live="polite">Bewege dein Gerät um Fläche zu finden...</div>
+    <div id="msg" role="status" aria-live="polite">Bewege dein Gerät um Fläche zu finden...</div>
   </div>
 
   <div id="gesture-layer"></div>
@@ -240,7 +252,7 @@ function ensureAudioUnlocked() {
 function setupAudio(audioCfg) {
   btnMute.style.display = 'flex';
   btnMute.textContent = '🔊';
-  btnMute.setAttribute('aria-label', 'Audio ausschalten'); // Initialer Zustand
+  btnMute.setAttribute('aria-label', 'Audio ausschalten'); 
   audioEl.crossOrigin = 'anonymous';
   audioEl.src = AUDIO_URL;
   audioEl.loop = !!audioCfg.loop;
@@ -310,7 +322,7 @@ function showErr(txt) {
   setTimeout(() => e.style.display='none', 5000);
 }
 
-// NEU: State-basiertes UI Messaging
+// State-basiertes UI Messaging
 let uiState = '';
 function updateMsg(txt) {
     document.getElementById('msg').textContent = txt;
@@ -318,7 +330,6 @@ function updateMsg(txt) {
 function setUiState(nextState, msg) {
     if (uiState !== nextState) {
         uiState = nextState;
-        // console.log(`UI State: ${uiState} -> ${msg}`); // Debug
         if (msg !== undefined) {
             updateMsg(msg);
         }
@@ -461,8 +472,7 @@ async function boot() {
   }
   
   btnEnterAR.disabled = false;
-  setUiState('ready', 'Modell geladen. Tippe auf AR Starten.');
-  // Beim Boot wird der Startscreen gezeigt, die AR-State-Nachricht muss nicht direkt aktualisiert werden
+  setUiState('loaded', 'Modell geladen. Tippe auf AR Starten.');
 
   window.addEventListener('resize', onResize);
 
@@ -536,7 +546,6 @@ function initThree() {
   scene.add(dirLight);
 
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  // KORREKTUR: Pixelratio auf max. 2 begrenzen für bessere FPS auf HiDPI-Geräten
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.xr.enabled = true;
@@ -610,7 +619,7 @@ async function onStartAR() {
 
   const session = await navigator.xr.requestSession('immersive-ar', {
     requiredFeatures: ['hit-test', 'local-floor'],
-    optionalFeatures: ['dom-overlay'], // dom-overlay als optional für bessere Kompatibilität
+    optionalFeatures: ['dom-overlay'], 
     domOverlay: { root: overlay }
   });
 
@@ -668,14 +677,12 @@ function render(timestamp, frame) {
         placementGroup.visible = true;
         placementRect.visible = true;
         isHovering = true;
-        // NEU: UI State Update
         setUiState('hover', "Tippe auf die Zielmarkierung, um das Modell zu platzieren.");
       }
     } else {
       placementGroup.visible = false;
       placementRect.visible = false;
       isHovering = false;
-      // NEU: UI State Update
       setUiState('search', "Suche Boden...");
     }
   }
