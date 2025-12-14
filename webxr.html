@@ -5,13 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover"/>
 <title>ARea WebXR Viewer</title>
 
-<!-- Externe CSS -->
 <link rel="stylesheet" href="styles.css">
 
-<!-- Wichtig: es-module-shims zuerst und NICHT async -->
+<!-- es-module-shims zuerst, ohne async -->
 <script src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
 
-<!-- Import Map NACH den Shims, damit sie sicher greift -->
+<!-- Importmap -->
 <script type="importmap">
 {
   "imports": {
@@ -27,7 +26,7 @@
 
 <div id="start-screen">
   <div id="start-content">
-    <img id="start-image" style="display:none;" alt="Vorschaubild des AR-Erlebnisses"/>
+    <img id="start-image" style="display:none;" alt="Vorschau"/>
     <h1 id="start-title"></h1>
     <p id="start-subline"></p>
     <p id="start-text"></p>
@@ -102,6 +101,14 @@ const sceneParam = qs.get('scene') || qs.get('src');
 let SCENE_JSON_URL = '';
 let MODEL_URL = '';
 let AUDIO_URL = '';
+
+// Fallbacks für Poster/Texte
+const FALLBACKS = {
+  title: '3D / AR Erlebnis',
+  subline: '',
+  body: 'Tippe auf START AR, um das Modell in deiner Umgebung zu sehen.',
+  image: '' // optional: leer lassen, damit kein falsches Bild angezeigt wird
+};
 
 // --- Audio ---
 const audioEl = document.getElementById('ar-audio');
@@ -245,9 +252,18 @@ async function boot() {
 
   startScreen.style.display = 'flex';
   overlay.style.pointerEvents = 'none';
-  startTitle.textContent = 'Lade AR Erlebnis...';
   btnEnterAR.disabled = true;
-  startImage.style.display = 'none';
+
+  // Vorinitialisierung mit Fallbacks
+  startTitle.textContent = FALLBACKS.title;
+  startSubline.textContent = FALLBACKS.subline;
+  startText.textContent = FALLBACKS.body;
+  if (FALLBACKS.image) {
+    startImage.src = FALLBACKS.image;
+    startImage.style.display = 'block';
+  } else {
+    startImage.style.display = 'none';
+  }
 
   let xrSupported = false;
   try {
@@ -266,6 +282,7 @@ async function boot() {
   if (sceneParam) {
     if (sceneParam.endsWith('.glb')) {
       MODEL_URL = sceneParam;
+      // Direkter GLB-Link → Poster bleibt bei Fallback
     } else {
       SCENE_JSON_URL = `${workerBase}/scenes/${sceneParam}/scene.json`;
     }
@@ -279,21 +296,39 @@ async function boot() {
       if(!res.ok) throw new Error(`Scene JSON Error: ${res.status} ${res.statusText}`);
       const json = await res.json();
 
-      if (json.content) {
-        startTitle.textContent = json.content.title || 'Augmented Reality Erlebnis';
-        startSubline.textContent = json.content.subline || '';
-        startText.textContent = json.content.text || '';
-      } else {
-        startTitle.textContent = 'Augmented Reality Erlebnis';
-        startSubline.textContent = 'Szene wird geladen...';
-        startText.textContent = '';
-      }
+      // Konsistent zu ui.js/webxr-app.js:
+      const meta    = json.meta || {};
+      const welcome = (json.ui && json.ui.welcome) || {};
+      const title =
+        (meta.title && meta.title.trim()) ||
+        (welcome.title && welcome.title.trim()) ||
+        FALLBACKS.title;
 
-      if (json.image?.url) {
-        const imageUrl = `${workerBase}/scenes/${sceneParam}/${json.image.url}`;
+      const subline =
+        (meta.subtitle && meta.subtitle.trim()) ||
+        (welcome.eyebrow && welcome.eyebrow.trim()) ||
+        FALLBACKS.subline;
+
+      const body =
+        (meta.body && meta.body.trim()) ||
+        (meta.description && meta.description.trim()) ||
+        (welcome.desc && welcome.desc.trim()) ||
+        FALLBACKS.body;
+
+      const posterFile =
+        (meta.posterImage && String(meta.posterImage).trim()) ||
+        (welcome.poster && String(welcome.poster).trim()) ||
+        '';
+
+      startTitle.textContent = title;
+      startSubline.textContent = subline;
+      startText.textContent = body;
+
+      if (posterFile) {
+        const imageUrl = `${workerBase}/scenes/${sceneParam}/${encodeURIComponent(posterFile)}`;
         startImage.src = imageUrl;
         startImage.style.display = 'block';
-        if (json.content?.title) startImage.alt = json.content.title + ' Vorschau';
+        startImage.alt = title ? `${title} Vorschau` : 'Vorschau';
       } else {
         startImage.style.display = 'none';
       }
@@ -301,18 +336,19 @@ async function boot() {
       if(json.model?.url) {
         MODEL_URL = `${workerBase}/scenes/${sceneParam}/${json.model.url}`;
       } else {
-        throw new Error("Szene-JSON enthält keine Modell-URL.");
+        // Fallback-Modell statt Abbruch
+        MODEL_URL = 'https://modelviewer.dev/shared-assets/models/Astronaut.glb';
+        showErr("Hinweis: Szene-JSON enthält keine Modell-URL. Fallback-Modell wird verwendet.");
       }
 
       if(json.audio?.url) {
         AUDIO_URL = `${workerBase}/scenes/${sceneParam}/${json.audio.url}`;
         setupAudio(json.audio);
       }
-
     } catch(e) {
       console.error(e);
       showErr("Fehler beim Laden der Szene-Konfiguration: " + e.message);
-      return;
+      // Fallbacks bleiben aktiv
     }
   }
 
