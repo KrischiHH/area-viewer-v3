@@ -7,10 +7,7 @@
 
 <link rel="stylesheet" href="styles.css">
 
-<!-- es-module-shims zuerst, ohne async -->
 <script src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
-
-<!-- Importmap -->
 <script type="importmap">
 {
   "imports": {
@@ -26,11 +23,14 @@
 
 <div id="start-screen">
   <div id="start-content">
-    <img id="start-image" style="display:none;" alt="Vorschau"/>
-    <h1 id="start-title"></h1>
-    <p id="start-subline"></p>
-    <p id="start-text"></p>
-    <button class="btn-start" id="btn-enter-ar">AR Starten</button>
+    <!-- Neue Card-Kachel -->
+    <div id="start-card">
+      <h1 id="start-title"></h1>
+      <p id="start-subline"></p>
+      <img id="start-image" style="display:none;" alt="Vorschau"/>
+      <p id="start-text"></p>
+      <button class="btn-start" id="btn-enter-ar">START AR</button>
+    </div>
   </div>
 </div>
 
@@ -107,7 +107,7 @@ const FALLBACKS = {
   title: '3D / AR Erlebnis',
   subline: '',
   body: 'Tippe auf START AR, um das Modell in deiner Umgebung zu sehen.',
-  image: '' // optional: leer lassen, damit kein falsches Bild angezeigt wird
+  image: ''
 };
 
 // --- Audio ---
@@ -254,16 +254,11 @@ async function boot() {
   overlay.style.pointerEvents = 'none';
   btnEnterAR.disabled = true;
 
-  // Vorinitialisierung mit Fallbacks
+  // Fallbacks
   startTitle.textContent = FALLBACKS.title;
   startSubline.textContent = FALLBACKS.subline;
   startText.textContent = FALLBACKS.body;
-  if (FALLBACKS.image) {
-    startImage.src = FALLBACKS.image;
-    startImage.style.display = 'block';
-  } else {
-    startImage.style.display = 'none';
-  }
+  startImage.style.display = 'none';
 
   let xrSupported = false;
   try {
@@ -282,7 +277,6 @@ async function boot() {
   if (sceneParam) {
     if (sceneParam.endsWith('.glb')) {
       MODEL_URL = sceneParam;
-      // Direkter GLB-Link → Poster bleibt bei Fallback
     } else {
       SCENE_JSON_URL = `${workerBase}/scenes/${sceneParam}/scene.json`;
     }
@@ -296,7 +290,6 @@ async function boot() {
       if(!res.ok) throw new Error(`Scene JSON Error: ${res.status} ${res.statusText}`);
       const json = await res.json();
 
-      // Konsistent zu ui.js/webxr-app.js:
       const meta    = json.meta || {};
       const welcome = (json.ui && json.ui.welcome) || {};
       const title =
@@ -336,7 +329,6 @@ async function boot() {
       if(json.model?.url) {
         MODEL_URL = `${workerBase}/scenes/${sceneParam}/${json.model.url}`;
       } else {
-        // Fallback-Modell statt Abbruch
         MODEL_URL = 'https://modelviewer.dev/shared-assets/models/Astronaut.glb';
         showErr("Hinweis: Szene-JSON enthält keine Modell-URL. Fallback-Modell wird verwendet.");
       }
@@ -345,10 +337,10 @@ async function boot() {
         AUDIO_URL = `${workerBase}/scenes/${sceneParam}/${json.audio.url}`;
         setupAudio(json.audio);
       }
+
     } catch(e) {
       console.error(e);
       showErr("Fehler beim Laden der Szene-Konfiguration: " + e.message);
-      // Fallbacks bleiben aktiv
     }
   }
 
