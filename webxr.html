@@ -26,7 +26,7 @@
   
   #overlay {
     position: fixed; inset: 0;
-    display: block; /* Overlay bleibt sichtbar; Interaktion steuern wir per pointer-events */
+    display: block;
     pointer-events: auto;
     z-index: 10;
   }
@@ -97,7 +97,7 @@
     top: 0; left: 0; right: 0;
     padding: calc(12px + env(safe-area-inset-top)) 16px 12px;
     display: flex; justify-content: flex-start; align-items: center;
-    pointer-events: none; /* nur der innere Wrapper darf klicken */
+    pointer-events: none;
     gap: 10px;
     z-index: 20;
   }
@@ -359,6 +359,7 @@ function isTouchOnModel(clientX, clientY) {
 async function boot() {
   const startScreen = document.getElementById('start-screen');
   const overlay = document.getElementById('overlay');
+  const btnEnterAR = document.getElementById('btn-enter-ar');
 
   // UI-Elemente für den Startscreen-Content
   const startTitle = document.getElementById('start-title');
@@ -366,10 +367,11 @@ async function boot() {
   const startText = document.getElementById('start-text');
   const startImage = document.getElementById('start-image');
 
-  // Initialer Zustand
+  // Initialer Zustand: Lade-Anzeige und AR-Button deaktivieren
   startScreen.style.display = 'flex';
   overlay.style.pointerEvents = 'none'; 
-  startTitle.textContent = 'Lade AR Erlebnis...'; // Lade-Anzeige
+  startTitle.textContent = 'Lade AR Erlebnis...';
+  btnEnterAR.disabled = true;
   startImage.style.display = 'none';
 
   if (!navigator.xr) { 
@@ -428,7 +430,7 @@ async function boot() {
 
       if(json.audio?.url) {
         AUDIO_URL = `${workerBase}/scenes/${sceneParam}/${json.audio.url}`;
-        setupAudio(json.audio);
+        setupAudio(json.audio); 
       }
 
     } catch(e) {
@@ -446,26 +448,33 @@ async function boot() {
   } catch(e) {
     showErr("Modell-Ladefehler: " + e.message);
     console.error("Modell-Ladefehler:", e);
-    // modelLoaded bleibt false, AR Start wird blockiert
+    btnEnterAR.disabled = true; // Doppelte Sicherstellung
     return;
   }
   
-  // Modell geladen, jetzt ist der Start-Button aktiv.
-  document.getElementById('btn-enter-ar').disabled = false;
-  // Falls der Titel vorher "Lade..." war, wird er jetzt durch JSON-Daten überschrieben.
+  // Modell erfolgreich geladen, AR Start Button aktivieren
+  btnEnterAR.disabled = false;
+  // Der Titel wurde bereits durch JSON-Daten überschrieben.
 
   window.addEventListener('resize', onResize);
 
-  document.getElementById('btn-enter-ar').addEventListener('click', async () => {
+  // --- HIER STARTET DIE AR-SESSION UND DAS AUDIO ---
+  btnEnterAR.addEventListener('click', async () => {
+    if (!modelLoaded) { 
+        showErr("Modell noch nicht vollständig geladen. Bitte warten Sie kurz."); 
+        return; 
+    }
+
     // Startscreen ausblenden, Overlay interaktiv
     startScreen.style.display = 'none';
     overlay.style.pointerEvents = 'auto';
 
+    // Audio Start (VERZÖGERT)
     if (AUDIO_URL && !isMuted) {
       ensureAudioUnlocked();
-      audioEl.play().catch(() => tryStartAudioAfterGesture());
+      tryStartAudioAfterGesture();
     }
-    
+    
     onStartAR().catch(err => {
       console.error('AR-Session Start Error:', err);
       // Zurück in sicheren Zustand
@@ -502,7 +511,6 @@ async function boot() {
 }
 
 function initThree() {
-  // ... (Bleibt unverändert)
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.01, 20);
 
@@ -577,17 +585,18 @@ async function loadModel() {
     }
     placementGroup.add(model);
     modelLoaded = true;
-    updateMsg("Bewege dein Gerät um Fläche zu finden...");
+    updateMsg("Modell geladen. Tippe auf AR Starten.");
   } catch(e) {
     // WICHTIG: Fehler weiterleiten, damit boot() ihn abfangen kann
     throw new Error(e.message || "Unbekannter Fehler beim Laden des 3D-Modells.");
   }
 }
 
-// ... (Rest des Codes bleibt unverändert) ...
+// --- AR Session ---
 async function onStartAR() {
   const overlay = document.getElementById('overlay');
 
+  // DIESER CHECK IST JETZT REDUNDANT, DA DER BUTTON DEAKTIVIERT IST, aber zur Sicherheit drin.
   if (!modelLoaded) {
     throw new Error("Modell noch nicht geladen. Bitte kurz warten.");
   }
@@ -603,6 +612,7 @@ async function onStartAR() {
     await renderer.xr.setSession(null);
      
     const startScreen = document.getElementById('start-screen');
+    const btnEnterAR = document.getElementById('btn-enter-ar');
     startScreen.style.display = 'flex';
     overlay.style.pointerEvents = 'none'; // Overlay wieder nicht interaktiv
     audioEl.pause();
@@ -610,6 +620,7 @@ async function onStartAR() {
     isEditing = false;
     placementGroup.visible = false;
     placementRect.visible = false;
+    btnEnterAR.disabled = !modelLoaded; // AR Starten Button wieder aktivieren, wenn Modell geladen
     updateMsg("Bewege dein Gerät um Fläche zu finden...");
   });
 
@@ -624,12 +635,14 @@ async function onStartAR() {
   renderer.setAnimationLoop(render);
 }
 
+// --- Resize ---
 function onResize() {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
+// --- Render Loop ---
 function render(timestamp, frame) {
   if (!frame) return;
 
@@ -675,6 +688,7 @@ function render(timestamp, frame) {
   renderer.render(scene, camera);
 }
 
+// --- Gesten ---
 function getDistance(touch1, touch2) {
   return Math.hypot(touch2.clientX - touch1.clientX, touch2.clientY - touch1.clientY);
 }
