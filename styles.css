@@ -32,7 +32,7 @@ html, body {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  max-width: 760px;     /* noch größer */
+  max-width: 820px;
   max-height: 100%;
   overflow-y: auto;
   padding-bottom: 24px;
@@ -44,7 +44,7 @@ html, body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 20px;
+  gap: 22px;
 
   background: linear-gradient(180deg, #2b4c86 0%, #0d1f3f 100%);
   border: 1px solid rgba(255,255,255,0.14);
@@ -52,32 +52,33 @@ html, body {
   box-shadow:
     0 36px 80px rgba(0,0,0,0.60),
     inset 0 1px 0 rgba(255,255,255,0.10);
-  padding: 40px 40px 46px;
+  padding: 44px 44px 50px;
 }
 
 /* Bild ohne separaten Schatten oder Umrisslinie */
 #start-image {
   width: 100%;
-  max-width: 620px;     /* noch größer */
+  max-width: 680px;
   height: auto;
   margin: 8px 0 12px;
   border-radius: 18px;
-  box-shadow: none;      /* Schatten weg */
-  border: none;          /* Umrisslinie weg */
+  box-shadow: none;   /* Schatten weg */
+  border: none;       /* Umrisslinie weg */
 }
 
+/* Plakativere Typo – noch größer, responsiv via clamp */
 #start-title {
-  font-size: clamp(34px, 6.2vw, 56px);  /* deutlich größer, responsiv */
-  font-weight: 900;                     /* plakativer */
-  line-height: 1.15;
-  margin: 0 0 4px;
+  font-size: clamp(36px, 7.2vw, 64px);
+  font-weight: 900;
+  line-height: 1.12;
+  margin: 0 0 6px;
   color: #fff;
   letter-spacing: 0.2px;
-  text-shadow: 0 2px 12px rgba(0,0,0,0.35); /* dezente Präsenz */
+  text-shadow: 0 2px 12px rgba(0,0,0,0.35);
 }
 
 #start-subline {
-  font-size: clamp(18px, 3.8vw, 28px);  /* größer */
+  font-size: clamp(20px, 4.4vw, 32px);
   font-weight: 750;
   margin: 6px 0 12px;
   color: rgba(255, 255, 255, 0.96);
@@ -85,25 +86,25 @@ html, body {
 }
 
 #start-text {
-  font-size: clamp(16px, 3.6vw, 22px);  /* größer */
+  font-size: clamp(18px, 4.4vw, 24px);
   margin: 14px 0 18px;
-  line-height: 1.85;
+  line-height: 1.9;
   color: rgba(255, 255, 255, 0.96);
   text-align: center;
-  max-width: 720px;     /* etwas breiter */
+  max-width: 760px;
   letter-spacing: 0.1px;
 }
 
-/* Start-Button etwas präsenter */
+/* Start-Button deutlich größer/präsenter */
 .btn-start {
-  background: linear-gradient(180deg, #70a7ff 0%, #5f93e6 100%);
+  background: linear-gradient(180deg, #7bb3ff 0%, #5a8fe0 100%);
   color: #0b1a33;
-  border: 1px solid rgba(11,26,51,0.22);
-  padding: 18px 38px;    /* größer */
+  border: 1px solid rgba(11,26,51,0.24);
+  padding: 20px 44px;
   border-radius: 999px;
-  font-weight: 900;      /* plakativer */
-  font-size: clamp(16px, 3.8vw, 20px);  /* größer */
-  box-shadow: 0 12px 28px rgba(0,0,0,0.44);
+  font-weight: 900;
+  font-size: clamp(18px, 4.8vw, 22px);
+  box-shadow: 0 14px 32px rgba(0,0,0,0.46);
   cursor: pointer;
 }
 .btn-start:active { transform: scale(0.98); }
