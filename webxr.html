@@ -5,8 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover"/>
 <title=ARea WebXR Viewer</title>
 
-<!-- Cache-Busting damit die größeren Schriften sicher geladen werden -->
-<link rel="stylesheet" href="styles.css?v=font-boost-3">
+<link rel="stylesheet" href="styles.css">
+<!-- FFmpeg für WebM -> MP4 Konvertierung beim Download in der Galerie -->
+<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg.min.js"></script>
 
 <script src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
 <script type="importmap">
@@ -44,6 +45,29 @@
   <div id="msg-container">
     <div id="msg" role="status" aria-live="polite">Bewege dein Gerät um Fläche zu finden...</div>
   </div>
+
+  <!-- Aufnahme-UI: großer Aufnahme-Kreis, kleiner Vorschau-Kreis, Timer -->
+  <div id="capture-ui" aria-hidden="false">
+    <div id="rec-info">00:00</div>
+    <button id="btn-gallery" title="Galerie öffnen" aria-label="Galerie öffnen"></button>
+    <button id="btn-capture" title="Foto/Video aufnehmen" aria-label="Foto/Video aufnehmen"></button>
+  </div>
+
+  <!-- Galerie-Overlay mit Vorschau und Grid -->
+  <div id="gallery-panel" aria-hidden="true">
+    <div id="gallery-header">
+      <button id="btn-gallery-close" aria-label="Galerie schließen">Schließen</button>
+    </div>
+    <div id="gallery-preview">
+      <div id="gallery-preview-media"></div>
+      <div id="gallery-meta">
+        <span id="gallery-filename"></span>
+        <button id="gallery-download">Download</button>
+      </div>
+    </div>
+    <div id="gallery-grid"></div>
+  </div>
+
   <div id="gesture-layer"></div>
 </div>
 
@@ -53,8 +77,9 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { initAudio, toggleAudio, pauseAudioOnHide } from './js/audio.js';
+import { initRecording, stopRecordingOnARSessionEnd } from './js/recording.js';
 
-// --- Globals ---
 let camera, scene, renderer;
 let hitTestSource = null;
 let placementGroup;
@@ -63,13 +88,11 @@ let model;
 let mixer;
 const clock = new THREE.Clock();
 
-// State & Config
 let isModelPlaced = false;
 let modelLoaded = false;
 let isEditing = false;
 let isHovering = false;
 
-// Gesten
 let currentTouches = [];
 let gestureStartTime = 0;
 let tapStartX = 0;
@@ -89,12 +112,10 @@ let initialPinchDistance = 0;
 let initialModelScale = 1;
 let lastMoveX = 0;
 
-// Ray/Planes
 const raycaster = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
 const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
-// URL Params
 const qs = new URLSearchParams(location.search);
 const workerBase = (qs.get('base') || 'https://area-publish-proxy.area-webar.workers.dev').replace(/\/$/, '');
 const sceneParam = qs.get('scene') || qs.get('src');
@@ -102,7 +123,6 @@ let SCENE_JSON_URL = '';
 let MODEL_URL = '';
 let AUDIO_URL = '';
 
-// Fallbacks für Poster/Texte
 const FALLBACKS = {
   title: '3D / AR Erlebnis',
   subline: '',
@@ -110,7 +130,6 @@ const FALLBACKS = {
   image: ''
 };
 
-// --- Audio ---
 const audioEl = document.getElementById('ar-audio');
 const btnMute = document.getElementById('btn-mute');
 let isMuted = false;
@@ -122,7 +141,7 @@ function ensureAudioUnlocked() {
     if (audioCtx.state === 'suspended') {
       audioCtx.resume().catch(() => {});
     }
-  } catch (e) { /* ignore */ }
+  } catch (e) {}
 }
 
 function setupAudio(audioCfg) {
@@ -137,8 +156,11 @@ function setupAudio(audioCfg) {
   try { audioEl.load(); } catch(e) {}
 
   audioEl.addEventListener('error', (e) => {
-    console.error('Audio load error:', e);
-    setUiState('audio_error', 'Audio konnte nicht geladen werden (CORS/Netzwerk).');
+    const errEl = document.getElementById('err');
+    if (errEl) {
+      errEl.textContent = 'Audio konnte nicht geladen werden.';
+      errEl.style.display = 'block';
+    }
   });
 
   btnMute.onclick = async () => {
@@ -148,60 +170,21 @@ function setupAudio(audioCfg) {
     btnMute.setAttribute('aria-label', isMuted ? 'Audio einschalten' : 'Audio ausschalten');
     if (!isMuted) {
       ensureAudioUnlocked();
-      audioEl.play().catch(() => tryStartAudioAfterGesture());
-      if (uiState === 'audio_blocked' || uiState === 'audio_error') {
-        setUiState('play_attempt', '');
-      }
+      audioEl.play().catch(() => {});
     } else {
       audioEl.pause();
     }
   };
 }
 
-async function tryStartAudioAfterGesture() {
-  if (!AUDIO_URL || isMuted) return;
-  ensureAudioUnlocked();
-  const HAVE_CURRENT_DATA = 2;
-
-  if (audioEl.readyState < HAVE_CURRENT_DATA) {
-    audioEl.load();
-    try {
-      await new Promise((resolve, reject) => {
-        const onReady = () => { cleanup(); resolve(); };
-        const onError = (e) => { cleanup(); reject(e); };
-        const cleanup = () => {
-          audioEl.removeEventListener('canplay', onReady);
-          audioEl.removeEventListener('error', onError);
-        };
-        audioEl.addEventListener('canplay', onReady, { once: true });
-        audioEl.addEventListener('error', onError, { once: true });
-        setTimeout(() => { if (audioEl.readyState < HAVE_CURRENT_DATA) reject(new Error('Audio Timeout')); }, 6000);
-      });
-    } catch(e) {
-      console.warn('Audio load failed:', e);
-      return;
-    }
-  }
-  try {
-    await audioEl.play();
-  } catch (e) {
-    console.warn('Fallback play blocked:', e);
-    setUiState('audio_blocked', 'Audio blockiert. Tippe auf 🔊 zum Abspielen.');
-  }
-}
-
-// --- UI helpers ---
 function showErr(txt) {
   const e = document.getElementById('err');
   e.textContent = txt;
   e.style.display = 'block';
-  setTimeout(() => e.style.display='none', 5000);
 }
 
 let uiState = '';
-function updateMsg(txt) {
-  document.getElementById('msg').textContent = txt;
-}
+function updateMsg(txt) { document.getElementById('msg').textContent = txt; }
 function setUiState(nextState, msg) {
   if (uiState !== nextState) {
     uiState = nextState;
@@ -209,7 +192,6 @@ function setUiState(nextState, msg) {
   }
 }
 
-// --- NDC helper ---
 function toNDC(clientX, clientY) {
   const w = renderer.domElement.clientWidth || window.innerWidth;
   const h = renderer.domElement.clientHeight || window.innerHeight;
@@ -217,7 +199,6 @@ function toNDC(clientX, clientY) {
   ndc.y = -(clientY / h) * 2 + 1;
 }
 
-// Tap innerhalb der Zielmarkierung (Weltkoordinaten inkl. Scale)
 function isTapInsidePlacementRect(clientX, clientY) {
   if (!placementGroup || !placementRect || !placementRect.visible || !isHovering) return false;
   toNDC(clientX, clientY);
@@ -239,7 +220,6 @@ function isTouchOnModel(clientX, clientY) {
   return hits.length > 0;
 }
 
-// --- Boot & Three init ---
 async function boot() {
   const startScreen = document.getElementById('start-screen');
   const overlay = document.getElementById('overlay');
@@ -254,7 +234,6 @@ async function boot() {
   overlay.style.pointerEvents = 'none';
   btnEnterAR.disabled = true;
 
-  // Fallbacks
   startTitle.textContent = FALLBACKS.title;
   startSubline.textContent = FALLBACKS.subline;
   startText.textContent = FALLBACKS.body;
@@ -265,12 +244,11 @@ async function boot() {
     xrSupported = !!(navigator.xr) &&
       (navigator.xr.isSessionSupported ? await navigator.xr.isSessionSupported('immersive-ar') : false);
   } catch (e) {
-    console.warn('isSessionSupported check failed:', e);
     xrSupported = false;
   }
 
   if (!xrSupported) {
-    showErr('AR wird auf diesem Gerät/Browser nicht unterstützt (WebXR fehlt oder Session nicht möglich).');
+    showErr('AR wird auf diesem Gerät/Browser nicht unterstützt.');
     return;
   }
 
@@ -287,7 +265,7 @@ async function boot() {
   if (SCENE_JSON_URL) {
     try {
       const res = await fetch(SCENE_JSON_URL);
-      if(!res.ok) throw new Error(`Scene JSON Error: ${res.status} ${res.statusText}`);
+      if(!res.ok) throw new Error(`Scene JSON Error: ${res.status}`);
       const json = await res.json();
 
       const meta    = json.meta || {};
@@ -328,9 +306,6 @@ async function boot() {
 
       if(json.model?.url) {
         MODEL_URL = `${workerBase}/scenes/${sceneParam}/${json.model.url}`;
-      } else {
-        MODEL_URL = 'https://modelviewer.dev/shared-assets/models/Astronaut.glb';
-        showErr("Hinweis: Szene-JSON enthält keine Modell-URL. Fallback-Modell wird verwendet.");
       }
 
       if(json.audio?.url) {
@@ -339,8 +314,7 @@ async function boot() {
       }
 
     } catch(e) {
-      console.error(e);
-      showErr("Fehler beim Laden der Szene-Konfiguration: " + e.message);
+      showErr("Fehler beim Laden der Szene: " + e.message);
     }
   }
 
@@ -350,7 +324,6 @@ async function boot() {
     await loadModel();
   } catch(e) {
     showErr("Modell-Ladefehler: " + e.message);
-    console.error("Modell-Ladefehler:", e);
     btnEnterAR.disabled = true;
     return;
   }
@@ -362,20 +335,20 @@ async function boot() {
 
   btnEnterAR.addEventListener('click', async () => {
     if (!modelLoaded) {
-      showErr("Modell noch nicht vollständig geladen. Bitte warten Sie kurz.");
+      showErr("Modell noch nicht vollständig geladen.");
       return;
     }
 
     startScreen.style.display = 'none';
+    const overlay = document.getElementById('overlay');
     overlay.style.pointerEvents = 'auto';
 
     if (AUDIO_URL && !isMuted) {
       ensureAudioUnlocked();
-      tryStartAudioAfterGesture();
+      audioEl.play().catch(() => {});
     }
 
     onStartAR().catch(err => {
-      console.error('AR-Session Start Error:', err);
       resetARState();
       showErr('AR konnte nicht gestartet werden:\n' + (err?.message || 'Unbekannter Fehler'));
     });
@@ -398,6 +371,9 @@ async function boot() {
   gestureLayer.addEventListener('mousedown', onTouchStart, { passive: false });
   gestureLayer.addEventListener('mousemove', onTouchMove, { passive: false });
   gestureLayer.addEventListener('mouseup', onTouchEnd, { passive: false });
+
+  // Aufnahme-UI initialisieren
+  initRecording();
 }
 
 function resetARState() {
@@ -436,6 +412,10 @@ function initThree() {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+  // WICHTIG: Canvas-ID setzen, damit Recording das Canvas findet
+  renderer.domElement.id = 'ar-scene-element';
+
   document.body.appendChild(renderer.domElement);
 
   placementGroup = new THREE.Group();
@@ -479,21 +459,17 @@ async function loadModel() {
   draco.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
   loader.setDRACOLoader(draco);
 
-  try {
-    const gltf = await loader.loadAsync(MODEL_URL);
-    model = gltf.scene;
-    model.traverse((node) => { if (node.isMesh) { node.castShadow = true; node.receiveShadow = false; } });
-    model.scale.setScalar(0.5);
-    if(gltf.animations?.length) {
-      mixer = new THREE.AnimationMixer(model);
-      gltf.animations.forEach(clip => mixer.clipAction(clip).play());
-    }
-    placementGroup.add(model);
-    modelLoaded = true;
-    setUiState('loaded', 'Modell geladen. Tippe auf AR Starten.');
-  } catch(e) {
-    throw new Error(e.message || "Unbekannter Fehler beim Laden des 3D-Modells.");
+  const gltf = await loader.loadAsync(MODEL_URL);
+  model = gltf.scene;
+  model.traverse((node) => { if (node.isMesh) { node.castShadow = true; node.receiveShadow = false; } });
+  model.scale.setScalar(0.5);
+  if(gltf.animations?.length) {
+    mixer = new THREE.AnimationMixer(model);
+    gltf.animations.forEach(clip => mixer.clipAction(clip).play());
   }
+  placementGroup.add(model);
+  modelLoaded = true;
+  setUiState('loaded', 'Modell geladen. Tippe auf AR Starten.');
 }
 
 async function onStartAR() {
@@ -506,10 +482,12 @@ async function onStartAR() {
   });
 
   session.addEventListener('end', () => {
-    try { hitTestSource?.cancel?.(); } catch(e) { console.error("Hit test cancel failed", e); }
+    try { hitTestSource?.cancel?.(); } catch(_) {}
     hitTestSource = null;
     renderer.setAnimationLoop(null);
     renderer.xr.setSession(null);
+    // Aufnahme sicher stoppen
+    try { stopRecordingOnARSessionEnd(); } catch(_) {}
     resetARState();
   });
 
@@ -517,11 +495,9 @@ async function onStartAR() {
     session.requestHitTestSource({ space: refSpace }).then((source) => {
       hitTestSource = source;
     }).catch((e) => {
-      console.warn('Hit test source failed:', e);
-      setUiState('no_hittest', 'Kein AR-Hit-Test verfügbar. Bewege das Gerät oder versuche es erneut.');
+      setUiState('no_hittest', 'Kein AR-Hit-Test verfügbar.');
     });
   }).catch((e) => {
-    console.warn('Viewer reference space failed:', e);
     setUiState('no_refspace', 'AR-Referenzraum konnte nicht erstellt werden.');
   });
 
@@ -708,7 +684,7 @@ function onTouchEnd(event) {
     isScalingModel = false;
     initialModelScale = placementGroup.scale.x;
     placementRect.visible = false;
-    if (isModelPlaced) setUiState('placed', "Bearbeitung beendet. Tippe auf Modell zum erneuten Draggen.");
+    if (isModelPlaced) setUiState('placed', "Bearbeitung beendet.");
   }
 }
 
