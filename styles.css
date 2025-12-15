@@ -46,22 +46,27 @@ html, body {
   align-items: center;
   gap: 20px;
 
-  background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.04));
-  border: 1px solid rgba(255,255,255,0.18);
+  /* Blauverlauf wie im Referenzbild */
+  background: linear-gradient(180deg, #2b4c86 0%, #0d1f3f 100%);
+  border: 1px solid rgba(255,255,255,0.14);
   border-radius: 26px;
   box-shadow:
     0 36px 80px rgba(0,0,0,0.60),
-    inset 0 1px 0 rgba(255,255,255,0.12);
+    inset 0 1px 0 rgba(255,255,255,0.10);
   padding: 34px 34px 38px;
 }
 
+/* Bild ohne separaten Schlagschatten */
 #start-image {
   width: 100%;
   max-width: 620px;     /* noch größer */
   height: auto;
   margin: 8px 0 12px;
   border-radius: 18px;
-  box-shadow: 0 16px 40px rgba(0,0,0,0.50);
+  /* Schatten entfernen, damit es clean im Blau liegt */
+  box-shadow: none;
+  /* Optional: leichter Rand für saubere Kante im Verlauf */
+  border: 1px solid rgba(255,255,255,0.06);
 }
 
 #start-title {
@@ -89,7 +94,10 @@ html, body {
 }
 
 .btn-start {
-  background: #e6f0ff; color: #0b1a33; border: 1px solid rgba(11,26,51,0.2);
+  /* dezenteres Blau passend zur Karte */
+  background: linear-gradient(180deg, #70a7ff 0%, #5f93e6 100%);
+  color: #0b1a33;
+  border: 1px solid rgba(11,26,51,0.2);
   padding: 14px 30px;   /* größer */
   border-radius: 999px;
   font-weight: 850;     /* stärker */
