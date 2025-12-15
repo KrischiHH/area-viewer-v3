@@ -32,13 +32,13 @@ html, body {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  max-width: 760px;
+  max-width: 760px;     /* noch größer */
   max-height: 100%;
   overflow-y: auto;
   padding-bottom: 24px;
 }
 
-/* Card-Kachel hinter Bild & Text – mit blauem Verlauf */
+/* Card-Kachel hinter Bild & Text – blauer Verlauf + Kanten */
 #start-card {
   width: 100%;
   display: flex;
@@ -52,13 +52,13 @@ html, body {
   box-shadow:
     0 36px 80px rgba(0,0,0,0.60),
     inset 0 1px 0 rgba(255,255,255,0.10);
-  padding: 38px 38px 42px;
+  padding: 40px 40px 46px;
 }
 
 /* Bild ohne separaten Schatten oder Umrisslinie */
 #start-image {
   width: 100%;
-  max-width: 620px;
+  max-width: 620px;     /* noch größer */
   height: auto;
   margin: 8px 0 12px;
   border-radius: 18px;
@@ -66,32 +66,31 @@ html, body {
   border: none;          /* Umrisslinie weg */
 }
 
-/* Plakativere Typo */
 #start-title {
-  font-size: 60px;       /* größer */
-  font-weight: 900;      /* plakativer */
-  line-height: 1.2;
-  margin: 0;
+  font-size: clamp(34px, 6.2vw, 56px);  /* deutlich größer, responsiv */
+  font-weight: 900;                     /* plakativer */
+  line-height: 1.15;
+  margin: 0 0 4px;
   color: #fff;
   letter-spacing: 0.2px;
   text-shadow: 0 2px 12px rgba(0,0,0,0.35); /* dezente Präsenz */
 }
 
 #start-subline {
-  font-size: 20px;       /* größer */
-  font-weight: 700;
-  margin: 6px 0 8px;
-  color: rgba(255, 255, 255, 0.94);
+  font-size: clamp(18px, 3.8vw, 28px);  /* größer */
+  font-weight: 750;
+  margin: 6px 0 12px;
+  color: rgba(255, 255, 255, 0.96);
   letter-spacing: 0.2px;
 }
 
 #start-text {
-  font-size: 18px;       /* größer */
-  margin: 14px 0 16px;
-  line-height: 1.8;
+  font-size: clamp(16px, 3.6vw, 22px);  /* größer */
+  margin: 14px 0 18px;
+  line-height: 1.85;
   color: rgba(255, 255, 255, 0.96);
   text-align: center;
-  max-width: 700px;      /* etwas breiter */
+  max-width: 720px;     /* etwas breiter */
   letter-spacing: 0.1px;
 }
 
@@ -100,10 +99,10 @@ html, body {
   background: linear-gradient(180deg, #70a7ff 0%, #5f93e6 100%);
   color: #0b1a33;
   border: 1px solid rgba(11,26,51,0.22);
-  padding: 16px 34px;    /* größer */
+  padding: 18px 38px;    /* größer */
   border-radius: 999px;
   font-weight: 900;      /* plakativer */
-  font-size: 18px;       /* größer */
+  font-size: clamp(16px, 3.8vw, 20px);  /* größer */
   box-shadow: 0 12px 28px rgba(0,0,0,0.44);
   cursor: pointer;
 }
