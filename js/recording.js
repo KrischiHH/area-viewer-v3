@@ -28,6 +28,15 @@ let ffmpegLoaded = false;
 // Galerie
 const galleryItems = []; // { type:'image'|'video', url, format:'jpg'|'mp4'|'webm', ts:number }
 let galleryGridRef = null;
+let galleryPanelRef = null;
+let galleryPreviewRef = null;
+let galleryPreviewMediaRef = null;
+let galleryDownloadRef = null;
+let galleryFilenameRef = null;
+let btnGalleryRef = null;
+
+// Aktuelles Preview-Item
+let currentPreview = null;
 
 async function ensureFFmpeg() {
   try {
@@ -74,22 +83,35 @@ function getCaptureCanvas() {
   return null;
 }
 
+/* ---------- Datei-Namen ---------- */
+function tsToName(ts, kind, ext) {
+  const d = new Date(ts);
+  const p = (n) => String(n).padStart(2, '0');
+  const name = `ARea_${kind}_${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}.${ext}`;
+  return name;
+}
+
 export function initRecording() {
   const btnCapture = document.getElementById('btn-capture');
-  const btnGallery = document.getElementById('btn-gallery');
+  btnGalleryRef = document.getElementById('btn-gallery');
   const btnGalleryClose = document.getElementById('btn-gallery-close');
-  const galleryPanel = document.getElementById('gallery-panel');
+  galleryPanelRef = document.getElementById('gallery-panel');
   galleryGridRef = document.getElementById('gallery-grid');
+  galleryPreviewRef = document.getElementById('gallery-preview');
+  galleryPreviewMediaRef = document.getElementById('gallery-preview-media');
+  galleryDownloadRef = document.getElementById('gallery-download');
+  galleryFilenameRef = document.getElementById('gallery-filename');
   const recInfo = document.getElementById('rec-info');
 
   // Galerie öffnen
-  btnGallery?.addEventListener('click', () => {
-    galleryPanel.style.display = 'flex';
-    refreshGalleryGrid();
-  });
-  // Galerie schließen
-  btnGalleryClose?.addEventListener('click', () => {
-    galleryPanel.style.display = 'none';
+  btnGalleryRef?.addEventListener('click', () => openGallery());
+  btnGalleryClose?.addEventListener('click', () => closeGallery());
+
+  // Download im Preview
+  galleryDownloadRef?.addEventListener('click', () => {
+    if (!currentPreview) return;
+    const filename = tsToName(currentPreview.ts, currentPreview.type === 'image' ? 'Foto' : 'Video', currentPreview.format);
+    triggerDownload(currentPreview.url, filename);
   });
 
   // Capture Button Interaktion (Foto / Video)
@@ -170,10 +192,10 @@ function takeScreenshot(btnCapture) {
       return;
     }
     const url = URL.createObjectURL(blob);
-    // Download
-    triggerDownload(url, 'ARea_Screenshot.jpg');
-    // In Galerie übernehmen
-    addToGallery({ type:'image', url, format:'jpg', ts:Date.now() });
+    const item = { type:'image', url, format:'jpg', ts:Date.now() };
+
+    // Sofort-Download optional: hier nicht automatisch; Nutzer lädt in Galerie
+    addToGallery(item);
   };
 
   // model-viewer hat eine eigene toBlob()-Methode
@@ -257,17 +279,22 @@ function startRealRecording(recInfo, btnCapture) {
     }
   }
 
+  // Kandidaten inkl. MP4 (für Safari/iOS)
   const mimeTypeCandidates = [
+    'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+    'video/mp4',
     'video/webm;codecs=vp9,opus',
     'video/webm;codecs=vp8',
     'video/webm'
   ];
   chosenMimeType = '';
   for (const c of mimeTypeCandidates) {
-    if (MediaRecorder.isTypeSupported(c)) { chosenMimeType = c; break; }
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(c)) {
+      chosenMimeType = c; break;
+    }
   }
   if (!chosenMimeType) {
-    console.warn('Kein unterstützter WebM Codec → Simulation.');
+    console.warn('Kein unterstützter Codec → Simulation.');
     startSimulatedRecording(recInfo, btnCapture);
     return;
   }
@@ -365,17 +392,21 @@ async function stopAllRecording(recInfo, btnCapture) {
   audioCtxRef = null;
 
   if (hadRealRecording && recordedChunks.length > 0) {
-    const webmBlob = new Blob(recordedChunks, { type: (chosenMimeType || 'video/webm') });
-    let mp4Blob = await convertWebMToMP4(webmBlob);
-    if (mp4Blob) {
-      const url = URL.createObjectURL(mp4Blob);
-      triggerDownload(url, 'ARea_Recording.mp4');
-      addToGallery({ type:'video', url, format:'mp4', ts:Date.now() });
-    } else {
-      const fallbackUrl = URL.createObjectURL(webmBlob);
-      triggerDownload(fallbackUrl, 'ARea_Recording.webm');
-      addToGallery({ type:'video', url:fallbackUrl, format:'webm', ts:Date.now() });
+    const blob = new Blob(recordedChunks, { type: (chosenMimeType || 'video/webm') });
+
+    // Wenn WebM und FFmpeg verfügbar → zu MP4 konvertieren (bessere Kompatibilität)
+    let finalBlob = blob;
+    let fmt = /mp4/.test(chosenMimeType) ? 'mp4' : 'webm';
+    if (fmt === 'webm') {
+      const mp4Blob = await convertWebMToMP4(blob);
+      if (mp4Blob) {
+        finalBlob = mp4Blob;
+        fmt = 'mp4';
+      }
     }
+
+    const url = URL.createObjectURL(finalBlob);
+    addToGallery({ type:'video', url, format: fmt, ts: Date.now() });
   }
 
   recordedChunks = [];
@@ -393,8 +424,57 @@ function triggerDownload(url, filename) {
 }
 
 /* ---------- Galerie Funktionen ---------- */
+function setPreviewButton(item) {
+  if (!btnGalleryRef) return;
+  btnGalleryRef.style.backgroundImage = `url(${item.url})`;
+}
+
+function openGallery() {
+  if (!galleryPanelRef) return;
+  galleryPanelRef.style.display = 'flex';
+  if (galleryItems.length > 0) {
+    showPreview(galleryItems[galleryItems.length - 1]);
+  } else {
+    galleryPreviewMediaRef.innerHTML = '';
+    if (galleryFilenameRef) galleryFilenameRef.textContent = '';
+  }
+  refreshGalleryGrid();
+}
+
+function closeGallery() {
+  if (!galleryPanelRef) return;
+  // stop videos in preview
+  const v = galleryPreviewMediaRef?.querySelector('video');
+  try { v?.pause(); } catch(_) {}
+  galleryPanelRef.style.display = 'none';
+}
+
+function showPreview(item) {
+  currentPreview = item;
+  if (!galleryPreviewMediaRef) return;
+
+  galleryPreviewMediaRef.innerHTML = '';
+  let el;
+  if (item.type === 'image') {
+    el = document.createElement('img');
+    el.src = item.url;
+    el.alt = 'Aufnahme';
+  } else {
+    el = document.createElement('video');
+    el.src = item.url;
+    el.controls = true;
+    el.playsInline = true;
+  }
+  galleryPreviewMediaRef.appendChild(el);
+  if (galleryFilenameRef) {
+    const name = tsToName(item.ts, item.type === 'image' ? 'Foto' : 'Video', item.format);
+    galleryFilenameRef.textContent = name;
+  }
+}
+
 function addToGallery(item) {
   galleryItems.push(item);
+  setPreviewButton(item);
   refreshGalleryGrid();
 }
 
@@ -412,6 +492,7 @@ function refreshGalleryGrid() {
   galleryItems.slice().reverse().forEach(it => {
     const wrapper = document.createElement('div');
     wrapper.className = 'thumb';
+
     let mediaEl;
     if (it.type === 'image') {
       mediaEl = document.createElement('img');
@@ -420,13 +501,39 @@ function refreshGalleryGrid() {
     } else {
       mediaEl = document.createElement('video');
       mediaEl.src = it.url;
-      mediaEl.controls = true;
+      mediaEl.muted = true;
+      mediaEl.playsInline = true;
+      mediaEl.loop = true;
+      mediaEl.autoplay = false;
+      mediaEl.addEventListener('mouseenter', () => { try { mediaEl.play(); } catch(_) {} });
+      mediaEl.addEventListener('mouseleave', () => { try { mediaEl.pause(); } catch(_) {} });
     }
+
     const label = document.createElement('div');
     label.className = 'thumb-label';
     label.textContent = (it.type === 'image' ? 'Foto' : 'Video') + ' • ' + it.format;
+
+    const actions = document.createElement('div');
+    actions.className = 'thumb-actions';
+    const btn = document.createElement('button');
+    btn.className = 'btn-dl';
+    btn.textContent = 'Download';
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const filename = tsToName(it.ts, it.type === 'image' ? 'Foto' : 'Video', it.format);
+      triggerDownload(it.url, filename);
+    });
+    actions.appendChild(btn);
+
     wrapper.appendChild(mediaEl);
     wrapper.appendChild(label);
+    wrapper.appendChild(actions);
+
+    wrapper.addEventListener('click', () => {
+      showPreview(it);
+      // Scroll zu Preview-Anfang bleibt wie ist
+    });
+
     galleryGridRef.appendChild(wrapper);
   });
 }
