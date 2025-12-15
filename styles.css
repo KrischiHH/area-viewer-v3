@@ -32,13 +32,13 @@ html, body {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  max-width: 760px;     /* noch größer */
+  max-width: 760px;
   max-height: 100%;
   overflow-y: auto;
   padding-bottom: 24px;
 }
 
-/* Card-Kachel hinter Bild & Text – größer + stärkerer Schatten */
+/* Card-Kachel hinter Bild & Text – mit blauem Verlauf */
 #start-card {
   width: 100%;
   display: flex;
@@ -46,63 +46,65 @@ html, body {
   align-items: center;
   gap: 20px;
 
-  /* Blauverlauf wie im Referenzbild */
   background: linear-gradient(180deg, #2b4c86 0%, #0d1f3f 100%);
   border: 1px solid rgba(255,255,255,0.14);
   border-radius: 26px;
   box-shadow:
     0 36px 80px rgba(0,0,0,0.60),
     inset 0 1px 0 rgba(255,255,255,0.10);
-  padding: 34px 34px 38px;
+  padding: 38px 38px 42px;
 }
 
-/* Bild ohne separaten Schlagschatten */
+/* Bild ohne separaten Schatten oder Umrisslinie */
 #start-image {
   width: 100%;
-  max-width: 620px;     /* noch größer */
+  max-width: 620px;
   height: auto;
   margin: 8px 0 12px;
   border-radius: 18px;
-  /* Schatten entfernen, damit es clean im Blau liegt */
-  box-shadow: none;
-  /* Optional: leichter Rand für saubere Kante im Verlauf */
-  border: 1px solid rgba(255,255,255,0.06);
+  box-shadow: none;      /* Schatten weg */
+  border: none;          /* Umrisslinie weg */
 }
 
+/* Plakativere Typo */
 #start-title {
-  font-size: 34px;      /* noch größer */
-  font-weight: 850;
+  font-size: 40px;       /* größer */
+  font-weight: 900;      /* plakativer */
+  line-height: 1.2;
   margin: 0;
-  color: white;
-  letter-spacing: .25px;
+  color: #fff;
+  letter-spacing: 0.2px;
+  text-shadow: 0 2px 12px rgba(0,0,0,0.35); /* dezente Präsenz */
 }
 
 #start-subline {
-  font-size: 18px;      /* größer */
-  font-weight: 650;
-  margin: 2px 0 4px;
-  color: rgba(255, 255, 255, 0.92);
+  font-size: 20px;       /* größer */
+  font-weight: 700;
+  margin: 6px 0 8px;
+  color: rgba(255, 255, 255, 0.94);
+  letter-spacing: 0.2px;
 }
 
 #start-text {
-  font-size: 17px;      /* größer */
-  margin: 12px 0 14px;
-  line-height: 1.65;
-  color: rgba(255, 255, 255, 0.95);
+  font-size: 18px;       /* größer */
+  margin: 14px 0 16px;
+  line-height: 1.8;
+  color: rgba(255, 255, 255, 0.96);
   text-align: center;
-  max-width: 680px;     /* größer */
+  max-width: 700px;      /* etwas breiter */
+  letter-spacing: 0.1px;
 }
 
+/* Start-Button etwas präsenter */
 .btn-start {
-  /* dezenteres Blau passend zur Karte */
   background: linear-gradient(180deg, #70a7ff 0%, #5f93e6 100%);
   color: #0b1a33;
-  border: 1px solid rgba(11,26,51,0.2);
-  padding: 14px 30px;   /* größer */
+  border: 1px solid rgba(11,26,51,0.22);
+  padding: 16px 34px;    /* größer */
   border-radius: 999px;
-  font-weight: 850;     /* stärker */
-  font-size: 17px;      /* größer */
-  box-shadow: 0 10px 26px rgba(0,0,0,0.42);
+  font-weight: 900;      /* plakativer */
+  font-size: 18px;       /* größer */
+  box-shadow: 0 12px 28px rgba(0,0,0,0.44);
   cursor: pointer;
 }
 .btn-start:active { transform: scale(0.98); }
