@@ -5,8 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover"/>
 <title=ARea WebXR Viewer</title>
 
-<!-- Cache-Busting damit die größeren Schriften sicher geladen werden -->
-<link rel="stylesheet" href="styles.css?v=font-boost-3">
+<link rel="stylesheet" href="styles.css">
+<!-- FFmpeg optional für WebM -> MP4 Konvertierung im Browser -->
+<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg.min.js"></script>
 
 <script src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
 <script type="importmap">
@@ -41,9 +42,34 @@
       <button class="btn-icon" id="btn-mute" style="display:none" aria-label="Audio umschalten">🔊</button>
     </div>
   </div>
+
   <div id="msg-container">
     <div id="msg" role="status" aria-live="polite">Bewege dein Gerät um Fläche zu finden...</div>
   </div>
+
+  <!-- Aufnahme-UI: großer Kreis (Aufnahme), kleiner Kreis (Vorschau/Galerie),
+       Timer über dem Button -->
+  <div id="capture-ui" aria-hidden="false">
+    <div id="rec-info">00:00</div>
+    <button id="btn-gallery" title="Galerie öffnen" aria-label="Galerie öffnen"></button>
+    <button id="btn-capture" title="Foto/Video aufnehmen" aria-label="Foto/Video aufnehmen"></button>
+  </div>
+
+  <!-- Galerie-Overlay -->
+  <div id="gallery-panel" aria-hidden="true">
+    <div id="gallery-header">
+      <button id="btn-gallery-close" aria-label="Galerie schließen">Schließen</button>
+    </div>
+    <div id="gallery-preview">
+      <div id="gallery-preview-media"></div>
+      <div id="gallery-meta">
+        <span id="gallery-filename"></span>
+        <button id="gallery-download">Download</button>
+      </div>
+    </div>
+    <div id="gallery-grid"></div>
+  </div>
+
   <div id="gesture-layer"></div>
 </div>
 
@@ -53,6 +79,9 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { initRecording, stopRecordingOnARSessionEnd } from './js/recording.js';
+
+/* ========== Bestehender WebXR-Code (unverändert ab hier, nur minimal ergänzt) ========== */
 
 // --- Globals ---
 let camera, scene, renderer;
@@ -398,6 +427,9 @@ async function boot() {
   gestureLayer.addEventListener('mousedown', onTouchStart, { passive: false });
   gestureLayer.addEventListener('mousemove', onTouchMove, { passive: false });
   gestureLayer.addEventListener('mouseup', onTouchEnd, { passive: false });
+
+  // Aufnahme-UI initialisieren
+  initRecording();
 }
 
 function resetARState() {
@@ -510,6 +542,8 @@ async function onStartAR() {
     hitTestSource = null;
     renderer.setAnimationLoop(null);
     renderer.xr.setSession(null);
+    // Aufnahme sicher stoppen
+    try { stopRecordingOnARSessionEnd(); } catch(_) {}
     resetARState();
   });
 
