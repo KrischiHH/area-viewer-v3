@@ -24,7 +24,7 @@ html, body {
   justify-content: center;
   z-index: 100;
   pointer-events: auto;
-  padding: 30px;
+  padding: 36px;
 }
 
 #start-content {
@@ -32,10 +32,10 @@ html, body {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  max-width: 560px;     /* größer */
+  max-width: 760px;     /* noch größer */
   max-height: 100%;
   overflow-y: auto;
-  padding-bottom: 20px;
+  padding-bottom: 24px;
 }
 
 /* Card-Kachel hinter Bild & Text – größer + stärkerer Schatten */
@@ -44,57 +44,57 @@ html, body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
+  gap: 20px;
 
-  background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.03));
-  border: 1px solid rgba(255,255,255,0.16);
-  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.04));
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 26px;
   box-shadow:
-    0 28px 60px rgba(0,0,0,0.55),
-    inset 0 1px 0 rgba(255,255,255,0.10);
-  padding: 26px 26px 30px;
+    0 36px 80px rgba(0,0,0,0.60),
+    inset 0 1px 0 rgba(255,255,255,0.12);
+  padding: 34px 34px 38px;
 }
 
 #start-image {
   width: 100%;
-  max-width: 440px;     /* größer */
+  max-width: 620px;     /* noch größer */
   height: auto;
-  margin: 6px 0 10px;
-  border-radius: 16px;
-  box-shadow: 0 12px 32px rgba(0,0,0,0.45);
+  margin: 8px 0 12px;
+  border-radius: 18px;
+  box-shadow: 0 16px 40px rgba(0,0,0,0.50);
 }
 
 #start-title {
-  font-size: 28px;      /* größer */
-  font-weight: 800;
-  margin: 2px 0 0;
+  font-size: 34px;      /* noch größer */
+  font-weight: 850;
+  margin: 0;
   color: white;
-  letter-spacing: .2px;
+  letter-spacing: .25px;
 }
 
 #start-subline {
-  font-size: 16px;      /* größer */
-  font-weight: 600;
-  margin: 0 0 2px;
-  color: rgba(255, 255, 255, 0.90);
+  font-size: 18px;      /* größer */
+  font-weight: 650;
+  margin: 2px 0 4px;
+  color: rgba(255, 255, 255, 0.92);
 }
 
 #start-text {
-  font-size: 15px;      /* größer */
-  margin: 10px 0 12px;
-  line-height: 1.55;
-  color: rgba(255, 255, 255, 0.92);
+  font-size: 17px;      /* größer */
+  margin: 12px 0 14px;
+  line-height: 1.65;
+  color: rgba(255, 255, 255, 0.95);
   text-align: center;
-  max-width: 480px;     /* größer */
+  max-width: 680px;     /* größer */
 }
 
 .btn-start {
-  background: #e6f0ff; color: #0b1a33; border: 1px solid rgba(11,26,51,0.18);
-  padding: 12px 26px;   /* größer */
+  background: #e6f0ff; color: #0b1a33; border: 1px solid rgba(11,26,51,0.2);
+  padding: 14px 30px;   /* größer */
   border-radius: 999px;
-  font-weight: 800;     /* stärker */
-  font-size: 15px;      /* etwas größer */
-  box-shadow: 0 8px 22px rgba(0,0,0,0.40);
+  font-weight: 850;     /* stärker */
+  font-size: 17px;      /* größer */
+  box-shadow: 0 10px 26px rgba(0,0,0,0.42);
   cursor: pointer;
 }
 .btn-start:active { transform: scale(0.98); }
