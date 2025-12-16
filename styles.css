@@ -73,6 +73,9 @@ html, body {
   margin: 0;
   color: white;
   letter-spacing: .25px;
+  /* NEU: Scharfer, dunkler Schatten ohne Transparenz */
+  text-shadow: 4px 4px 0px #000000; /* 4px rechts, 4px unten, 0px Unschärfe, Schwarz */
+
 }
 
 #start-subline {
