@@ -67,6 +67,7 @@ html, body {
 }
 
 #start-title {
+  font-family: 'Bangers', cursive; /* Hinzufügen der Schriftart mit Fallback */
   font-size: 70px; 
   font-weight: 850;
   margin: 0;
