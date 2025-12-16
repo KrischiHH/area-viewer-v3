@@ -66,9 +66,10 @@ html, body {
   box-shadow: none; 
 }
 
+/* --- STANDARD-SCHRIFTGRÖSSEN (Für Desktop und größere Mobilgeräte) --- */
 #start-title {
   font-family: 'Bangers', cursive; /* Hinzufügen der Schriftart mit Fallback */
-  font-size: 70px; 
+  font-size: 70px; /* Standard (Groß) */
   font-weight: 850;
   margin: 0;
   color: white;
@@ -76,14 +77,14 @@ html, body {
 }
 
 #start-subline {
-  font-size: 40px; 
+  font-size: 40px; /* Standard */
   font-weight: 650;
   margin: 2px 0 4px;
   color: rgba(255, 255, 255, 0.98); 
 }
 
 #start-text {
-  font-size: 30px; /* Größerer Text */
+  font-size: 30px; /* Standard */
   margin: 12px 0 14px;
   line-height: 1.65;
   color: rgba(255, 255, 255, 0.95);
@@ -104,6 +105,41 @@ html, body {
   cursor: pointer;
 }
 .btn-start:active { transform: scale(0.98); }
+
+
+/* ****************************************************** */
+/* --- RESPONSIVE ANPASSUNGEN: Media Query für kleine Bildschirme --- */
+/* Gilt für alle Geräte, deren Breite 600px oder kleiner ist (z.B. die meisten Smartphones) */
+@media screen and (max-width: 600px) {
+  
+  /* Reduziere den Titel */
+  #start-title {
+    font-size: 44px; 
+  }
+
+  /* Reduziere die Subline */
+  #start-subline {
+    font-size: 24px;
+  }
+
+  /* Reduziere den Textkörper */
+  #start-text {
+    font-size: 18px; 
+  }
+  
+  /* Reduziere den Button (optional, da er bereits relativ klein ist) */
+  .btn-start {
+    font-size: 17px;
+    padding: 14px 30px;
+  }
+  
+  /* Reduziere das Padding der Karte, um mehr Platz zu schaffen */
+  #start-card {
+    padding: 24px 20px 28px;
+  }
+}
+/* ****************************************************** */
+
 
 /* Top-Buttons */
 .ui-row {
