@@ -1,304 +1,239 @@
-import { updateGalleryUI, addMediaToGallery } from './gallery.js';
+// js/ui.js
+// UI-Hilfsfunktionen für den Viewer, passend zu index.js und webxr-app.js
 
-let mediaRecorder;
-let recordedChunks = [];
-let recordStartTime;
-let timerInterval;
-let isRecording = false;
-let isReadyToStop = false;
-
-// FFmpeg State
-let ffmpegInstance = null; 
-let ffmpegLoaded = false; // Neuer Status, um .load() nur einmal aufzurufen
-
-// Korrekte ESM-Pfade und gleiche Version 0.12.10
-const FFmpegModuleUrl = 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js';
-const FFmpegCoreUrl = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/ffmpeg-core.js'; 
-
-// UI Elemente
-const btnCapture = document.getElementById('btn-capture');
-const recInfo = document.getElementById('rec-info');
-const msg = document.getElementById('msg');
-const msgContainer = document.getElementById('msg-container');
-
-// --- Audio Helper (FIX: AR-Audio ID) ---
-function getAudioStream() {
-    // Hole das Audio-Element mit der ID 'ar-audio'
-    const audioEl = document.getElementById('ar-audio');
-    if (audioEl && !audioEl.paused) {
-        // Erstelle einen MediaStreamSource für MediaRecorder
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const source = audioCtx.createMediaElementSource(audioEl);
-        const destination = audioCtx.createMediaStreamDestination();
-        source.connect(destination);
-        return destination.stream;
-    }
-    return null;
+// Lade-Overlay ein/aus
+export function showLoading() {
+  const el = document.getElementById('loading-status');
+  if (el) el.style.display = 'flex';
 }
 
-// --- FFmpeg Management (Dynamischer ESM-Import) ---
-async function ensureFFmpeg() {
-    try {
-        // Bereits initialisiert?
-        if (ffmpegInstance) {
-            if (!ffmpegLoaded) {
-                // Nur laden, wenn Instanz da, aber noch nicht geladen
-                await ffmpegInstance.load();
-                ffmpegLoaded = true;
-            }
-            return ffmpegInstance;
-        }
-
-        // 1) Versuche globalen FFmpeg-Namespace (falls später lokal gehostet)
-        if (window.FFmpeg?.createFFmpeg) {
-            ffmpegInstance = window.FFmpeg.createFFmpeg({ log: false });
-        } else {
-            // 2) Dynamischer ESM-Import von jsDelivr
-            const { createFFmpeg } = await import(FFmpegModuleUrl);
-            ffmpegInstance = createFFmpeg({
-                log: false,
-                corePath: FFmpegCoreUrl // Wichtig: Version 0.12.10
-            });
-        }
-
-        await ffmpegInstance.load();
-        ffmpegLoaded = true;
-        return ffmpegInstance;
-
-    } catch (e) {
-        console.warn('FFmpeg.js Laden/Initialisierung fehlgeschlagen:', e);
-        // Fehlerstatus markieren, um erneutes Laden zu verhindern
-        ffmpegInstance = null; 
-        ffmpegLoaded = false;
-        return null; // sorgt dafür, dass auf WebM-Fallback zurückgefallen wird
-    }
+export function hideLoading() {
+  const el = document.getElementById('loading-status');
+  if (el) el.style.display = 'none';
 }
 
-// --- Video/Timer Management ---
-function updateTimer() {
-    const elapsed = Date.now() - recordStartTime;
-    const totalSeconds = Math.floor(elapsed / 1000);
-    const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
-    const seconds = String(totalSeconds % 60).padStart(2, '0');
-    recInfo.textContent = `${minutes}:${seconds}`;
-    recInfo.style.display = 'block';
+// Poster ein/aus + Befüllen (kompatibel zu ALT & NEU)
+export function showPoster(state) {
+  const poster       = document.getElementById('poster');
+  const titleEl      = document.getElementById('posterTitle');
+  // Subline (neu)
+  const subtitleEl   = document.getElementById('posterSubtitle');
+  // Text: versuche zuerst posterText (neu), sonst posterDesc (alt)
+  const textEl       = document.getElementById('posterText') || document.getElementById('posterDesc');
+  // Image: neu = posterImageEl, alt = posterImage
+  const imgEl        = document.getElementById('posterImageEl') || document.getElementById('posterImage');
+  // Optionaler Wrapper – wenn nicht vorhanden, nutzen wir notfalls parentElement des Bildes
+  const mediaWrapper = document.getElementById('poster-media') || (imgEl ? imgEl.parentElement : null);
 
-    if (totalSeconds >= 600) { // Max 10 Minuten
-        stopRecording();
-    }
-}
+  const cfg     = state?.cfg || {};
+  const meta    = cfg.meta || {};
+  const welcome = (cfg.ui && cfg.ui.welcome) || {};
 
-function startRecording(videoStream) {
-    if (isRecording) return;
-    
-    isReadyToStop = false; 
-    recordedChunks = [];
-    
-    // Audio Stream holen und mit Video Stream kombinieren
-    const audioStream = getAudioStream();
-    let combinedStream;
+  // 🔹 Titel: zuerst neues Schema (meta.title), sonst altes (welcome.title / meta.description)
+  const title =
+    (meta.title && meta.title.trim()) ||
+    (welcome.title && welcome.title.trim()) ||
+    '3D / AR Erlebnis';
 
-    if (audioStream) {
-        // Kombiniere Video- und Audio-Tracks
-        combinedStream = new MediaStream();
-        videoStream.getVideoTracks().forEach(track => combinedStream.addTrack(track));
-        audioStream.getAudioTracks().forEach(track => combinedStream.addTrack(track));
+  // 🔹 Subline: neues Feld (meta.subtitle) oder altes Eyebrow (welcome.eyebrow)
+  const subtitle =
+    (meta.subtitle && meta.subtitle.trim()) ||
+    (welcome.eyebrow && welcome.eyebrow.trim()) ||
+    '';
+
+  // 🔹 Body-Text: neu = meta.body, alt = meta.description oder welcome.desc
+  const body =
+    (meta.body && meta.body.trim()) ||
+    (meta.description && meta.description.trim()) ||
+    (welcome.desc && welcome.desc.trim()) ||
+    'Tippe auf START AR, um das Modell in deiner Umgebung zu sehen.';
+
+  // 🔹 Posterbild-Dateiname: neu = meta.posterImage, alt = welcome.poster
+  const posterFile =
+    (meta.posterImage && String(meta.posterImage).trim()) ||
+    (welcome.poster && String(welcome.poster).trim()) ||
+    '';
+
+  console.log('ARea Viewer – showPoster()', {
+    meta,
+    welcome,
+    resolved: { title, subtitle, body, posterFile },
+    sceneId: state?.sceneId,
+    workerBase: state?.workerBase
+  });
+
+  if (titleEl) {
+    titleEl.textContent = title;
+  }
+
+  if (textEl) {
+    textEl.textContent = body;
+  }
+
+  // Subline nur anzeigen, wenn Element existiert
+  if (subtitleEl) {
+    if (subtitle) {
+      subtitleEl.textContent = subtitle;
+      subtitleEl.classList.remove('hidden');
     } else {
-        combinedStream = videoStream;
+      subtitleEl.textContent = '';
+      subtitleEl.classList.add('hidden');
     }
+  }
 
-    const options = { mimeType: 'video/webm; codecs=vp9' };
+  // Posterbild nur, wenn wir ein Dateiname UND sceneId/base haben
+  if (imgEl) {
+    if (posterFile && state?.workerBase && state?.sceneId) {
+      const url = `${state.workerBase}/scenes/${encodeURIComponent(
+        state.sceneId
+      )}/${encodeURIComponent(posterFile)}`;
+      console.log('ARea Viewer – Posterbild URL:', url);
+      imgEl.src = url;
 
-    try {
-        mediaRecorder = new MediaRecorder(combinedStream, options);
-    } catch (e) {
-        console.warn('VP9 Codec nicht unterstützt, Fallback auf Standard WebM.', e);
-        mediaRecorder = new MediaRecorder(combinedStream, { mimeType: 'video/webm' });
+      // alt-Styling aus altem Viewer: display:block
+      if (imgEl.style) {
+        imgEl.style.display = 'block';
+      }
+
+      if (mediaWrapper) {
+        mediaWrapper.classList.remove('hidden');
+        if (mediaWrapper.style) mediaWrapper.style.display = '';
+      }
+    } else {
+      // Kein Bild → ausblenden
+      if (imgEl.style) {
+        imgEl.removeAttribute('src');
+        imgEl.style.display = 'none';
+      }
+      if (mediaWrapper) {
+        mediaWrapper.classList.add('hidden');
+      }
     }
+  }
 
-    mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-            recordedChunks.push(event.data);
-        }
-    };
-
-    mediaRecorder.onstop = () => {
-        processVideoChunks();
-        // Streams manuell beenden
-        combinedStream.getTracks().forEach(track => track.stop());
-    };
-
-    mediaRecorder.start();
-    isRecording = true;
-    recordStartTime = Date.now();
-    btnCapture.classList.add('recording');
-    timerInterval = setInterval(updateTimer, 1000);
-    msg.textContent = 'Videoaufnahme läuft...';
-
-    setTimeout(() => isReadyToStop = true, 500); 
+  if (poster) {
+    poster.style.display = 'flex';
+  }
 }
 
-function stopRecording() {
-    if (!isRecording || !isReadyToStop) return;
-    
-    isRecording = false;
-    clearInterval(timerInterval);
-    recInfo.style.display = 'none';
-    btnCapture.classList.remove('recording');
-    msg.textContent = 'Verarbeite Video...';
-
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-        mediaRecorder.stop();
-    }
+export function hidePoster() {
+  const poster = document.getElementById('poster');
+  if (poster) poster.style.display = 'none';
 }
 
-async function processVideoChunks() {
-    if (recordedChunks.length === 0) {
-        msg.textContent = 'Videoaufnahme leer.';
-        return;
-    }
+// UI-Grundverdrahtung: Start-Button, Galerie-Buttons etc.
+// optionales options.onStartAR für WebXR-Viewer
+export function initUI(state, options = {}) {
+  const startBtn        = document.getElementById('startAr');
+  const mvEl            = document.getElementById('ar-scene-element');
+  const btnGallery      = document.getElementById('btn-gallery');
+  const btnGalleryClose = document.getElementById('btn-gallery-close');
+  const galleryPanel    = document.getElementById('gallery-panel');
 
-    const blob = new Blob(recordedChunks, { type: 'video/webm' });
-    const videoUrl = URL.createObjectURL(blob);
-    const filenameBase = `AR_Video_${Date.now()}`;
-    const filenameWebm = `${filenameBase}.webm`;
+  const onStartARCustom = typeof options.onStartAR === 'function'
+    ? options.onStartAR
+    : null;
 
-    // Füge WebM-Datei immer zur Galerie hinzu (als Fallback)
-    addMediaToGallery({
-        type: 'video',
-        url: videoUrl,
-        filename: filenameWebm,
-        date: new Date(),
-        blob: blob
-    });
-    updateGalleryUI();
-    msg.textContent = 'WebM Video gespeichert.';
+  // START AR-Button
+  if (startBtn && mvEl) {
+    startBtn.addEventListener('click', async () => {
+      startBtn.disabled = true;
 
-    // Optional: MP4 Konvertierung starten
-    await convertToMp4(blob, filenameBase);
-
-    // Abschließende Nachricht nach Abschluss beider Prozesse
-    msg.textContent = 'Aufnahme abgeschlossen.';
-}
-
-async function convertToMp4(webmBlob, filenameBase) {
-    const ffmpeg = await ensureFFmpeg();
-    if (!ffmpeg) {
-        msg.textContent = 'MP4 Konvertierung übersprungen (FFmpeg nicht geladen).';
-        return;
-    }
-
-    msg.textContent = 'Konvertiere zu MP4 (kann dauern)...';
-    msgContainer.style.background = '#005f73'; // Visuelles Feedback für langen Prozess
-
-    try {
-        const inputFilename = 'input.webm';
-        const outputFilename = `${filenameBase}.mp4`;
-        
-        ffmpeg.FS('writeFile', inputFilename, new Uint8Array(await webmBlob.arrayBuffer()));
-
-        // Führe Konvertierung aus
-        await ffmpeg.run('-i', inputFilename, '-c:v', 'libx264', '-crf', '23', '-preset', 'fast', '-pix_fmt', 'yuv420p', outputFilename);
-
-        const data = ffmpeg.FS('readFile', outputFilename);
-        const mp4Blob = new Blob([data.buffer], { type: 'video/mp4' });
-        const mp4Url = URL.createObjectURL(mp4Blob);
-
-        addMediaToGallery({
-            type: 'video',
-            url: mp4Url,
-            filename: outputFilename,
-            date: new Date(),
-            blob: mp4Blob
-        });
-        updateGalleryUI();
-        msg.textContent = 'MP4 Video gespeichert.';
-    } catch(e) {
-        console.error("FFmpeg Konvertierungsfehler:", e);
-        msg.textContent = 'MP4 Konvertierung fehlgeschlagen.';
-    } finally {
+      // 🔹 WebXR-Viewer oder andere Custom-Implementierung
+      if (onStartARCustom) {
         try {
-            ffmpeg.FS('unlink', 'input.webm');
-        } catch(e) {/* ignore */ }
-        msgContainer.style.background = 'rgba(0,0,0,0.55)'; 
-    }
-}
-
-// --- Extern zugängliche Funktionen ---
-
-function initRecording() {
-    let longPressTimeout;
-    const LONG_PRESS_THRESHOLD = 500; 
-
-    const handleStart = (e) => {
-        e.preventDefault(); 
-        if (isRecording) {
-            stopRecording();
-            return;
+          await onStartARCustom();
+        } catch (e) {
+          console.error('Custom AR Start fehlgeschlagen:', e);
+          const errEl = document.getElementById('err');
+          if (errEl) {
+            errEl.textContent = 'AR konnte nicht gestartet werden: ' + (e.message || e);
+            errEl.style.display = 'block';
+          }
+          startBtn.disabled = false;
         }
-
-        recordStartTime = Date.now(); 
-        longPressTimeout = setTimeout(() => {
-            if (!isRecording) {
-                const canvas = document.getElementById('ar-scene-element');
-                if (canvas) {
-                    const videoStream = canvas.captureStream(60); 
-                    startRecording(videoStream);
-                } else {
-                    console.error("AR Canvas nicht gefunden.");
-                }
-            }
-        }, LONG_PRESS_THRESHOLD);
-    };
-
-    const handleEnd = (e) => {
-        e.preventDefault();
-        clearTimeout(longPressTimeout);
-
-        if (!isRecording && (Date.now() - recordStartTime) < LONG_PRESS_THRESHOLD) {
-            takeScreenshot();
-        }
-    };
-    
-    btnCapture.addEventListener('touchstart', handleStart, { passive: false });
-    btnCapture.addEventListener('touchend', handleEnd, { passive: false });
-    btnCapture.addEventListener('mousedown', handleStart);
-    btnCapture.addEventListener('mouseup', handleEnd);
-}
-
-function stopRecordingOnARSessionEnd() {
-    if (isRecording) {
-        stopRecording();
-    }
-}
-
-function takeScreenshot() {
-    const canvas = document.getElementById('ar-scene-element');
-    if (!canvas) {
-        msg.textContent = "Screenshot fehlgeschlagen.";
         return;
-    }
+      }
 
-    msg.textContent = "Foto aufgenommen.";
-    btnCapture.classList.add('snap');
-    setTimeout(() => btnCapture.classList.remove('snap'), 180);
+      // 🔹 Standard: model-viewer AR
+      const canActivate = ('canActivateAR' in mvEl) ? mvEl.canActivateAR : undefined;
+      console.log('[ARea Viewer] canActivateAR:', canActivate);
 
-    canvas.toBlob((blob) => {
-        if (!blob) return;
+      try {
+        // Wenn canActivateAR explizit false ist → freundlicher Hinweis
+        if (canActivate === false) {
+          const errEl = document.getElementById('err');
+          if (errEl) {
+            errEl.textContent =
+              'AR wird in diesem Browser nicht unterstützt.\n' +
+              'Bitte öffne den Link in Chrome (Android) oder Safari (iOS).';
+            errEl.style.display = 'block';
+          }
+          startBtn.disabled = false;
+          return;
+        }
 
-        const filename = `AR_Foto_${Date.now()}.jpg`;
-        const url = URL.createObjectURL(blob);
+        if (typeof mvEl.activateAR === 'function') {
+          await mvEl.activateAR();
+        } else if (typeof mvEl.enterAR === 'function') {
+          await mvEl.enterAR();
+        } else {
+          throw new Error('AR-Funktion nicht verfügbar.');
+        }
+      } catch (e) {
+        console.error('activateAR() fehlgeschlagen:', e);
+        const errEl = document.getElementById('err');
+        if (errEl) {
+          errEl.textContent = 'AR konnte nicht gestartet werden: ' + (e.message || e);
+          errEl.style.display = 'block';
+        }
+        startBtn.disabled = false;
+        return;
+      }
 
-        addMediaToGallery({
-            type: 'image',
-            url: url,
-            filename: filename,
-            date: new Date(),
-            blob: blob
-        });
-        updateGalleryUI();
+      // Fallback, falls ar-status nicht feuert (z. B. bei nativen Viewern)
+      setTimeout(() => {
+        if (!state.arSessionActive) {
+          startBtn.disabled = false;
+        }
+      }, 6000);
+    });
+  }
 
-    }, 'image/jpeg', 0.95); 
+  // Galerie öffnen/schließen (für Recording-Snaps/Videos)
+  if (btnGallery && btnGalleryClose && galleryPanel) {
+    btnGallery.addEventListener('click', () => {
+      galleryPanel.style.display = 'flex';
+    });
+    btnGalleryClose.addEventListener('click', () => {
+      galleryPanel.style.display = 'none';
+    });
+  }
 }
 
-export { initRecording, stopRecordingOnARSessionEnd };
+// AR-Status an index.js-Callbacks durchreichen
+export function bindARStatus(state, { onSessionStart, onSessionEnd, onFailed }) {
+  const mvEl = document.getElementById('ar-scene-element');
+  if (!mvEl) return;
+
+  mvEl.addEventListener('ar-status', (event) => {
+    const status = event.detail?.status;
+
+    if (status === 'session-started') {
+      onSessionStart && onSessionStart();
+      const arUI = document.getElementById('ar-ui');
+      if (arUI) arUI.style.display = 'block';
+
+      // Hotspots im AR-Modus hervorheben
+      mvEl.querySelectorAll?.('.Hotspot').forEach(h => h.classList.add('in-ar'));
+    } else if (status === 'session-ended') {
+      onSessionEnd && onSessionEnd();
+      const arUI = document.getElementById('ar-ui');
+      if (arUI) arUI.style.display = 'none';
+      mvEl.querySelectorAll?.('.Hotspot').forEach(h => h.classList.remove('in-ar'));
+    } else if (status === 'failed') {
+      const msg = event.detail?.reason || 'AR konnte nicht gestartet werden.';
+      onFailed && onFailed(msg);
+    }
+  });
+}
