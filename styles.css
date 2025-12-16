@@ -38,7 +38,7 @@ html, body {
   padding-bottom: 24px;
 }
 
-/* Card-Kachel hinter Bild & Text – MIT BLAUEM VERLAUF */
+/* Card-Kachel hinter Bild & Text – MIT INTENSIVE M BLAUEN VERLAUF */
 #start-card {
   width: 100%;
   display: flex;
@@ -46,8 +46,9 @@ html, body {
   align-items: center;
   gap: 20px;
 
-  /* Neuer blauer Farbverlauf */
-  background: linear-gradient(135deg, rgba(50, 100, 255, 0.18), rgba(20, 150, 255, 0.08));
+  /* Neuer, intensiver blauer Farbverlauf */
+  background: linear-gradient(135deg, #1754FF 10%, #00C6FF 100%);
+  
   border: 1px solid rgba(255,255,255,0.18);
   border-radius: 26px;
   box-shadow:
@@ -67,7 +68,7 @@ html, body {
 }
 
 #start-title {
-  font-size: 40px; /* VERGRÖSSERT */
+  font-size: 40px; 
   font-weight: 850;
   margin: 0;
   color: white;
@@ -75,14 +76,14 @@ html, body {
 }
 
 #start-subline {
-  font-size: 20px; /* VERGRÖSSERT */
+  font-size: 20px; 
   font-weight: 650;
   margin: 2px 0 4px;
-  color: rgba(255, 255, 255, 0.98); /* Etwas heller */
+  color: rgba(255, 255, 255, 0.98); 
 }
 
 #start-text {
-  font-size: 19px; /* VERGRÖSSERT (von 17px auf 19px) */
+  font-size: 19px; /* Größerer Text */
   margin: 12px 0 14px;
   line-height: 1.65;
   color: rgba(255, 255, 255, 0.95);
@@ -91,11 +92,14 @@ html, body {
 }
 
 .btn-start {
-  background: #e6f0ff; color: #0b1a33; border: 1px solid rgba(11,26,51,0.2);
-  padding: 14px 30px;
+  /* Button Vergrößert und gestärkt */
+  background: #E6F0FF; 
+  color: #0B1A33; 
+  border: 1px solid rgba(11,26,51,0.2);
+  padding: 16px 40px; 
   border-radius: 999px;
-  font-weight: 850;
-  font-size: 17px;
+  font-weight: 900; 
+  font-size: 19px; 
   box-shadow: 0 10px 26px rgba(0,0,0,0.42);
   cursor: pointer;
 }
