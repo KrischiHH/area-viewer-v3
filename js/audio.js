@@ -11,12 +11,14 @@ export function initAudio(state) {
   const workerBase = state.workerBase;
   const btnMute = document.getElementById('btn-mute');
 
-  if (!cfg?.audio?.url || !btnMute) {
+  // Wenn keine Audio-URL konfiguriert ist, beenden
+  if (!cfg?.audio?.url) {
     if (btnMute) btnMute.style.display = 'none';
     return;
   }
 
-  const audioUrl = `${workerBase}/scenes/${sceneId}/${cfg.audio.url}`;
+  // URL sicher zusammenbauen (Encoding vermeidet 404 bei Sonderzeichen)
+  const audioUrl = `${workerBase}/scenes/${encodeURIComponent(sceneId)}/${encodeURIComponent(cfg.audio.url)}`;
 
   // Persistentes Audio-Element – für MediaRecorder und verlässliche Wiedergabe
   audioEl = document.getElementById('scene-audio');
@@ -27,6 +29,8 @@ export function initAudio(state) {
     document.body.appendChild(audioEl);
   }
 
+  // CORS für WebAudio/Recording sicherstellen (Server muss ACAO setzen)
+  audioEl.crossOrigin = 'anonymous';
   audioEl.src = audioUrl;
   audioEl.loop = !!cfg.audio.loop;
   audioEl.volume = cfg.audio.volume !== undefined ? cfg.audio.volume : 0.8;
@@ -37,18 +41,34 @@ export function initAudio(state) {
     audioReady = true;
   }, { once: true });
 
-  btnMute.style.display = 'flex';
-  updateMuteButtonUI(btnMute);
-
-  btnMute.onclick = () => {
-    isAudioMuted = !isAudioMuted;
-    if (audioEl) audioEl.muted = isAudioMuted;
-    updateMuteButtonUI(btnMute);
-    // Falls nach Entstummen noch nicht gestartet wurde und AR aktiv ist
-    if (!isAudioMuted && state.arSessionActive) {
-      safePlay();
+  // Fehler sichtbar machen
+  audioEl.addEventListener('error', (e) => {
+    const msg = 'Audio konnte nicht geladen werden (Format/CORS/Netzwerk).';
+    console.warn(msg, e);
+    const errEl = document.getElementById('err');
+    if (errEl) {
+      errEl.textContent = msg;
+      errEl.style.display = 'block';
     }
-  };
+  });
+
+  // Mute-Button nur verdrahten, wenn vorhanden – Audio läuft auch ohne Button
+  if (btnMute) {
+    btnMute.style.display = 'flex';
+    updateMuteButtonUI(btnMute);
+
+    btnMute.onclick = () => {
+      isAudioMuted = !isAudioMuted;
+      if (audioEl) audioEl.muted = isAudioMuted;
+      updateMuteButtonUI(btnMute);
+      // Falls nach Entstummen noch nicht gestartet wurde und AR aktiv ist
+      if (!isAudioMuted && state.arSessionActive) {
+        safePlay();
+      } else if (isAudioMuted) {
+        audioEl.pause();
+      }
+    };
+  }
 
   // Sicherheit: Falls bereits eine Geste durch Start AR kam, bereite playback vor
   document.addEventListener('pointerdown', primeAudioOnce, { once: true });
@@ -72,15 +92,31 @@ function primeAudioOnce() {
 
 function safePlay() {
   if (!audioEl || isAudioMuted) return;
-  audioEl.play().catch(err => {
-    console.warn('Audio konnte nicht automatisch starten (Autoplay-Policy).', err);
-    // Optional: UI Hinweis anzeigen
-    const errEl = document.getElementById('err');
-    if (errEl && !errEl.textContent.includes('Audio')) {
-      errEl.textContent += '\nHinweis: Audio musste manuell aktiviert werden.';
-      errEl.style.display = 'block';
-    }
-  });
+
+  const tryPlay = () => {
+    audioEl.play().catch(err => {
+      console.warn('Audio konnte nicht automatisch starten (Autoplay-Policy oder Codec).', err);
+      const errEl = document.getElementById('err');
+      if (errEl && !errEl.textContent.includes('Audio')) {
+        errEl.textContent += '\nHinweis: Audio musste manuell aktiviert werden.';
+        errEl.style.display = 'block';
+      }
+    });
+  };
+
+  // Wenn noch nicht bereit, auf canplay warten
+  if (!audioReady) {
+    try {
+      audioEl.load();
+    } catch (_) {}
+    const onReady = () => {
+      audioEl.removeEventListener('canplay', onReady);
+      tryPlay();
+    };
+    audioEl.addEventListener('canplay', onReady);
+  } else {
+    tryPlay();
+  }
 }
 
 export function toggleAudio(play) {
