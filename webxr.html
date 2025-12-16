@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover"/>
 <title>ARea WebXR Viewer</title>
 
-<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='8' fill='%2300AEEF'/%3E%3C/svg%3E">
 
-<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg.min.js" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="styles.css">
 
 <script async src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js" crossorigin="anonymous"></script>
 <script type="importmap">
@@ -76,11 +76,11 @@
 <audio id="ar-audio" loop playsinline preload="auto" crossorigin="anonymous"></audio>
 
 <script type="module">
+// ... [Hier folgt der gesamte Three.js/AR-Logik-Code] ...
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
-// Importiere lokale Skripte (Pfade müssen stimmen!)
 import { initRecording, stopRecordingOnARSessionEnd } from './js/recording.js'; 
 
 // --- Globale Variablen ---
@@ -92,13 +92,13 @@ let model;
 let mixer;
 const clock = new THREE.Clock();
 
-// Status
+// State
 let isModelPlaced = false;
 let modelLoaded = false;
 let isEditing = false;
 let isHovering = false;
 
-// Gesten-Variablen
+// Gesten
 let currentTouches = [];
 let gestureStartTime = 0;
 let tapStartX = 0;
@@ -122,9 +122,8 @@ const raycaster = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
 const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
-// URL Parameter parsen
+// URL Params
 const qs = new URLSearchParams(location.search);
-// Basis-URL fallback für lokale Tests anpassen oder Worker nutzen
 const workerBase = (qs.get('base') || 'https://area-publish-proxy.area-webar.workers.dev').replace(/\/$/, '');
 const sceneParam = qs.get('scene') || qs.get('src');
 let SCENE_JSON_URL = '';
@@ -138,7 +137,7 @@ const FALLBACKS = {
   image: ''
 };
 
-// --- Audio Setup ---
+// --- Audio ---
 const audioEl = document.getElementById('ar-audio');
 const btnMute = document.getElementById('btn-mute');
 let isMuted = false;
@@ -200,7 +199,7 @@ function setUiState(nextState, msg) {
   }
 }
 
-// --- Raycasting / HitTest Logic ---
+// --- Raycasting ---
 function toNDC(clientX, clientY) {
   const w = renderer.domElement.clientWidth || window.innerWidth;
   const h = renderer.domElement.clientHeight || window.innerHeight;
@@ -216,7 +215,7 @@ function isTouchOnModel(clientX, clientY) {
   return hits.length > 0;
 }
 
-// --- Boot Sequence ---
+// --- Boot ---
 async function boot() {
   const startScreen = document.getElementById('start-screen');
   const overlay = document.getElementById('overlay');
@@ -226,7 +225,7 @@ async function boot() {
   const startSubline = document.getElementById('start-subline');
   const startText = document.getElementById('start-text');
 
-  // Initial UI Reset
+  // Initial UI state
   startScreen.style.display = 'flex';
   overlay.style.pointerEvents = 'none';
   btnEnterAR.disabled = true;
@@ -246,7 +245,7 @@ async function boot() {
     return;
   }
 
-  // Content Parameter Logic
+  // Load Content
   if (sceneParam) {
     if (sceneParam.endsWith('.glb')) {
       MODEL_URL = sceneParam;
@@ -254,11 +253,9 @@ async function boot() {
       SCENE_JSON_URL = `${workerBase}/scenes/${sceneParam}/scene.json`;
     }
   } else {
-    // Standard Demo Modell falls keine URL-Parameter
     MODEL_URL = 'https://modelviewer.dev/shared-assets/models/Astronaut.glb';
   }
 
-  // JSON Szene laden
   if (SCENE_JSON_URL) {
     try {
       const res = await fetch(SCENE_JSON_URL);
@@ -289,11 +286,11 @@ async function boot() {
     }
   }
 
-  // Init Engine
-  initRecording(); // Recording Setup starten
+  // Init Components
+  initRecording();
   initThree();
 
-  // Modell laden
+  // Load Model
   try {
     await loadModel();
   } catch(e) {
@@ -301,7 +298,6 @@ async function boot() {
     return;
   }
 
-  // Ready State
   btnEnterAR.disabled = false;
   setUiState('loaded', 'Modell bereit.');
   document.getElementById('recording-disclaimer').style.display = 'block';
@@ -325,7 +321,6 @@ async function boot() {
     if(s) s.end(); else resetARState();
   });
 
-  // Touch Events am Gesture-Layer
   const gestureLayer = document.getElementById('gesture-layer');
   gestureLayer.addEventListener('touchstart', onTouchStart, { passive: false });
   gestureLayer.addEventListener('touchmove', onTouchMove, { passive: false });
@@ -347,14 +342,12 @@ function initThree() {
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.01, 20);
   
-  // Licht
   const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1.2);
   scene.add(light);
   const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
   dirLight.position.set(2, 8, 4);
   scene.add(dirLight);
 
-  // Renderer
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.domElement.id = 'ar-scene-element';
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
@@ -362,12 +355,11 @@ function initThree() {
   renderer.xr.enabled = true;
   document.body.appendChild(renderer.domElement);
 
-  // Gruppe für das platzierte Objekt
   placementGroup = new THREE.Group();
   placementGroup.visible = false;
   scene.add(placementGroup);
 
-  // Platzierungs-Rechteck (Reticle Visual)
+  // Markierung
   const radius = 0.05;
   const rectShape = new THREE.Shape();
   rectShape.moveTo(0, radius);
@@ -397,7 +389,6 @@ async function loadModel() {
 
   const gltf = await loader.loadAsync(MODEL_URL);
   model = gltf.scene;
-  // Initiale Skalierung
   model.scale.setScalar(0.5);
   
   if(gltf.animations?.length) {
@@ -450,7 +441,6 @@ function render(timestamp, frame) {
       const pose = hit.getPose(refSpace);
       if (pose) {
         placementGroup.position.setFromMatrixPosition(new THREE.Matrix4().fromArray(pose.transform.matrix));
-        // Objekt schaut immer zur Kamera beim Platzieren (nur Y-Achse)
         placementGroup.rotation.y = Math.atan2(
           (camera.position.x - placementGroup.position.x),
           (camera.position.z - placementGroup.position.z)
@@ -467,7 +457,6 @@ function render(timestamp, frame) {
     }
   }
 
-  // Zeige Rechteck beim Bearbeiten
   if (isModelPlaced) placementRect.visible = isEditing;
   
   renderer.render(scene, camera);
@@ -489,14 +478,12 @@ function onTouchStart(e) {
 
   if (!isModelPlaced) return;
 
-  // Zwei Finger = Skalieren
   if (currentTouches.length === 2) {
     isEditing = true;
     isScalingModel = true;
     initialPinchDistance = getDistance(currentTouches[0], currentTouches[1]);
     initialModelScale = placementGroup.scale.x;
   } else {
-    // Ein Finger = Rotation oder Drag (Drag hier vereinfacht deaktiviert/optional)
     isEditing = true;
     if (isTouchOnModel(tapStartX, tapStartY)) {
       isDraggingModel = true;
@@ -515,12 +502,10 @@ function onTouchMove(e) {
   if (dist > DRAG_THRESHOLD_PIX) didMove = true;
 
   if (currentTouches.length === 2) {
-    // Pinch Scaling
     const newDist = getDistance(currentTouches[0], currentTouches[1]);
     const scale = initialModelScale + (newDist - initialPinchDistance) * SCALE_FACTOR;
     placementGroup.scale.setScalar(Math.max(0.1, Math.min(3.0, scale)));
   } else if (isRotatingModel) {
-    // Rotation
     const dx = currentTouches[0].clientX - lastMoveX;
     placementGroup.rotation.y += dx * ROTATION_FACTOR;
     lastMoveX = currentTouches[0].clientX;
@@ -532,7 +517,6 @@ function onTouchEnd(e) {
   const dur = performance.now() - gestureStartTime;
   const isTap = !didMove && dur < TAP_THRESHOLD_MS;
   
-  // Platzieren bei Tap
   if (!isModelPlaced && isTap && isHovering) {
     isModelPlaced = true;
     placementRect.visible = false;
@@ -544,7 +528,6 @@ function onTouchEnd(e) {
   isScalingModel = false;
 }
 
-// Start
 boot();
 </script>
 </body>
