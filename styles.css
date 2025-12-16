@@ -68,8 +68,9 @@ html, body {
 }
 
 #start-title {
+  font-family: 'Bangers', cursive; /* Bangers Schriftart angewendet */
   font-size: 40px; 
-  font-weight: 850;
+  font-weight: 850; 
   margin: 0;
   color: white;
   letter-spacing: .25px;
