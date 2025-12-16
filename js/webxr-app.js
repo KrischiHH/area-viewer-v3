@@ -90,6 +90,14 @@ async function initWebXRViewer() {
         return;
       }
       startArBtn.disabled = true;
+
+      // WICHTIG: Audio im direkten User-Klick starten (Autoplay-Policy umgehen)
+      try {
+        toggleAudio(true);
+      } catch (e) {
+        console.warn('[WebXR] toggleAudio im Click-Handler fehlgeschlagen:', e);
+      }
+
       console.log('[WebXR] Start AR geklickt → internen AR-Button triggern');
       xrButton.click();
     });
