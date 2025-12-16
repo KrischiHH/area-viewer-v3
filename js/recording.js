@@ -1,535 +1,304 @@
-// js/recording.js
-import { getPersistentAudioElement } from './audio.js';
+import { updateGalleryUI, addMediaToGallery } from './gallery.js';
 
-// Konfiguration
-const MAX_RECORD_TIME_SECONDS = 600;          // 10 Minuten
-const LONG_PRESS_THRESHOLD_MS = 300;          // Ab hier: Video statt Foto
-const SCREENSHOT_QUALITY = 0.92;              // JPEG Qualität
-
-// State für Aufnahme
-let recTimer = 0;
-let simulatedRecordingId = null;
-let mediaRecorder = null;
+let mediaRecorder;
 let recordedChunks = [];
-let isRecordingReal = false;
-let realTimerId = null;
-let audioCtxRef = null;
-let chosenMimeType = 'video/webm';
+let recordStartTime;
+let timerInterval;
+let isRecording = false;
+let isReadyToStop = false;
 
-// Press-Erkennung
-let pressTimerId = null;
-let isPressing = false;
-let longPressActive = false;
+// FFmpeg State
+let ffmpegInstance = null; 
+let ffmpegLoaded = false; // Neuer Status, um .load() nur einmal aufzurufen
 
-// FFmpeg
-let ffmpegInstance = null;
-let ffmpegLoaded = false;
+// Korrekte ESM-Pfade und gleiche Version 0.12.10
+const FFmpegModuleUrl = 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js';
+const FFmpegCoreUrl = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/ffmpeg-core.js'; 
 
-// Galerie
-const galleryItems = []; // { type:'image'|'video', url, format:'jpg'|'mp4'|'webm', ts:number }
-let galleryGridRef = null;
-let galleryPanelRef = null;
-let galleryPreviewMediaRef = null;
-let galleryDownloadRef = null;
-let galleryFilenameRef = null;
-let btnGalleryRef = null;
-let recInfoRef = null;
-let btnCaptureRef = null;
+// UI Elemente
+const btnCapture = document.getElementById('btn-capture');
+const recInfo = document.getElementById('rec-info');
+const msg = document.getElementById('msg');
+const msgContainer = document.getElementById('msg-container');
 
-let currentPreview = null;
+// --- Audio Helper (FIX: AR-Audio ID) ---
+function getAudioStream() {
+    // Hole das Audio-Element mit der ID 'ar-audio'
+    const audioEl = document.getElementById('ar-audio');
+    if (audioEl && !audioEl.paused) {
+        // Erstelle einen MediaStreamSource für MediaRecorder
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioCtx.createMediaElementSource(audioEl);
+        const destination = audioCtx.createMediaStreamDestination();
+        source.connect(destination);
+        return destination.stream;
+    }
+    return null;
+}
 
-
+// --- FFmpeg Management (Dynamischer ESM-Import) ---
 async function ensureFFmpeg() {
-  try {
-    const FF = window.FFmpeg;
-    if (!FF || !FF.createFFmpeg) return null;
-    if (!ffmpegInstance) {
-      ffmpegInstance = FF.createFFmpeg({ log: false });
-    }
-    if (!ffmpegLoaded) {
-      await ffmpegInstance.load();
-      ffmpegLoaded = true;
-    }
-    return FF;
-  } catch (e) {
-    console.warn('FFmpeg.js Laden fehlgeschlagen:', e);
-    return null;
-  }
+    try {
+        // Bereits initialisiert?
+        if (ffmpegInstance) {
+            if (!ffmpegLoaded) {
+                // Nur laden, wenn Instanz da, aber noch nicht geladen
+                await ffmpegInstance.load();
+                ffmpegLoaded = true;
+            }
+            return ffmpegInstance;
+        }
+
+        // 1) Versuche globalen FFmpeg-Namespace (falls später lokal gehostet)
+        if (window.FFmpeg?.createFFmpeg) {
+            ffmpegInstance = window.FFmpeg.createFFmpeg({ log: false });
+        } else {
+            // 2) Dynamischer ESM-Import von jsDelivr
+            const { createFFmpeg } = await import(FFmpegModuleUrl);
+            ffmpegInstance = createFFmpeg({
+                log: false,
+                corePath: FFmpegCoreUrl // Wichtig: Version 0.12.10
+            });
+        }
+
+        await ffmpegInstance.load();
+        ffmpegLoaded = true;
+        return ffmpegInstance;
+
+    } catch (e) {
+        console.warn('FFmpeg.js Laden/Initialisierung fehlgeschlagen:', e);
+        // Fehlerstatus markieren, um erneutes Laden zu verhindern
+        ffmpegInstance = null; 
+        ffmpegLoaded = false;
+        return null; // sorgt dafür, dass auf WebM-Fallback zurückgefallen wird
+    }
 }
 
-// Hilfsfunktionen: Quelle für Screenshot/Recording finden
-function getCaptureSourceElement() {
-  // Holt das Element, dem wir in webxr.html die ID 'ar-scene-element' gegeben haben
-  return document.getElementById('ar-scene-element') || null;
+// --- Video/Timer Management ---
+function updateTimer() {
+    const elapsed = Date.now() - recordStartTime;
+    const totalSeconds = Math.floor(elapsed / 1000);
+    const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
+    const seconds = String(totalSeconds % 60).padStart(2, '0');
+    recInfo.textContent = `${minutes}:${seconds}`;
+    recInfo.style.display = 'block';
+
+    if (totalSeconds >= 600) { // Max 10 Minuten
+        stopRecording();
+    }
 }
 
-function getCaptureCanvas() {
-  const src = getCaptureSourceElement();
-  if (!src) return null;
+function startRecording(videoStream) {
+    if (isRecording) return;
+    
+    isReadyToStop = false; 
+    recordedChunks = [];
+    
+    // Audio Stream holen und mit Video Stream kombinieren
+    const audioStream = getAudioStream();
+    let combinedStream;
 
-  // WICHTIG: Das Three.js Canvas ist das Element mit der ID.
-  if (src instanceof HTMLCanvasElement) return src;
+    if (audioStream) {
+        // Kombiniere Video- und Audio-Tracks
+        combinedStream = new MediaStream();
+        videoStream.getVideoTracks().forEach(track => combinedStream.addTrack(track));
+        audioStream.getAudioTracks().forEach(track => combinedStream.addTrack(track));
+    } else {
+        combinedStream = videoStream;
+    }
 
-  // Fallback: Wenn die ID an einem Container hängt (z.B. model-viewer)
-  if (src.shadowRoot) {
-    const c = src.shadowRoot.querySelector('canvas');
-    if (c) return c;
-  }
-  if (typeof src.querySelector === 'function') {
-    const c = src.querySelector('canvas');
-    if (c) return c;
-  }
+    const options = { mimeType: 'video/webm; codecs=vp9' };
 
-  return null;
+    try {
+        mediaRecorder = new MediaRecorder(combinedStream, options);
+    } catch (e) {
+        console.warn('VP9 Codec nicht unterstützt, Fallback auf Standard WebM.', e);
+        mediaRecorder = new MediaRecorder(combinedStream, { mimeType: 'video/webm' });
+    }
+
+    mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+            recordedChunks.push(event.data);
+        }
+    };
+
+    mediaRecorder.onstop = () => {
+        processVideoChunks();
+        // Streams manuell beenden
+        combinedStream.getTracks().forEach(track => track.stop());
+    };
+
+    mediaRecorder.start();
+    isRecording = true;
+    recordStartTime = Date.now();
+    btnCapture.classList.add('recording');
+    timerInterval = setInterval(updateTimer, 1000);
+    msg.textContent = 'Videoaufnahme läuft...';
+
+    setTimeout(() => isReadyToStop = true, 500); 
 }
 
-function formatTime(seconds) {
-  if (seconds >= 3600) {
-    const h = String(Math.floor(seconds / 3600)).padStart(2, '0');
-    const m = String(Math.floor((seconds % 3600) / 60)).padStart(2, '0');
-    const s = String(seconds % 60).padStart(2, '0');
-    return `${h}:${m}:${s}`;
-  } else {
-    const m = String(Math.floor(seconds / 60)).padStart(2,'0');
-    const s = String(seconds % 60).padStart(2,'0');
-    return `${m}:${s}`;
-  }
+function stopRecording() {
+    if (!isRecording || !isReadyToStop) return;
+    
+    isRecording = false;
+    clearInterval(timerInterval);
+    recInfo.style.display = 'none';
+    btnCapture.classList.remove('recording');
+    msg.textContent = 'Verarbeite Video...';
+
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+    }
 }
 
-function tsToName(ts, kind, ext) {
-  const d = new Date(ts);
-  const p = (n) => String(n).padStart(2, '0');
-  return `ARea_${kind}_${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}.${ext}`;
+async function processVideoChunks() {
+    if (recordedChunks.length === 0) {
+        msg.textContent = 'Videoaufnahme leer.';
+        return;
+    }
+
+    const blob = new Blob(recordedChunks, { type: 'video/webm' });
+    const videoUrl = URL.createObjectURL(blob);
+    const filenameBase = `AR_Video_${Date.now()}`;
+    const filenameWebm = `${filenameBase}.webm`;
+
+    // Füge WebM-Datei immer zur Galerie hinzu (als Fallback)
+    addMediaToGallery({
+        type: 'video',
+        url: videoUrl,
+        filename: filenameWebm,
+        date: new Date(),
+        blob: blob
+    });
+    updateGalleryUI();
+    msg.textContent = 'WebM Video gespeichert.';
+
+    // Optional: MP4 Konvertierung starten
+    await convertToMp4(blob, filenameBase);
+
+    // Abschließende Nachricht nach Abschluss beider Prozesse
+    msg.textContent = 'Aufnahme abgeschlossen.';
 }
 
-export function initRecording() {
-  btnCaptureRef       = document.getElementById('btn-capture');
-  btnGalleryRef       = document.getElementById('btn-gallery');
-  const btnGalleryClose = document.getElementById('btn-gallery-close');
-  galleryPanelRef     = document.getElementById('gallery-panel');
-  galleryGridRef      = document.getElementById('gallery-grid');
-  galleryPreviewMediaRef = document.getElementById('gallery-preview-media');
-  galleryDownloadRef  = document.getElementById('gallery-download');
-  galleryFilenameRef  = document.getElementById('gallery-filename');
-  recInfoRef          = document.getElementById('rec-info');
-  
-  // Galerie öffnen
-  btnGalleryRef?.addEventListener('click', () => {
-    galleryPanelRef.style.display = 'flex';
-    refreshGalleryGrid();
-    // Zeigt immer das neueste Element an
-    if (galleryItems.length > 0) {
-      showPreview(galleryItems[galleryItems.length - 1]);
-    } else {
-      galleryPreviewMediaRef.innerHTML = '';
-      galleryFilenameRef.textContent = 'Keine Vorschau verfügbar';
-      currentPreview = null;
-    }
-  });
-  // Galerie schließen
-  btnGalleryClose?.addEventListener('click', () => {
-    galleryPanelRef.style.display = 'none';
-  });
+async function convertToMp4(webmBlob, filenameBase) {
+    const ffmpeg = await ensureFFmpeg();
+    if (!ffmpeg) {
+        msg.textContent = 'MP4 Konvertierung übersprungen (FFmpeg nicht geladen).';
+        return;
+    }
 
-  // Capture Button Interaktion (Foto / Video)
-  const onPressStart = (e) => {
-    e.preventDefault();
-    if (isPressing) return;
-    isPressing = true;
-    longPressActive = false;
-    pressTimerId = setTimeout(() => {
-      longPressActive = true;
-      if (canRecordReal()) {
-        startRealRecording(recInfoRef, btnCaptureRef);
-      } else {
-        console.warn('MediaRecorder nicht verfügbar → Fallback Simulation.');
-        startSimulatedRecording(recInfoRef, btnCaptureRef);
-      }
-    }, LONG_PRESS_THRESHOLD_MS);
-  };
+    msg.textContent = 'Konvertiere zu MP4 (kann dauern)...';
+    msgContainer.style.background = '#005f73'; // Visuelles Feedback für langen Prozess
 
-  const onPressEnd = async (e) => {
-    e.preventDefault();
-    if (!isPressing) return;
-    isPressing = false;
+    try {
+        const inputFilename = 'input.webm';
+        const outputFilename = `${filenameBase}.mp4`;
+        
+        ffmpeg.FS('writeFile', inputFilename, new Uint8Array(await webmBlob.arrayBuffer()));
 
-    if (pressTimerId) {
-      clearTimeout(pressTimerId);
-      pressTimerId = null;
-    }
+        // Führe Konvertierung aus
+        await ffmpeg.run('-i', inputFilename, '-c:v', 'libx264', '-crf', '23', '-preset', 'fast', '-pix_fmt', 'yuv420p', outputFilename);
 
-    if (!longPressActive) {
-      // Kurztipp → Foto
-      takeScreenshot(btnCaptureRef);
-    } else {
-      // Aufnahme lief → Stop
-      if (isRecordingReal || simulatedRecordingId) {
-        await stopAllRecording(recInfoRef, btnCaptureRef);
-      }
-    }
-  };
+        const data = ffmpeg.FS('readFile', outputFilename);
+        const mp4Blob = new Blob([data.buffer], { type: 'video/mp4' });
+        const mp4Url = URL.createObjectURL(mp4Blob);
 
-  // Touch Events
-  btnCaptureRef?.addEventListener('touchstart', onPressStart, { passive: false });
-  btnCaptureRef?.addEventListener('touchend', onPressEnd, { passive: false });
-  btnCaptureRef?.addEventListener('touchcancel', onPressEnd, { passive: false });
-
-  // Maus Events
-  btnCaptureRef?.addEventListener('mousedown', onPressStart);
-  btnCaptureRef?.addEventListener('mouseup', onPressEnd);
-  btnCaptureRef?.addEventListener('mouseleave', (e) => {
-    if (isPressing && !isRecordingReal) onPressEnd(e);
-  });
-
-  // Cleanup beim Verlassen
-  window.addEventListener('beforeunload', async () => {
-    if (isRecordingReal || simulatedRecordingId) {
-      try { await stopAllRecording(recInfoRef, btnCaptureRef); } catch(_) {}
-    }
-  });
+        addMediaToGallery({
+            type: 'video',
+            url: mp4Url,
+            filename: outputFilename,
+            date: new Date(),
+            blob: mp4Blob
+        });
+        updateGalleryUI();
+        msg.textContent = 'MP4 Video gespeichert.';
+    } catch(e) {
+        console.error("FFmpeg Konvertierungsfehler:", e);
+        msg.textContent = 'MP4 Konvertierung fehlgeschlagen.';
+    } finally {
+        try {
+            ffmpeg.FS('unlink', 'input.webm');
+        } catch(e) {/* ignore */ }
+        msgContainer.style.background = 'rgba(0,0,0,0.55)'; 
+    }
 }
 
-/* ---------- Screenshot ---------- */
-function takeScreenshot(btnCapture) {
-  const src = getCaptureSourceElement();
-  const canvas = getCaptureCanvas();
+// --- Extern zugängliche Funktionen ---
 
-  if (!src && !canvas) {
-    console.warn('Keine Quelle für Screenshot gefunden.');
-    return;
-  }
+function initRecording() {
+    let longPressTimeout;
+    const LONG_PRESS_THRESHOLD = 500; 
 
-  // Snap Animation
-  btnCapture?.classList.add('snap');
-  setTimeout(() => btnCapture?.classList.remove('snap'), 200);
+    const handleStart = (e) => {
+        e.preventDefault(); 
+        if (isRecording) {
+            stopRecording();
+            return;
+        }
 
-  const handleBlob = (blob) => {
-    if (!blob) {
-      console.warn('Screenshot-Blob ist leer.');
-      return;
-    }
-    const url = URL.createObjectURL(blob);
-    const item = { type:'image', url, format:'jpg', ts:Date.now() };
-    
-    // In Galerie übernehmen und Download triggern
-    addToGallery(item);
-    showPreview(item);
-    triggerDownload(url, tsToName(item.ts, 'Foto', 'jpg'));
-  };
+        recordStartTime = Date.now(); 
+        longPressTimeout = setTimeout(() => {
+            if (!isRecording) {
+                const canvas = document.getElementById('ar-scene-element');
+                if (canvas) {
+                    const videoStream = canvas.captureStream(60); 
+                    startRecording(videoStream);
+                } else {
+                    console.error("AR Canvas nicht gefunden.");
+                }
+            }
+        }, LONG_PRESS_THRESHOLD);
+    };
 
-  // model-viewer: Canvas im Shadow DOM oder direkt
-  if (src && typeof src.toBlob === 'function') {
-    try {
-      src.toBlob({ mimeType: 'image/jpeg', quality: SCREENSHOT_QUALITY })
-        .then(handleBlob)
-        .catch(e => console.error('Screenshot (model-viewer) fehlgeschlagen:', e));
-      return;
-    } catch (e) {
-      console.warn('model-viewer toBlob fehlgeschlagen, versuche Canvas:', e);
-    }
-  }
+    const handleEnd = (e) => {
+        e.preventDefault();
+        clearTimeout(longPressTimeout);
 
-  // Fallback: Canvas
-  if (canvas && typeof canvas.toBlob === 'function') {
-    canvas.toBlob(handleBlob, 'image/jpeg', SCREENSHOT_QUALITY);
-  } else {
-    console.warn('Canvas toBlob() nicht verfügbar.');
-  }
+        if (!isRecording && (Date.now() - recordStartTime) < LONG_PRESS_THRESHOLD) {
+            takeScreenshot();
+        }
+    };
+    
+    btnCapture.addEventListener('touchstart', handleStart, { passive: false });
+    btnCapture.addEventListener('touchend', handleEnd, { passive: false });
+    btnCapture.addEventListener('mousedown', handleStart);
+    btnCapture.addEventListener('mouseup', handleEnd);
 }
 
-/* ---------- Feature Detection ---------- */
-function canRecordReal() {
-  const canvas = getCaptureCanvas();
-  return !!window.MediaRecorder && !!canvas;
+function stopRecordingOnARSessionEnd() {
+    if (isRecording) {
+        stopRecording();
+    }
 }
 
-/* ---------- Simulierte Aufnahme ---------- */
-function startSimulatedRecording(recInfo, btnCapture) {
-  recTimer = 0;
-  recInfo.textContent = '00:00';
-  recInfo.style.display = 'flex';
-  btnCapture?.classList.add('recording');
+function takeScreenshot() {
+    const canvas = document.getElementById('ar-scene-element');
+    if (!canvas) {
+        msg.textContent = "Screenshot fehlgeschlagen.";
+        return;
+    }
 
-  simulatedRecordingId = setInterval(() => {
-    recTimer++;
-    recInfo.textContent = formatTime(recTimer);
-    if (recTimer >= MAX_RECORD_TIME_SECONDS) {
-      stopAllRecording(recInfo, btnCapture);
-    }
-  }, 1000);
+    msg.textContent = "Foto aufgenommen.";
+    btnCapture.classList.add('snap');
+    setTimeout(() => btnCapture.classList.remove('snap'), 180);
+
+    canvas.toBlob((blob) => {
+        if (!blob) return;
+
+        const filename = `AR_Foto_${Date.now()}.jpg`;
+        const url = URL.createObjectURL(blob);
+
+        addMediaToGallery({
+            type: 'image',
+            url: url,
+            filename: filename,
+            date: new Date(),
+            blob: blob
+        });
+        updateGalleryUI();
+
+    }, 'image/jpeg', 0.95); 
 }
 
-/* ---------- Echte Aufnahme ---------- */
-function startRealRecording(recInfo, btnCapture) {
-  const canvas = getCaptureCanvas();
-  if (!canvas) {
-    console.warn('Kein Canvas für Aufnahme gefunden → Fallback.');
-    startSimulatedRecording(recInfo, btnCapture);
-    return;
-  }
-
-  const stream = canvas.captureStream(30);
-  let finalStream = stream;
-
-  const persistentAudio = getPersistentAudioElement();
-  if (persistentAudio) {
-    try {
-      audioCtxRef = new (window.AudioContext || window.webkitAudioContext)();
-      const source = audioCtxRef.createMediaElementSource(persistentAudio);
-      const dest = audioCtxRef.createMediaStreamDestination();
-      source.connect(dest);
-      source.connect(audioCtxRef.destination);
-      finalStream = new MediaStream([...stream.getVideoTracks(), ...dest.stream.getAudioTracks()]);
-    } catch (e) {
-      console.warn('Audiomixing fehlgeschlagen:', e);
-    }
-  }
-
-  const mimeTypeCandidates = [
-    'video/webm;codecs=vp9,opus',
-    'video/webm;codecs=vp8',
-    'video/webm'
-  ];
-  chosenMimeType = '';
-  for (const c of mimeTypeCandidates) {
-    if (MediaRecorder.isTypeSupported(c)) { chosenMimeType = c; break; }
-  }
-  if (!chosenMimeType) {
-    console.warn('Kein unterstützter WebM Codec → Simulation.');
-    startSimulatedRecording(recInfo, btnCapture);
-    return;
-  }
-
-  try {
-    mediaRecorder = new MediaRecorder(finalStream, { mimeType: chosenMimeType });
-  } catch (e) {
-    console.warn('MediaRecorder fehlgeschlagen → Simulation.', e);
-    startSimulatedRecording(recInfo, btnCapture);
-    return;
-  }
-
-  recordedChunks = [];
-  isRecordingReal = true;
-  recTimer = 0;
-  recInfo.textContent = '00:00';
-  recInfo.style.display = 'flex';
-  btnCapture?.classList.add('recording');
-
-  realTimerId = setInterval(() => {
-    recTimer++;
-    recInfo.textContent = formatTime(recTimer);
-    if (recTimer >= MAX_RECORD_TIME_SECONDS) {
-      stopAllRecording(recInfo, btnCapture);
-    }
-  }, 1000);
-
-  mediaRecorder.ondataavailable = (e) => {
-    if (e.data.size > 0) recordedChunks.push(e.data);
-  };
-
-  mediaRecorder.start();
-}
-
-/* ---------- Konvertierung WebM -> MP4 ---------- */
-async function convertWebMToMP4ByUrl(url) {
-  const FF = await ensureFFmpeg();
-  if (!FF) return null;
-
-  const filename = `input_${Date.now()}.webm`;
-  
-  try {
-    const response = await fetch(url);
-    const data = new Uint8Array(await response.arrayBuffer());
-    ffmpegInstance.FS('writeFile', filename, data);
-
-    await ffmpegInstance.run(
-      '-i', filename,
-      '-c:v', 'libx264',
-      '-preset', 'veryfast',
-      '-crf', '23',
-      '-pix_fmt', 'yuv420p',
-      '-c:a', 'aac',
-      '-b:a', '192k',
-      'output.mp4'
-    );
-
-    const out = ffmpegInstance.FS('readFile', 'output.mp4');
-    try { ffmpegInstance.FS('unlink', filename); } catch(_) {}
-    try { ffmpegInstance.FS('unlink', 'output.mp4'); } catch(_) {}
-
-    return new Blob([out.buffer], { type: 'video/mp4' });
-  } catch (e) {
-    console.warn('FFmpeg Konvertierung fehlgeschlagen:', e);
-    return null;
-  }
-}
-
-
-/* ---------- Aufnahme stoppen ---------- */
-async function stopAllRecording(recInfo, btnCapture) {
-  if (simulatedRecordingId) {
-    clearInterval(simulatedRecordingId);
-    simulatedRecordingId = null;
-  }
-  if (realTimerId) {
-    clearInterval(realTimerId);
-    realTimerId = null;
-  }
-
-  let hadRealRecording = false;
-  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-    hadRealRecording = true;
-    const stopPromise = new Promise(resolve => {
-      const onStop = () => {
-        mediaRecorder.removeEventListener('stop', onStop);
-        resolve();
-      };
-      mediaRecorder.addEventListener('stop', onStop);
-    });
-    mediaRecorder.stop();
-    await stopPromise;
-  }
-
-  recInfo.style.display = 'none';
-  btnCapture?.classList.remove('recording');
-  isRecordingReal = false;
-
-  try { audioCtxRef?.close(); } catch(_) {}
-  audioCtxRef = null;
-
-  if (hadRealRecording && recordedChunks.length > 0) {
-    const webmBlob = new Blob(recordedChunks, { type: (chosenMimeType || 'video/webm') });
-    const ts = Date.now();
-    let item;
-
-    // Versuche Konvertierung und Download
-    let mp4Blob = await convertWebMToMP4ByUrl(URL.createObjectURL(webmBlob));
-    
-    if (mp4Blob) {
-      const url = URL.createObjectURL(mp4Blob);
-      item = { type:'video', url, format:'mp4', ts:ts };
-      triggerDownload(url, tsToName(ts, 'Recording', 'mp4'));
-    } else {
-      // Fallback: WebM downloaden
-      const fallbackUrl = URL.createObjectURL(webmBlob);
-      item = { type:'video', url:fallbackUrl, format:'webm', ts:ts };
-      triggerDownload(fallbackUrl, tsToName(ts, 'Recording', 'webm'));
-    }
-
-    addToGallery(item);
-    showPreview(item);
-  }
-
-  recordedChunks = [];
-  mediaRecorder = null;
-}
-
-/* ---------- Download Helper ---------- */
-function triggerDownload(url, filename) {
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-}
-
-/* ---------- Galerie Funktionen ---------- */
-function addToGallery(item) {
-  galleryItems.push(item);
-  refreshGalleryGrid();
-}
-
-function showPreview(item) {
-  currentPreview = item;
-  galleryPreviewMediaRef.innerHTML = '';
-  galleryFilenameRef.textContent = tsToName(item.ts, item.type === 'image' ? 'Foto' : 'Video', item.format);
-
-  if (item.type === 'image') {
-    const img = document.createElement('img');
-    img.src = item.url;
-    img.alt = 'Vorschau';
-    galleryPreviewMediaRef.appendChild(img);
-    galleryDownloadRef.textContent = 'Foto speichern';
-  } else {
-    const video = document.createElement('video');
-    video.src = item.url;
-    video.controls = true;
-    video.autoplay = true;
-    video.loop = true;
-    galleryPreviewMediaRef.appendChild(video);
-    galleryDownloadRef.textContent = item.format === 'mp4' ? 'Video speichern (MP4)' : 'Video konvertieren & speichern (MP4)';
-  }
-}
-
-function refreshGalleryGrid() {
-  if (!galleryGridRef) return;
-  galleryGridRef.innerHTML = '';
-  if (galleryItems.length === 0) {
-    const empty = document.createElement('div');
-    empty.style.opacity = '.7';
-    empty.style.color = '#fff';
-    empty.textContent = 'Noch keine Medien aufgenommen.';
-    galleryGridRef.appendChild(empty);
-    return;
-  }
-  galleryItems.slice().reverse().forEach(it => {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'thumb';
-    wrapper.onclick = () => showPreview(it);
-    
-    let mediaEl;
-    if (it.type === 'image') {
-      mediaEl = document.createElement('img');
-      mediaEl.src = it.url;
-      mediaEl.alt = 'Screenshot';
-    } else {
-      mediaEl = document.createElement('video');
-      mediaEl.src = it.url;
-      mediaEl.loop = true;
-      mediaEl.muted = true;
-    }
-    const label = document.createElement('div');
-    label.className = 'thumb-label';
-    label.textContent = (it.type === 'image' ? 'Foto' : 'Video') + ' • ' + it.format;
-    wrapper.appendChild(mediaEl);
-    wrapper.appendChild(label);
-    galleryGridRef.appendChild(wrapper);
-  });
-}
-
-/* ---------- AR Session Ende Cleanup ---------- */
-export async function stopRecordingOnARSessionEnd() {
-  const btnCapture = document.getElementById('btn-capture');
-  const recInfo = document.getElementById('rec-info');
-  if (btnCapture && recInfo) {
-    if (simulatedRecordingId || isRecordingReal) {
-      // Stoppt die Aufnahme, ohne einen Download auszulösen
-      if (simulatedRecordingId) {
-        clearInterval(simulatedRecordingId);
-        simulatedRecordingId = null;
-      }
-      if (realTimerId) {
-        clearInterval(realTimerId);
-        realTimerId = null;
-      }
-      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-        const stopPromise = new Promise(resolve => {
-          mediaRecorder.addEventListener('stop', resolve, { once: true });
-        });
-        mediaRecorder.stop();
-        await stopPromise;
-      }
-      
-      recInfo.style.display = 'none';
-      btnCapture?.classList.remove('recording');
-      isRecordingReal = false;
-      try { audioCtxRef?.close(); } catch(_) {}
-      
-      // Löscht die aufgezeichneten Chunks, da die Sitzung beendet wurde
-      recordedChunks = [];
-      mediaRecorder = null;
-      audioCtxRef = null;
-    }
-  }
-}
+export { initRecording, stopRecordingOnARSessionEnd };
