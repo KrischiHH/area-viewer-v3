@@ -3,13 +3,12 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover"/>
-<title>ARea WebXR Viewer</title>
+<title=ARea WebXR Viewer</title>
 
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='8' fill='%2300AEEF'/%3E%3C/svg%3E">
+<!-- Cache-Busting damit die größeren Schriften sicher geladen werden -->
+<link rel="stylesheet" href="styles.css?v=font-boost-3">
 
-<link rel="stylesheet" href="styles.css">
-
-<script async src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js" crossorigin="anonymous"></script>
+<script src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
 <script type="importmap">
 {
   "imports": {
@@ -32,9 +31,6 @@
       <p id="start-text"></p>
       <button class="btn-start" id="btn-enter-ar">START AR</button>
     </div>
-    <div id="recording-disclaimer" style="display:none; font-size:14px; color:rgba(255,255,255,0.7); margin-top:16px;">
-      Lange drücken für Video-Aufnahme.
-    </div>
   </div>
 </div>
 
@@ -45,45 +41,20 @@
       <button class="btn-icon" id="btn-mute" style="display:none" aria-label="Audio umschalten">🔊</button>
     </div>
   </div>
-  
   <div id="msg-container">
-    <div id="msg" role="status" aria-live="polite">Lade...</div>
+    <div id="msg" role="status" aria-live="polite">Bewege dein Gerät um Fläche zu finden...</div>
   </div>
-  
-  <div id="capture-ui" aria-hidden="false">
-    <div id="rec-info">00:00</div>
-    <button id="btn-gallery" title="Galerie öffnen" aria-label="Galerie öffnen"></button>
-    <button id="btn-capture" title="Foto/Video aufnehmen" aria-label="Foto/Video aufnehmen"></button>
-  </div>
-
-  <div id="gallery-panel" aria-hidden="true">
-    <div id="gallery-header">
-      <button id="btn-gallery-close" aria-label="Galerie schließen">Schließen</button>
-    </div>
-    <div id="gallery-preview">
-      <div id="gallery-preview-media"></div>
-      <div id="gallery-meta">
-        <span id="gallery-filename"></span>
-        <button id="gallery-download">Download</button>
-      </div>
-    </div>
-    <div id="gallery-grid"></div>
-  </div>
-
   <div id="gesture-layer"></div>
 </div>
 
 <audio id="ar-audio" loop playsinline preload="auto" crossorigin="anonymous"></audio>
 
 <script type="module">
-// ... [Hier folgt der gesamte Three.js/AR-Logik-Code] ...
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
-import { initRecording, stopRecordingOnARSessionEnd } from './js/recording.js'; 
-
-// --- Globale Variablen ---
+// --- Globals ---
 let camera, scene, renderer;
 let hitTestSource = null;
 let placementGroup;
@@ -92,7 +63,7 @@ let model;
 let mixer;
 const clock = new THREE.Clock();
 
-// State
+// State & Config
 let isModelPlaced = false;
 let modelLoaded = false;
 let isEditing = false;
@@ -118,6 +89,7 @@ let initialPinchDistance = 0;
 let initialModelScale = 1;
 let lastMoveX = 0;
 
+// Ray/Planes
 const raycaster = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
 const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -130,6 +102,7 @@ let SCENE_JSON_URL = '';
 let MODEL_URL = '';
 let AUDIO_URL = '';
 
+// Fallbacks für Poster/Texte
 const FALLBACKS = {
   title: '3D / AR Erlebnis',
   subline: '',
@@ -146,26 +119,39 @@ let audioCtx = null;
 function ensureAudioUnlocked() {
   try {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume().catch(() => {});
+    }
   } catch (e) { /* ignore */ }
 }
 
 function setupAudio(audioCfg) {
   btnMute.style.display = 'flex';
   btnMute.textContent = '🔊';
+  btnMute.setAttribute('aria-label', 'Audio ausschalten');
   audioEl.crossOrigin = 'anonymous';
   audioEl.src = AUDIO_URL;
   audioEl.loop = !!audioCfg.loop;
   audioEl.volume = audioCfg.volume ?? 0.8;
+
   try { audioEl.load(); } catch(e) {}
-  
+
+  audioEl.addEventListener('error', (e) => {
+    console.error('Audio load error:', e);
+    setUiState('audio_error', 'Audio konnte nicht geladen werden (CORS/Netzwerk).');
+  });
+
   btnMute.onclick = async () => {
     isMuted = !isMuted;
     audioEl.muted = isMuted;
     btnMute.textContent = isMuted ? '🔇' : '🔊';
+    btnMute.setAttribute('aria-label', isMuted ? 'Audio einschalten' : 'Audio ausschalten');
     if (!isMuted) {
       ensureAudioUnlocked();
       audioEl.play().catch(() => tryStartAudioAfterGesture());
+      if (uiState === 'audio_blocked' || uiState === 'audio_error') {
+        setUiState('play_attempt', '');
+      }
     } else {
       audioEl.pause();
     }
@@ -175,17 +161,41 @@ function setupAudio(audioCfg) {
 async function tryStartAudioAfterGesture() {
   if (!AUDIO_URL || isMuted) return;
   ensureAudioUnlocked();
-  try { await audioEl.play(); } catch (e) {
-    setUiState('audio_blocked', 'Audio blockiert. Tippe auf 🔊.');
+  const HAVE_CURRENT_DATA = 2;
+
+  if (audioEl.readyState < HAVE_CURRENT_DATA) {
+    audioEl.load();
+    try {
+      await new Promise((resolve, reject) => {
+        const onReady = () => { cleanup(); resolve(); };
+        const onError = (e) => { cleanup(); reject(e); };
+        const cleanup = () => {
+          audioEl.removeEventListener('canplay', onReady);
+          audioEl.removeEventListener('error', onError);
+        };
+        audioEl.addEventListener('canplay', onReady, { once: true });
+        audioEl.addEventListener('error', onError, { once: true });
+        setTimeout(() => { if (audioEl.readyState < HAVE_CURRENT_DATA) reject(new Error('Audio Timeout')); }, 6000);
+      });
+    } catch(e) {
+      console.warn('Audio load failed:', e);
+      return;
+    }
+  }
+  try {
+    await audioEl.play();
+  } catch (e) {
+    console.warn('Fallback play blocked:', e);
+    setUiState('audio_blocked', 'Audio blockiert. Tippe auf 🔊 zum Abspielen.');
   }
 }
 
-// --- UI Helper ---
+// --- UI helpers ---
 function showErr(txt) {
   const e = document.getElementById('err');
   e.textContent = txt;
   e.style.display = 'block';
-  setTimeout(() => e.style.display='none', 8000);
+  setTimeout(() => e.style.display='none', 5000);
 }
 
 let uiState = '';
@@ -199,12 +209,26 @@ function setUiState(nextState, msg) {
   }
 }
 
-// --- Raycasting ---
+// --- NDC helper ---
 function toNDC(clientX, clientY) {
   const w = renderer.domElement.clientWidth || window.innerWidth;
   const h = renderer.domElement.clientHeight || window.innerHeight;
   ndc.x = (clientX / w) * 2 - 1;
   ndc.y = -(clientY / h) * 2 + 1;
+}
+
+// Tap innerhalb der Zielmarkierung (Weltkoordinaten inkl. Scale)
+function isTapInsidePlacementRect(clientX, clientY) {
+  if (!placementGroup || !placementRect || !placementRect.visible || !isHovering) return false;
+  toNDC(clientX, clientY);
+  raycaster.setFromCamera(ndc, camera);
+  const hit = new THREE.Vector3();
+  if (raycaster.ray.intersectPlane(floorPlane, hit) === null) return false;
+  const rectWorldPos = placementGroup.position;
+  const dx = hit.x - rectWorldPos.x;
+  const dz = hit.z - rectWorldPos.z;
+  const halfSize = (RECT_SIZE * placementGroup.scale.x * 1.05) / 2 + 0.05;
+  return (Math.abs(dx) <= halfSize) && (Math.abs(dz) <= halfSize);
 }
 
 function isTouchOnModel(clientX, clientY) {
@@ -215,37 +239,41 @@ function isTouchOnModel(clientX, clientY) {
   return hits.length > 0;
 }
 
-// --- Boot ---
+// --- Boot & Three init ---
 async function boot() {
   const startScreen = document.getElementById('start-screen');
   const overlay = document.getElementById('overlay');
   const btnEnterAR = document.getElementById('btn-enter-ar');
   const startImage = document.getElementById('start-image');
+
   const startTitle = document.getElementById('start-title');
   const startSubline = document.getElementById('start-subline');
   const startText = document.getElementById('start-text');
 
-  // Initial UI state
   startScreen.style.display = 'flex';
   overlay.style.pointerEvents = 'none';
   btnEnterAR.disabled = true;
 
+  // Fallbacks
   startTitle.textContent = FALLBACKS.title;
   startSubline.textContent = FALLBACKS.subline;
   startText.textContent = FALLBACKS.body;
+  startImage.style.display = 'none';
 
-  // WebXR Check
   let xrSupported = false;
   try {
-    xrSupported = !!(navigator.xr) && await navigator.xr.isSessionSupported('immersive-ar');
-  } catch (e) { console.warn(e); }
+    xrSupported = !!(navigator.xr) &&
+      (navigator.xr.isSessionSupported ? await navigator.xr.isSessionSupported('immersive-ar') : false);
+  } catch (e) {
+    console.warn('isSessionSupported check failed:', e);
+    xrSupported = false;
+  }
 
   if (!xrSupported) {
-    showErr('AR wird auf diesem Gerät/Browser nicht unterstützt (WebXR fehlt).');
+    showErr('AR wird auf diesem Gerät/Browser nicht unterstützt (WebXR fehlt oder Session nicht möglich).');
     return;
   }
 
-  // Load Content
   if (sceneParam) {
     if (sceneParam.endsWith('.glb')) {
       MODEL_URL = sceneParam;
@@ -259,107 +287,169 @@ async function boot() {
   if (SCENE_JSON_URL) {
     try {
       const res = await fetch(SCENE_JSON_URL);
-      if(!res.ok) throw new Error('JSON Error');
+      if(!res.ok) throw new Error(`Scene JSON Error: ${res.status} ${res.statusText}`);
       const json = await res.json();
-      
-      const meta = json.meta || {};
+
+      const meta    = json.meta || {};
       const welcome = (json.ui && json.ui.welcome) || {};
+      const title =
+        (meta.title && meta.title.trim()) ||
+        (welcome.title && welcome.title.trim()) ||
+        FALLBACKS.title;
 
-      startTitle.textContent = meta.title || welcome.title || FALLBACKS.title;
-      startSubline.textContent = meta.subtitle || welcome.eyebrow || FALLBACKS.subline;
-      startText.textContent = meta.body || meta.description || welcome.desc || FALLBACKS.body;
+      const subline =
+        (meta.subtitle && meta.subtitle.trim()) ||
+        (welcome.eyebrow && welcome.eyebrow.trim()) ||
+        FALLBACKS.subline;
 
-      const posterFile = meta.posterImage || welcome.poster;
+      const body =
+        (meta.body && meta.body.trim()) ||
+        (meta.description && meta.description.trim()) ||
+        (welcome.desc && welcome.desc.trim()) ||
+        FALLBACKS.body;
+
+      const posterFile =
+        (meta.posterImage && String(meta.posterImage).trim()) ||
+        (welcome.poster && String(welcome.poster).trim()) ||
+        '';
+
+      startTitle.textContent = title;
+      startSubline.textContent = subline;
+      startText.textContent = body;
+
       if (posterFile) {
-        startImage.src = `${workerBase}/scenes/${sceneParam}/${encodeURIComponent(posterFile)}`;
+        const imageUrl = `${workerBase}/scenes/${sceneParam}/${encodeURIComponent(posterFile)}`;
+        startImage.src = imageUrl;
         startImage.style.display = 'block';
+        startImage.alt = title ? `${title} Vorschau` : 'Vorschau';
+      } else {
+        startImage.style.display = 'none';
       }
 
-      if(json.model?.url) MODEL_URL = `${workerBase}/scenes/${sceneParam}/${json.model.url}`;
+      if(json.model?.url) {
+        MODEL_URL = `${workerBase}/scenes/${sceneParam}/${json.model.url}`;
+      } else {
+        MODEL_URL = 'https://modelviewer.dev/shared-assets/models/Astronaut.glb';
+        showErr("Hinweis: Szene-JSON enthält keine Modell-URL. Fallback-Modell wird verwendet.");
+      }
+
       if(json.audio?.url) {
         AUDIO_URL = `${workerBase}/scenes/${sceneParam}/${json.audio.url}`;
         setupAudio(json.audio);
       }
+
     } catch(e) {
       console.error(e);
-      showErr("Fehler beim Laden der Szene (JSON).");
+      showErr("Fehler beim Laden der Szene-Konfiguration: " + e.message);
     }
   }
 
-  // Init Components
-  initRecording();
   initThree();
 
-  // Load Model
   try {
     await loadModel();
   } catch(e) {
-    showErr("Modell konnte nicht geladen werden: " + e.message);
+    showErr("Modell-Ladefehler: " + e.message);
+    console.error("Modell-Ladefehler:", e);
+    btnEnterAR.disabled = true;
     return;
   }
 
   btnEnterAR.disabled = false;
-  setUiState('loaded', 'Modell bereit.');
-  document.getElementById('recording-disclaimer').style.display = 'block';
+  setUiState('loaded', 'Modell geladen. Tippe auf AR Starten.');
 
   window.addEventListener('resize', onResize);
 
   btnEnterAR.addEventListener('click', async () => {
-    if (!modelLoaded) return;
+    if (!modelLoaded) {
+      showErr("Modell noch nicht vollständig geladen. Bitte warten Sie kurz.");
+      return;
+    }
+
     startScreen.style.display = 'none';
     overlay.style.pointerEvents = 'auto';
-    
+
     if (AUDIO_URL && !isMuted) {
       ensureAudioUnlocked();
       tryStartAudioAfterGesture();
     }
-    onStartAR();
+
+    onStartAR().catch(err => {
+      console.error('AR-Session Start Error:', err);
+      resetARState();
+      showErr('AR konnte nicht gestartet werden:\n' + (err?.message || 'Unbekannter Fehler'));
+    });
   });
 
   document.getElementById('btn-close').addEventListener('click', () => {
     const s = renderer.xr.getSession();
-    if(s) s.end(); else resetARState();
+    if (s) {
+      s.end();
+    } else {
+      resetARState();
+    }
   });
 
   const gestureLayer = document.getElementById('gesture-layer');
   gestureLayer.addEventListener('touchstart', onTouchStart, { passive: false });
   gestureLayer.addEventListener('touchmove', onTouchMove, { passive: false });
   gestureLayer.addEventListener('touchend', onTouchEnd, { passive: false });
+  gestureLayer.addEventListener('touchcancel', onTouchEnd, { passive: false });
+  gestureLayer.addEventListener('mousedown', onTouchStart, { passive: false });
+  gestureLayer.addEventListener('mousemove', onTouchMove, { passive: false });
+  gestureLayer.addEventListener('mouseup', onTouchEnd, { passive: false });
 }
 
 function resetARState() {
-  document.getElementById('start-screen').style.display = 'flex';
-  document.getElementById('overlay').style.pointerEvents = 'none';
+  const startScreen = document.getElementById('start-screen');
+  const overlay = document.getElementById('overlay');
+  const btnEnterAR = document.getElementById('btn-enter-ar');
+
+  startScreen.style.display = 'flex';
+  overlay.style.pointerEvents = 'none';
   audioEl.pause();
-  stopRecordingOnARSessionEnd();
   isModelPlaced = false;
+  isEditing = false;
   placementGroup.visible = false;
   placementRect.visible = false;
-  setUiState('initial', 'Bereit.');
+  btnEnterAR.disabled = !modelLoaded;
+  setUiState('initial', 'Bewege dein Gerät um Fläche zu finden...');
 }
 
 function initThree() {
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.01, 20);
-  
+
   const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1.2);
   scene.add(light);
+
   const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
   dirLight.position.set(2, 8, 4);
+  dirLight.castShadow = true;
+  dirLight.shadow.mapSize.set(1024, 1024);
   scene.add(dirLight);
 
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  renderer.domElement.id = 'ar-scene-element';
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.xr.enabled = true;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   document.body.appendChild(renderer.domElement);
 
   placementGroup = new THREE.Group();
   placementGroup.visible = false;
   scene.add(placementGroup);
 
-  // Markierung
+  const shadowPlaneGeo = new THREE.PlaneGeometry(10, 10);
+  shadowPlaneGeo.rotateX(-Math.PI / 2);
+  const shadowPlaneMat = new THREE.ShadowMaterial({ opacity: 0.3 });
+  const shadowPlane = new THREE.Mesh(shadowPlaneGeo, shadowPlaneMat);
+  shadowPlane.position.y = 0;
+  shadowPlane.receiveShadow = true;
+  scene.add(shadowPlane);
+
   const radius = 0.05;
   const rectShape = new THREE.Shape();
   rectShape.moveTo(0, radius);
@@ -371,12 +461,14 @@ function initThree() {
   rectShape.quadraticCurveTo(RECT_SIZE, 0, RECT_SIZE - radius, 0);
   rectShape.lineTo(radius, 0);
   rectShape.quadraticCurveTo(0, 0, 0, radius);
-  
   const outlineGeo = new THREE.ShapeGeometry(rectShape);
   outlineGeo.translate(-RECT_SIZE / 2, -RECT_SIZE / 2, 0);
   const edges = new THREE.EdgesGeometry(outlineGeo);
-  placementRect = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xffffff }));
+  const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, opacity: 0.8, transparent: true });
+  placementRect = new THREE.LineSegments(edges, lineMat);
   placementRect.rotation.x = -Math.PI / 2;
+  placementRect.position.y = 0.005;
+  placementRect.scale.set(1.05, 1.05, 1.05);
   placementRect.visible = false;
   placementGroup.add(placementRect);
 }
@@ -387,35 +479,51 @@ async function loadModel() {
   draco.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
   loader.setDRACOLoader(draco);
 
-  const gltf = await loader.loadAsync(MODEL_URL);
-  model = gltf.scene;
-  model.scale.setScalar(0.5);
-  
-  if(gltf.animations?.length) {
-    mixer = new THREE.AnimationMixer(model);
-    gltf.animations.forEach(clip => mixer.clipAction(clip).play());
+  try {
+    const gltf = await loader.loadAsync(MODEL_URL);
+    model = gltf.scene;
+    model.traverse((node) => { if (node.isMesh) { node.castShadow = true; node.receiveShadow = false; } });
+    model.scale.setScalar(0.5);
+    if(gltf.animations?.length) {
+      mixer = new THREE.AnimationMixer(model);
+      gltf.animations.forEach(clip => mixer.clipAction(clip).play());
+    }
+    placementGroup.add(model);
+    modelLoaded = true;
+    setUiState('loaded', 'Modell geladen. Tippe auf AR Starten.');
+  } catch(e) {
+    throw new Error(e.message || "Unbekannter Fehler beim Laden des 3D-Modells.");
   }
-  placementGroup.add(model);
-  modelLoaded = true;
 }
 
 async function onStartAR() {
+  const overlay = document.getElementById('overlay');
+
   const session = await navigator.xr.requestSession('immersive-ar', {
     requiredFeatures: ['hit-test', 'local-floor'],
     optionalFeatures: ['dom-overlay'],
-    domOverlay: { root: document.getElementById('overlay') }
+    domOverlay: { root: overlay }
   });
 
   session.addEventListener('end', () => {
+    try { hitTestSource?.cancel?.(); } catch(e) { console.error("Hit test cancel failed", e); }
     hitTestSource = null;
     renderer.setAnimationLoop(null);
     renderer.xr.setSession(null);
-    stopRecordingOnARSessionEnd();
     resetARState();
   });
 
-  const refSpace = await session.requestReferenceSpace('viewer');
-  hitTestSource = await session.requestHitTestSource({ space: refSpace });
+  session.requestReferenceSpace('viewer').then((refSpace) => {
+    session.requestHitTestSource({ space: refSpace }).then((source) => {
+      hitTestSource = source;
+    }).catch((e) => {
+      console.warn('Hit test source failed:', e);
+      setUiState('no_hittest', 'Kein AR-Hit-Test verfügbar. Bewege das Gerät oder versuche es erneut.');
+    });
+  }).catch((e) => {
+    console.warn('Viewer reference space failed:', e);
+    setUiState('no_refspace', 'AR-Referenzraum konnte nicht erstellt werden.');
+  });
 
   renderer.xr.setReferenceSpaceType('local-floor');
   await renderer.xr.setSession(session);
@@ -430,51 +538,66 @@ function onResize() {
 
 function render(timestamp, frame) {
   if (!frame) return;
+
   const dt = clock.getDelta();
   if(mixer) mixer.update(dt);
 
   if (hitTestSource && !isModelPlaced) {
     const refSpace = renderer.xr.getReferenceSpace();
     const results = frame.getHitTestResults(hitTestSource);
+
     if (results.length > 0) {
       const hit = results[0];
       const pose = hit.getPose(refSpace);
+
       if (pose) {
-        placementGroup.position.setFromMatrixPosition(new THREE.Matrix4().fromArray(pose.transform.matrix));
-        placementGroup.rotation.y = Math.atan2(
-          (camera.position.x - placementGroup.position.x),
-          (camera.position.z - placementGroup.position.z)
-        );
+        const matrix = new THREE.Matrix4().fromArray(pose.transform.matrix);
+        placementGroup.position.setFromMatrixPosition(matrix);
+        placementGroup.position.y = 0;
+
+        const q = new THREE.Quaternion().setFromRotationMatrix(matrix);
+        const e = new THREE.Euler().setFromQuaternion(q, 'YXZ');
+        placementGroup.rotation.y = e.y;
+
         placementGroup.visible = true;
         placementRect.visible = true;
         isHovering = true;
-        setUiState('hover', "Tippe zum Platzieren.");
+        setUiState('hover', "Tippe auf die Zielmarkierung, um das Modell zu platzieren.");
       }
     } else {
       placementGroup.visible = false;
+      placementRect.visible = false;
       isHovering = false;
-      setUiState('search', "Bewege das Gerät langsam...");
+      setUiState('search', "Suche Boden...");
     }
   }
 
-  if (isModelPlaced) placementRect.visible = isEditing;
-  
+  if (isModelPlaced) {
+    placementRect.visible = isEditing;
+  }
+
   renderer.render(scene, camera);
 }
 
-function getDistance(t1, t2) {
-  return Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+function getDistance(touch1, touch2) {
+  return Math.hypot(touch2.clientX - touch1.clientX, touch2.clientY - touch1.clientY);
 }
 
-function onTouchStart(e) {
-  currentTouches = Array.from(e.touches);
+function onTouchStart(event) {
+  currentTouches = event.touches ? Array.from(event.touches) : [event];
   if (currentTouches.length === 0) return;
+
   gestureStartTime = performance.now();
   didMove = false;
   isEditing = false;
+
   tapStartX = currentTouches[0].clientX;
   tapStartY = currentTouches[0].clientY;
   lastMoveX = tapStartX;
+
+  isDraggingModel = false;
+  isRotatingModel = false;
+  isScalingModel = false;
 
   if (!isModelPlaced) return;
 
@@ -483,52 +606,114 @@ function onTouchStart(e) {
     isScalingModel = true;
     initialPinchDistance = getDistance(currentTouches[0], currentTouches[1]);
     initialModelScale = placementGroup.scale.x;
-  } else {
-    isEditing = true;
+    placementRect.visible = true;
+    setUiState('scale', "Skalieren (Pinch)");
+
+  } else if (currentTouches.length === 1) {
     if (isTouchOnModel(tapStartX, tapStartY)) {
+      isEditing = true;
       isDraggingModel = true;
+      placementRect.visible = true;
+      setUiState('drag', "Modell verschieben (Drag)");
     } else {
+      isEditing = true;
       isRotatingModel = true;
+      placementRect.visible = true;
+      setUiState('rotate', "Modell drehen (Swipe)");
     }
   }
+
+  if (isEditing) event.preventDefault();
 }
 
-function onTouchMove(e) {
-  currentTouches = Array.from(e.touches);
-  if (isEditing) e.preventDefault();
+function onTouchMove(event) {
+  currentTouches = event.touches ? Array.from(event.touches) : [event];
+  const touchCount = currentTouches.length;
+
+  if (isEditing || touchCount > 1) event.preventDefault();
   if (!isEditing || !isModelPlaced) return;
 
-  const dist = Math.hypot(currentTouches[0].clientX - tapStartX, currentTouches[0].clientY - tapStartY);
-  if (dist > DRAG_THRESHOLD_PIX) didMove = true;
+  const isTwoFinger = touchCount === 2;
+  const isOneFinger = touchCount === 1;
 
-  if (currentTouches.length === 2) {
+  const dragDistanceTotal = Math.hypot(currentTouches[0].clientX - tapStartX, currentTouches[0].clientY - tapStartY);
+  if (dragDistanceTotal > DRAG_THRESHOLD_PIX) didMove = true;
+
+  if (isTwoFinger) {
+    if (!isScalingModel) {
+      isScalingModel = true;
+      isDraggingModel = false;
+      isRotatingModel = false;
+      initialPinchDistance = getDistance(currentTouches[0], currentTouches[1]);
+      initialModelScale = placementGroup.scale.x;
+      setUiState('scale', "Skalieren (Pinch)");
+    }
     const newDist = getDistance(currentTouches[0], currentTouches[1]);
-    const scale = initialModelScale + (newDist - initialPinchDistance) * SCALE_FACTOR;
-    placementGroup.scale.setScalar(Math.max(0.1, Math.min(3.0, scale)));
-  } else if (isRotatingModel) {
-    const dx = currentTouches[0].clientX - lastMoveX;
-    placementGroup.rotation.y += dx * ROTATION_FACTOR;
-    lastMoveX = currentTouches[0].clientX;
+    const scaleDelta = newDist - initialPinchDistance;
+    const newScale = initialModelScale + scaleDelta * SCALE_FACTOR;
+    const clamped = Math.max(0.25, Math.min(3.0, newScale));
+    placementGroup.scale.setScalar(clamped);
+
+  } else if (isScalingModel && isOneFinger) {
+    isScalingModel = false;
+    const t = currentTouches[0];
+    if (isTouchOnModel(t.clientX, t.clientY)) {
+      isDraggingModel = true;
+      isRotatingModel = false;
+      setUiState('drag', "Modell verschieben (Drag)");
+    } else {
+      isDraggingModel = false;
+      isRotatingModel = true;
+      setUiState('rotate', "Modell drehen (Swipe)");
+    }
+  } else if (isOneFinger) {
+    const t = currentTouches[0];
+    const dx = t.clientX - lastMoveX;
+
+    if (isDraggingModel) {
+      toNDC(t.clientX, t.clientY);
+      raycaster.setFromCamera(ndc, camera);
+      const hit = new THREE.Vector3();
+      if (raycaster.ray.intersectPlane(floorPlane, hit)) {
+        placementGroup.position.set(hit.x, 0, hit.z);
+      }
+    }
+    if (isRotatingModel) {
+      placementGroup.rotation.y += dx * ROTATION_FACTOR;
+    }
+
+    lastMoveX = t.clientX;
   }
 }
 
-function onTouchEnd(e) {
-  if (e.touches.length > 0) return;
-  const dur = performance.now() - gestureStartTime;
-  const isTap = !didMove && dur < TAP_THRESHOLD_MS;
-  
-  if (!isModelPlaced && isTap && isHovering) {
-    isModelPlaced = true;
-    placementRect.visible = false;
-    setUiState('placed', "Platziert. Ziehen zum Drehen.");
+function onTouchEnd(event) {
+  if (event.touches && event.touches.length > 0) return;
+
+  const gestureDuration = performance.now() - gestureStartTime;
+  const isTap = !didMove && gestureDuration < TAP_THRESHOLD_MS;
+  const endedTouch = event.changedTouches ? event.changedTouches[0] : event;
+
+  if (!isModelPlaced && isTap) {
+    if (isHovering && isTapInsidePlacementRect(endedTouch.clientX, endedTouch.clientY)) {
+      isModelPlaced = true;
+      placementRect.visible = false;
+      setUiState('placed', "Modell platziert. Ziehen/Pinch zum Bearbeiten.");
+    }
   }
-  isEditing = false;
-  isDraggingModel = false;
-  isRotatingModel = false;
-  isScalingModel = false;
+
+  if (isEditing) {
+    isEditing = false;
+    isDraggingModel = false;
+    isRotatingModel = false;
+    isScalingModel = false;
+    initialModelScale = placementGroup.scale.x;
+    placementRect.visible = false;
+    if (isModelPlaced) setUiState('placed', "Bearbeitung beendet. Tippe auf Modell zum erneuten Draggen.");
+  }
 }
 
 boot();
 </script>
+
 </body>
 </html>
