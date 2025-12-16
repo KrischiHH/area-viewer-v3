@@ -314,10 +314,10 @@ async function boot() {
         (meta.posterImage && String(meta.posterImage).trim()) ||
         (welcome.poster && String(welcome.poster).trim()) ||
         '';
-
-      startTitle.textContent = title;
-      startSubline.textContent = subline;
-      startText.textContent = body;
+// !!! KORRIGIERT: Nutzung von innerHTML, um <br> im Text zu interpretieren !!!
+      startTitle.innerHTML = title;
+      startSubline.innerHTML = subline;
+      startText.innerHTML = body;
 
       if (posterFile) {
         const imageUrl = `${workerBase}/scenes/${sceneParam}/${encodeURIComponent(posterFile)}`;
