@@ -20,8 +20,13 @@
 }
 </script>
 
-<!-- Ergänzende Styles für Tannengrün-Rahmen und Layering -->
+<!-- Skalierung für Tannengrün-Rahmen -->
 <style>
+  :root {
+    /* Rahmen-Skalierung relativ zur Karte: größer machen = höherer Wert */
+    --frame-scale: 1.22; /* nach Bedarf: 1.15–1.30 */
+  }
+
   /* Startscreen sicher über dem Canvas halten */
   #start-screen {
     position: fixed;
@@ -37,27 +42,28 @@
   /* Karte als Stacking-Context, Rahmen darf über die Kanten hinausragen */
   #start-card {
     position: relative;
-    overflow: visible;
+    overflow: visible; /* Rahmen darf überstehen */
     z-index: 1;
   }
 
-  /* Das Tannengrün-Rahmenbild über der Kachel positionieren */
+  /* Tannengrün-Rahmen: füllt die Karte und wird zusätzlich skaliert */
   #tannengruen-frame {
     position: absolute;
     left: 50%;
     top: 50%;
-    transform: translate(-50%, -50%);
-    width: calc(100% + 48px);     /* etwas größer als die Karte, damit die Kanten überdeckt werden */
-    max-width: min(92vw, 720px);
-    height: auto;
-    pointer-events: none;          /* Bild blockiert keine Klicks */
-    z-index: 2;                    /* über der Kachel */
+    transform: translate(-50%, -50%) scale(var(--frame-scale));
+    width: 100%;
+    height: 100%;
+    object-fit: cover;    /* füllt die Box, behält Seitenverhältnis */
+    object-position: center;
+    pointer-events: none; /* Bild blockiert keine Klicks */
+    z-index: 2;           /* über der Kachel */
   }
 
   /* Button sichtbar/klickbar über dem Rahmen halten */
   #btn-enter-ar {
     position: relative;
-    z-index: 3;
+    z-index: 3; /* über dem Rahmen */
   }
 </style>
 </head>
