@@ -117,7 +117,7 @@ html, body {
   justify-content: flex-start; /* KORRIGIERT: Links ausrichten */
   align-items: center;
   pointer-events: auto;
-  gap: 10px; /* Abstand zwischen den Buttons */
+  
   z-index: 20;
 }
 .pointer-auto { pointer-events: auto; }
