@@ -20,11 +20,11 @@
 }
 </script>
 
-<!-- Skalierung für Tannengrün-Rahmen -->
+<!-- Rahmen-Skalierung und Anti-Clipping -->
 <style>
   :root {
-    /* Rahmen-Skalierung relativ zur Karte: größer machen = höherer Wert */
-    --frame-scale: 1.30; /* nach Bedarf: 1.15–1.30 */
+    /* Größerer Wert => Rahmen größer */
+    --frame-scale: 1.28; /* Feinjustieren: 1.22–1.34 */
   }
 
   /* Startscreen sicher über dem Canvas halten */
@@ -34,19 +34,17 @@
     z-index: 1000;
   }
 
-  /* Referenz für absolute Positionierung innerhalb der Karte */
-  #start-content {
-    position: relative;
-  }
+  #start-content { position: relative; }
 
-  /* Karte als Stacking-Context, Rahmen darf über die Kanten hinausragen */
+  /* Wichtig: Überragenden Rahmen nicht abschneiden */
   #start-card {
     position: relative;
-    overflow: visible; /* Rahmen darf überstehen */
+    overflow: visible !important; /* falls styles.css etwas anderes setzt */
     z-index: 1;
   }
 
-  /* Tannengrün-Rahmen: füllt die Karte und wird zusätzlich skaliert */
+  /* Rahmen füllt die Karte vollständig und wird zusätzlich skaliert,
+     'contain' verhindert Beschneiden innerhalb der Box */
   #tannengruen-frame {
     position: absolute;
     left: 50%;
@@ -54,16 +52,16 @@
     transform: translate(-50%, -50%) scale(var(--frame-scale));
     width: 100%;
     height: 100%;
-    object-fit: cover;    /* füllt die Box, behält Seitenverhältnis */
+    object-fit: contain;   /* statt cover -> nichts wird abgeschnitten */
     object-position: center;
-    pointer-events: none; /* Bild blockiert keine Klicks */
-    z-index: 2;           /* über der Kachel */
+    pointer-events: none;  /* blockiert keine Klicks */
+    z-index: 2;            /* über der Kachel */
   }
 
-  /* Button sichtbar/klickbar über dem Rahmen halten */
+  /* Button bleibt oben drauf */
   #btn-enter-ar {
     position: relative;
-    z-index: 3; /* über dem Rahmen */
+    z-index: 3;
   }
 </style>
 </head>
@@ -515,7 +513,7 @@ function initThree() {
   const edges = new THREE.EdgesGeometry(outlineGeo);
   const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, opacity: 0.8, transparent: true });
   placementRect = new THREE.LineSegments(edges, lineMat);
-  placementRect.rotation.x = -Math.PI / 2;
+  placementRect.rotation x = -Math.PI / 2;
   placementRect.position.y = 0.005;
   placementRect.scale.set(1.05, 1.05, 1.05);
   placementRect.visible = false;
