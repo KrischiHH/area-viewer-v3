@@ -513,7 +513,7 @@ function initThree() {
   const edges = new THREE.EdgesGeometry(outlineGeo);
   const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, opacity: 0.8, transparent: true });
   placementRect = new THREE.LineSegments(edges, lineMat);
-  placementRect.rotation x = -Math.PI / 2;
+  placementRect.rotation.x = -Math.PI / 2;
   placementRect.position.y = 0.005;
   placementRect.scale.set(1.05, 1.05, 1.05);
   placementRect.visible = false;
