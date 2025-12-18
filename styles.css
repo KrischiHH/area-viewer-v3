@@ -3,7 +3,7 @@
 
 :root {
   /* Überhang pro Seite für den Tannengrün-Rahmen */
-  --frame-overhang: clamp(32px, 6.5vw, 72px);
+  --frame-overhang: clamp(60px, 12vw, 120px);
 }
 
 html, body {
