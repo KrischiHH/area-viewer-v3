@@ -20,11 +20,10 @@
 }
 </script>
 
-<!-- Rahmen-Skalierung und Anti-Clipping -->
+<!-- Rahmen-Overlay: Card nicht beschneiden, Rahmen drüber, Button ganz oben -->
 <style>
   :root {
-    /* Größerer Wert => Rahmen größer */
-    --frame-scale: 1.28; /* Feinjustieren: 1.22–1.34 */
+    --frame-scale: 1.30; /* Rahmen-Größe feinjustieren (z. B. 1.22–1.40) */
   }
 
   /* Startscreen sicher über dem Canvas halten */
@@ -34,34 +33,42 @@
     z-index: 1000;
   }
 
-  #start-content { position: relative; }
-
-  /* Wichtig: Überragenden Rahmen nicht abschneiden */
-  #start-card {
+  /* Grid-Stack: Card, Rahmen-Overlay, Button-Overlay auf gleicher Fläche gestapelt */
+  #start-content {
     position: relative;
-    overflow: visible !important; /* falls styles.css etwas anderes setzt */
+    display: grid;
+  }
+
+  /* Card bildet die Basis, schneidet nichts ab */
+  #start-card {
+    grid-area: 1 / 1;
+    position: relative;
+    overflow: visible !important;
     z-index: 1;
   }
 
-  /* Rahmen füllt die Karte vollständig und wird zusätzlich skaliert,
-     'contain' verhindert Beschneiden innerhalb der Box */
+  /* Rahmen-Overlay über der Card, nicht interaktiv */
   #tannengruen-frame {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%) scale(var(--frame-scale));
+    grid-area: 1 / 1;
+    z-index: 2;
     width: 100%;
     height: 100%;
-    object-fit: contain;   /* statt cover -> nichts wird abgeschnitten */
+    object-fit: contain;       /* kein Beschneiden innerhalb der Box */
     object-position: center;
-    pointer-events: none;  /* blockiert keine Klicks */
-    z-index: 2;            /* über der Kachel */
+    transform: scale(var(--frame-scale));
+    pointer-events: none;      /* Klicks gehen zur Card/Buttons */
   }
 
-  /* Button bleibt oben drauf */
-  #btn-enter-ar {
-    position: relative;
+  /* Button-Overlay liegt am Boden derselben Fläche über dem Rahmen */
+  #btn-layer {
+    grid-area: 1 / 1;
     z-index: 3;
+    display: grid;
+  }
+  #btn-enter-ar {
+    align-self: end;           /* an unteren Rand der Card-Fläche */
+    justify-self: center;
+    margin-bottom: 18px;       /* Abstand zum unteren Rand */
   }
 </style>
 </head>
@@ -71,21 +78,27 @@
 
 <div id="start-screen">
   <div id="start-content">
+    <!-- Card-Inhalt -->
     <div id="start-card">
-      <!-- Rahmenbild über der blauen Kachel -->
-      <img id="tannengruen-frame" src="./assets/Tannengruen.png" alt="Dekorativer Tannengrün-Rahmen" aria-hidden="true"/>
-
       <h1 id="start-title"></h1>
       <p id="start-subline"></p>
       <img id="start-image" style="display:none;" alt="Vorschau"/>
       <p id="start-text"></p>
+    </div>
+
+    <!-- Rahmen als eigenes Overlay-Element über der Card -->
+    <img id="tannengruen-frame" src="./assets/Tannengruen.png" alt="Dekorativer Tannengrün-Rahmen" aria-hidden="true"/>
+
+    <!-- Button in separater Overlay-Schicht ganz oben -->
+    <div id="btn-layer">
       <button class="btn-start" id="btn-enter-ar">STARTE AR</button>
     </div>
   </div>
 </div>
+
 <div id="overlay">
   <div class="ui-row">
-        <button class="btn-icon" id="btn-close" aria-label="AR-Session beenden">×</button>
+    <button class="btn-icon" id="btn-close" aria-label="AR-Session beenden">×</button>
     <button class="btn-icon" id="btn-mute" style="display:none" aria-label="Audio umschalten">🔊</button>
   </div>
   <div id="msg-container">
@@ -321,6 +334,7 @@ async function boot() {
     return;
   }
 
+  const sceneParam = qs.get('scene') || qs.get('src');
   if (sceneParam) {
     if (sceneParam.endsWith('.glb')) {
       MODEL_URL = sceneParam;
@@ -357,9 +371,9 @@ async function boot() {
 
       const posterFile =
         (meta.posterImage && String(meta.posterImage).trim()) ||
-        (welcome.poster && String(welcome.poster).trim()) ||
+        (welcome.poster und String(welcome.poster).trim()) ||
         '';
-// !!! KORRIGIERT: Nutzung von innerHTML, um <br> im Text zu interpretieren !!!
+      // !!! KORRIGIERT: Nutzung von innerHTML, um <br> im Text zu interpretieren !!!
       startTitle.innerHTML = title;
       startSubline.innerHTML = subline;
       startText.innerHTML = body;
@@ -513,7 +527,7 @@ function initThree() {
   const edges = new THREE.EdgesGeometry(outlineGeo);
   const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, opacity: 0.8, transparent: true });
   placementRect = new THREE.LineSegments(edges, lineMat);
-  placementRect.rotation.x = -Math.PI / 2;
+  placementRect.rotation.x = -Math.PI / 2; /* FIXED: .x */
   placementRect.position.y = 0.005;
   placementRect.scale.set(1.05, 1.05, 1.05);
   placementRect.visible = false;
