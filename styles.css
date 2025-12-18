@@ -2,8 +2,10 @@
 * { box-sizing: border-box; }
 
 :root {
-  /* Überhang pro Seite für den Tannengrün-Rahmen */
-  --frame-overhang: clamp(60px, 12vw, 120px);
+  /* Überhang pro Seite für den Tannengrün-Rahmen (größer = weiter über die Card) */
+  --frame-overhang: clamp(40px, 7vw, 88px);
+  /* Zusätzliche Skalierung oben drauf (feinjustieren) */
+  --frame-scale: 1.10;
 }
 
 html, body {
@@ -69,7 +71,7 @@ html, body {
   align-items: center;
   gap: 20px;
   overflow: visible !important; /* Überhang zulassen */
-  z-index: 1;
+  z-index: 1;                   /* unter der Ranke */
 }
 
 /* Rankenbild – absolut über der Card, mit Überhang größer als die Card */
@@ -77,12 +79,12 @@ html, body {
   position: absolute;
   left: 50%;
   top: 50%;
-  transform: translate(-50%, -50%) scale(1.4);   
+  transform: translate(-50%, -50%) scale(var(--frame-scale));  /* exakt zentrieren + feinskalieren */
   width: calc(100% + var(--frame-overhang) * 2);
   height: calc(100% + var(--frame-overhang) * 2);
-  object-fit: contain;
-  pointer-events: none;               /* klickt nicht */
-  z-index: 2;
+  object-fit: contain;          /* keine Verzerrung; falls Lücken: auf 'fill' stellen */
+  pointer-events: none;         /* klickt nicht */
+  z-index: 2;                   /* über der Card, unter den Inhalten */
 
   /* harte Resets gegen Clipping/Masken aus globalen Styles/Themes */
   border-radius: 0 !important;
@@ -96,7 +98,12 @@ html, body {
   background: none !important;
 }
 
-/* Inhalte in der Card */
+/* Inhalte in der Card – sicher ÜBER der Ranke */
+#start-card > * {
+  position: relative;
+  z-index: 3;
+}
+
 #start-image {
   width: 100%;
   max-width: 620px;
@@ -134,8 +141,6 @@ html, body {
 
 /* Start-Button – über der Ranke */
 .btn-start {
-  position: relative;
-  z-index: 3;                 /* oberhalb der Ranke */
   background: #E6F0FF;
   color: #0B1A33;
   border: 1px solid rgba(11,26,51,0.2);
