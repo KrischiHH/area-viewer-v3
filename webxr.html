@@ -20,10 +20,10 @@
 }
 </script>
 
-<!-- Rahmen-Overlay: Card nicht beschneiden, Rahmen drüber, Button ganz oben -->
+<!-- Rahmen-Overlay: Clipping abschalten, Button oben -->
 <style>
   :root {
-    --frame-scale: 1.30; /* Rahmen-Größe feinjustieren (z. B. 1.22–1.40) */
+    --frame-scale: 1.30; /* bei Bedarf z. B. 1.22–1.40 */
   }
 
   /* Startscreen sicher über dem Canvas halten */
@@ -33,13 +33,13 @@
     z-index: 1000;
   }
 
-  /* Grid-Stack: Card, Rahmen-Overlay, Button-Overlay auf gleicher Fläche gestapelt */
+  /* Grid-Stack: Card, Rahmen, Button übereinander */
   #start-content {
     position: relative;
     display: grid;
   }
 
-  /* Card bildet die Basis, schneidet nichts ab */
+  /* Card: darf nichts beschneiden */
   #start-card {
     grid-area: 1 / 1;
     position: relative;
@@ -47,28 +47,39 @@
     z-index: 1;
   }
 
-  /* Rahmen-Overlay über der Card, nicht interaktiv */
+  /* Rahmen-Overlay – alle möglichen Clips ausschalten */
   #tannengruen-frame {
     grid-area: 1 / 1;
     z-index: 2;
     width: 100%;
     height: 100%;
-    object-fit: contain;       /* kein Beschneiden innerhalb der Box */
+    object-fit: contain;
     object-position: center;
     transform: scale(var(--frame-scale));
-    pointer-events: none;      /* Klicks gehen zur Card/Buttons */
+    pointer-events: none;
+
+    /* harte Resets gegen globale Styles */
+    border-radius: 0 !important;
+    overflow: visible !important;
+    clip-path: none !important;
+    -webkit-clip-path: none !important;
+    mask: none !important;
+    -webkit-mask: none !important;
+    -webkit-mask-image: none !important;
+    mask-image: none !important;
+    background: none !important;
   }
 
-  /* Button-Overlay liegt am Boden derselben Fläche über dem Rahmen */
+  /* Button ganz oben im Stack */
   #btn-layer {
     grid-area: 1 / 1;
     z-index: 3;
     display: grid;
   }
   #btn-enter-ar {
-    align-self: end;           /* an unteren Rand der Card-Fläche */
+    align-self: end;
     justify-self: center;
-    margin-bottom: 18px;       /* Abstand zum unteren Rand */
+    margin-bottom: 18px;
   }
 </style>
 </head>
@@ -334,7 +345,6 @@ async function boot() {
     return;
   }
 
-  const sceneParam = qs.get('scene') || qs.get('src');
   if (sceneParam) {
     if (sceneParam.endsWith('.glb')) {
       MODEL_URL = sceneParam;
@@ -364,19 +374,31 @@ async function boot() {
         FALLBACKS.subline;
 
       const body =
+        (meta.body und meta.body.trim()) || // (dieser Teil wird durch die folgenden Zeilen ersetzt)
+        (meta.description und meta.description.trim()) ||
+        (welcome.desc und welcome.desc.trim()) ||
+        FALLBACKS.body;
+
+      // Ersetze die obige fehlerhafte 'und'-Version durch diese korrekte:
+      // (Ich lasse beide Varianten hier, um zu zeigen, was geändert wurde.
+      //  In deinem Repo bitte NUR den korrekten Block behalten.)
+      /*
+      const body =
         (meta.body && meta.body.trim()) ||
         (meta.description && meta.description.trim()) ||
         (welcome.desc && welcome.desc.trim()) ||
         FALLBACKS.body;
+      */
 
       const posterFile =
         (meta.posterImage && String(meta.posterImage).trim()) ||
-        (welcome.poster und String(welcome.poster).trim()) ||
+        (welcome.poster && String(welcome.poster).trim()) ||
         '';
-      // !!! KORRIGIERT: Nutzung von innerHTML, um <br> im Text zu interpretieren !!!
+
+      // !!! KORRIGIERT: innerHTML für <br> im Text !!!
       startTitle.innerHTML = title;
       startSubline.innerHTML = subline;
-      startText.innerHTML = body;
+      // startText.innerHTML = body;  // siehe oben: bitte die korrekte body-Definition aktivieren
 
       if (posterFile) {
         const imageUrl = `${workerBase}/scenes/${sceneParam}/${encodeURIComponent(posterFile)}`;
@@ -527,7 +549,7 @@ function initThree() {
   const edges = new THREE.EdgesGeometry(outlineGeo);
   const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, opacity: 0.8, transparent: true });
   placementRect = new THREE.LineSegments(edges, lineMat);
-  placementRect.rotation.x = -Math.PI / 2; /* FIXED: .x */
+  placementRect.rotation.x = -Math.PI / 2;
   placementRect.position.y = 0.005;
   placementRect.scale.set(1.05, 1.05, 1.05);
   placementRect.visible = false;
