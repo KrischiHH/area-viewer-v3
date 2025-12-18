@@ -49,12 +49,13 @@
 
   /* Ranke absolut über der Card mit Überhang (breiter + höher als die Card) */
   #tannengruen-frame {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%); /* über Card zentrieren */
-    width: calc(100% + var(--frame-overhang) * 2);
-    height: calc(100% + var(--frame-overhang) * 2);
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  /* NICHT eigenes transform setzen, damit styles.css gewinnt */
+  /* transform: translate(-50%, -50%);  <- entfernen */
+  width: calc(100% + var(--frame-overhang) * 2);
+  height: calc(100% + var(--frame-overhang) * 2);
     object-fit: contain;
     pointer-events: none; /* blockiert keine Klicks */
     z-index: 2;           /* über der Card */
