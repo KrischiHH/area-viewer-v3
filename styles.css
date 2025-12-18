@@ -1,134 +1,171 @@
-/* Externe, “saubere” CSS ohne unsichtbare Sonderzeichen */
+/* Basis */
 * { box-sizing: border-box; }
 
-html, body {
-  margin: 0; padding: 0; width: 100%; height: 100%;
-  background-color: #111; color: #fff;
-  font-family: system-ui, -apple-system, sans-serif;
-  overflow: hidden;
+:root {
+  /* Überhang pro Seite für den Tannengrün-Rahmen */
+  --frame-overhang: clamp(32px, 6.5vw, 72px);
 }
 
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background-color: #111;
+  color: #fff;
+  font-family: system-ui, -apple-system, sans-serif;
+  overflow: hidden; /* kein Scrollen im Vollbild */
+}
+
+/* Overlay für AR-UI (immer vorhanden, aber inaktiv bis AR startet) */
 #overlay {
-  position: fixed; inset: 0;
+  position: fixed;
+  inset: 0;
   display: block;
   pointer-events: auto;
   z-index: 10;
 }
 
-/* Startscreen */
+/* Start-Screen */
 #start-screen {
-  position: fixed; inset: 0;
+  position: fixed;
+  inset: 0;
   background: rgba(0,0,0,0.85);
-  display: none;
+  display: none;              /* wird in JS auf flex gesetzt */
   align-items: center;
   justify-content: center;
-  z-index: 100;
+  z-index: 1000;              /* über allem anderen */
   pointer-events: auto;
-  padding: 36px;
+  padding: 20px;
 }
 
+/* Container für Card + Rahmen (Bezugspunkt für absolute Ranke) */
 #start-content {
-  /* wird in webxr.html lokal auf display: grid überschrieben,
-     damit Rahmen-/Button-Overlay gestapelt werden kann */
+  position: relative;         /* wichtig für absolute Positionierung der Ranke */
+  width: 100%;
+  max-width: 760px;
+  overflow: visible !important; /* Überhang zulassen */
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  max-width: 760px;
   max-height: 100%;
-  overflow-y: auto;
+  overflow-y: auto;           /* falls Inhalte sehr hoch werden */
   padding-bottom: 24px;
 }
 
-/* Card-Kachel hinter Bild & Text – MIT INTENSIVE M BLAUEN VERLAUF */
+/* Card (blaue Kachel) – schneidet nichts ab */
 #start-card {
   width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 20px;
-
-  /* Neuer, intensiver blauer Farbverlauf */
   background: linear-gradient(135deg, #2b4790 10%, #070b14 100%);
-  
   border: 1px solid rgba(255,255,255,0.18);
   border-radius: 26px;
   box-shadow:
     0 36px 80px rgba(0,0,0,0.60),
     inset 0 1px 0 rgba(255,255,255,0.12);
   padding: 34px 34px 38px;
-
-  /* Rahmen darf überstehen */
-  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  overflow: visible !important; /* Überhang zulassen */
+  z-index: 1;
 }
 
+/* Rankenbild – absolut über der Card, mit Überhang größer als die Card */
+#tannengruen-frame {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);  /* exakt zentrieren */
+  width: calc(100% + var(--frame-overhang) * 2);
+  height: calc(100% + var(--frame-overhang) * 2);
+  object-fit: contain;
+  pointer-events: none;               /* klickt nicht */
+  z-index: 2;
+
+  /* harte Resets gegen Clipping/Masken aus globalen Styles/Themes */
+  border-radius: 0 !important;
+  overflow: visible !important;
+  clip-path: none !important;
+  -webkit-clip-path: none !important;
+  mask: none !important;
+  -webkit-mask: none !important;
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+  background: none !important;
+}
+
+/* Inhalte in der Card */
 #start-image {
   width: 100%;
   max-width: 620px;
   height: auto;
   margin: 8px 0 12px;
   border-radius: 18px;
-  box-shadow: none; 
+  box-shadow: none;
 }
 
 #start-title {
-  font-family: 'Bangers', cursive; /* Hinzufügen der Schriftart mit Fallback */
-  font-size: 70px; 
+  font-family: 'Bangers', cursive;
+  font-size: clamp(40px, 9vw, 70px);
   font-weight: 850;
   margin: 0;
-  color: white;
+  color: #fff;
   letter-spacing: .25px;
-  /* NEU: Scharfer, dunkler Schatten ohne Transparenz */
-  text-shadow: 4px 4px 0px #000000; /* 4px rechts, 4px unten, 0px Unschärfe, Schwarz */
+  text-shadow: 4px 4px 0px #000;
 }
 
 #start-subline {
-  font-size: 30px; 
+  font-size: clamp(18px, 4.2vw, 30px);
   font-weight: 650;
-  margin: -40px 0 4px;
-  color: rgba(255, 255, 255, 0.98); 
+  margin: -12px 0 4px;
+  color: rgba(255,255,255,0.98);
 }
 
 #start-text {
-  font-size: 30px; /* Größerer Text */
+  font-size: clamp(16px, 4vw, 30px);
   margin: 8px 0 14px;
   line-height: 1.65;
-  color: rgba(255, 255, 255, 0.95);
+  color: rgba(255,255,255,0.95);
   text-align: center;
   max-width: 680px;
 }
 
+/* Start-Button – über der Ranke */
 .btn-start {
-  /* Button Vergrößert und gestärkt */
-  background: #E6F0FF; 
-  color: #0B1A33; 
+  position: relative;
+  z-index: 3;                 /* oberhalb der Ranke */
+  background: #E6F0FF;
+  color: #0B1A33;
   border: 1px solid rgba(11,26,51,0.2);
-  padding: 24px 60px; 
+  padding: 24px 60px;
   border-radius: 999px;
-  font-weight: 900; 
-  font-size: 30px; 
+  font-weight: 900;
+  font-size: 30px;
   box-shadow: 0 10px 26px rgba(0,0,0,0.42);
   cursor: pointer;
+  pointer-events: auto;
 }
 .btn-start:active { transform: scale(0.98); }
 
-/* Top-Buttons */
+/* AR UI – Top-Leiste */
 .ui-row {
-  position: fixed;
+  position: fixed;            /* am Viewport kleben */
   top: 0; left: 0; right: 0;
-  padding: 12px 16px; /* Abstand vom Rand (oben/unten 12px, links/rechts 16px) */
-  display: flex; 
-  justify-content: flex-start; /* KORRIGIERT: Links ausrichten */
+  padding: 12px 16px;
+  display: flex;
+  justify-content: flex-start;
   align-items: center;
   pointer-events: auto;
   z-index: 20;
 }
-.pointer-auto { pointer-events: auto; }
 
 .btn-icon {
   background: rgba(20,20,30,0.6);
   border: 1px solid rgba(255,255,255,0.2);
-  color: white; width: 44px; height: 44px;
+  color: white;
+  width: 44px; height: 44px;
   display: inline-flex;
   align-items: center; justify-content: center;
   font-size: 20px; line-height: 1;
@@ -137,7 +174,7 @@ html, body {
 }
 .btn-icon:active { transform: scale(0.95); }
 
-/* Bottom status */
+/* AR UI – Status unten */
 #msg-container {
   position: fixed;
   left: 0; right: 0;
@@ -147,18 +184,31 @@ html, body {
   z-index: 20;
 }
 #msg {
-  background: rgba(0,0,0,0.55); padding: 8px 16px;
-  border-radius: 20px; display: inline-block; font-size: 14px; opacity: 0.94;
+  background: rgba(0,0,0,0.55);
+  padding: 8px 16px;
+  border-radius: 20px;
+  display: inline-block;
+  font-size: 14px;
+  opacity: 0.94;
 }
 
+/* Fehlermeldungsbanner */
 #err {
-  position: fixed; top: 10px; left: 10px; right: 10px;
-  background: #b00020; color: white; padding: 10px;
-  border-radius: 8px; font-size: 12px; display: none; z-index: 120;
+  position: fixed;
+  top: 10px; left: 10px; right: 10px;
+  background: #b00020;
+  color: white;
+  padding: 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  display: none;
+  z-index: 120;
 }
 
+/* Gestenfläche – nimmt Interaktionen an */
 #gesture-layer {
-  position: absolute; inset: 0;
+  position: absolute;
+  inset: 0;
   z-index: 0;
   pointer-events: auto;
   touch-action: none;
