@@ -28,6 +28,8 @@ html, body {
 }
 
 #start-content {
+  /* wird in webxr.html lokal auf display: grid überschrieben,
+     damit Rahmen-/Button-Overlay gestapelt werden kann */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -55,6 +57,9 @@ html, body {
     0 36px 80px rgba(0,0,0,0.60),
     inset 0 1px 0 rgba(255,255,255,0.12);
   padding: 34px 34px 38px;
+
+  /* Rahmen darf überstehen */
+  overflow: visible;
 }
 
 #start-image {
@@ -75,7 +80,6 @@ html, body {
   letter-spacing: .25px;
   /* NEU: Scharfer, dunkler Schatten ohne Transparenz */
   text-shadow: 4px 4px 0px #000000; /* 4px rechts, 4px unten, 0px Unschärfe, Schwarz */
-
 }
 
 #start-subline {
@@ -110,15 +114,14 @@ html, body {
 
 /* Top-Buttons */
 .ui-row {
-  position: fixed;
-  top: 0; left: 0; right: 0;
-  padding: 12px 16px; /* Abstand vom Rand (oben/unten 12px, links/rechts 16px) */
-  display: flex; 
-  justify-content: flex-start; /* KORRIGIERT: Links ausrichten */
-  align-items: center;
-  pointer-events: auto;
-  
-  z-index: 20;
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  padding: 12px 16px; /* Abstand vom Rand (oben/unten 12px, links/rechts 16px) */
+  display: flex; 
+  justify-content: flex-start; /* KORRIGIERT: Links ausrichten */
+  align-items: center;
+  pointer-events: auto;
+  z-index: 20;
 }
 .pointer-auto { pointer-events: auto; }
 
