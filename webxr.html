@@ -20,10 +20,10 @@
 }
 </script>
 
-<!-- Rahmen-Overlay: Clipping abschalten, Button oben -->
+<!-- Rahmen-Overlay: Card nicht beschneiden, Rahmen drüber, Button ganz oben -->
 <style>
   :root {
-    --frame-scale: 1.30; /* bei Bedarf z. B. 1.22–1.40 */
+    --frame-scale: 1.30; /* Rahmen-Größe feinjustieren (z. B. 1.22–1.40) */
   }
 
   /* Startscreen sicher über dem Canvas halten */
@@ -33,30 +33,30 @@
     z-index: 1000;
   }
 
-  /* Grid-Stack: Card, Rahmen, Button übereinander */
+  /* Stack: Card, Rahmen-Overlay, Button-Overlay auf gleicher Fläche gestapelt */
   #start-content {
     position: relative;
-    display: grid;
+    display: grid; /* überschreibt styles.css (dort: flex) */
   }
 
-  /* Card: darf nichts beschneiden */
+  /* Card bildet die Basis, schneidet nichts ab */
   #start-card {
     grid-area: 1 / 1;
     position: relative;
-    overflow: visible !important;
+    overflow: visible !important; /* Überstand erlauben */
     z-index: 1;
   }
 
-  /* Rahmen-Overlay – alle möglichen Clips ausschalten */
+  /* Rahmen-Overlay über der Card, nicht interaktiv */
   #tannengruen-frame {
     grid-area: 1 / 1;
     z-index: 2;
     width: 100%;
     height: 100%;
-    object-fit: contain;
+    object-fit: contain;       /* kein Beschneiden innerhalb der Box */
     object-position: center;
     transform: scale(var(--frame-scale));
-    pointer-events: none;
+    pointer-events: none;      /* Klicks gehen zur Card/Buttons */
 
     /* harte Resets gegen globale Styles */
     border-radius: 0 !important;
@@ -70,16 +70,16 @@
     background: none !important;
   }
 
-  /* Button ganz oben im Stack */
+  /* Button-Overlay liegt am Boden derselben Fläche über dem Rahmen */
   #btn-layer {
     grid-area: 1 / 1;
     z-index: 3;
     display: grid;
   }
   #btn-enter-ar {
-    align-self: end;
+    align-self: end;           /* an unteren Rand der Card-Fläche */
     justify-self: center;
-    margin-bottom: 18px;
+    margin-bottom: 18px;       /* Abstand zum unteren Rand */
   }
 </style>
 </head>
@@ -165,7 +165,7 @@ const raycaster = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
 const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
-// URL Params
+// URL Params (global definieren, damit in boot() verfügbar)
 const qs = new URLSearchParams(location.search);
 const workerBase = (qs.get('base') || 'https://area-publish-proxy.area-webar.workers.dev').replace(/\/$/, '');
 const sceneParam = qs.get('scene') || qs.get('src');
@@ -374,21 +374,10 @@ async function boot() {
         FALLBACKS.subline;
 
       const body =
-        (meta.body und meta.body.trim()) || // (dieser Teil wird durch die folgenden Zeilen ersetzt)
-        (meta.description und meta.description.trim()) ||
-        (welcome.desc und welcome.desc.trim()) ||
-        FALLBACKS.body;
-
-      // Ersetze die obige fehlerhafte 'und'-Version durch diese korrekte:
-      // (Ich lasse beide Varianten hier, um zu zeigen, was geändert wurde.
-      //  In deinem Repo bitte NUR den korrekten Block behalten.)
-      /*
-      const body =
         (meta.body && meta.body.trim()) ||
         (meta.description && meta.description.trim()) ||
         (welcome.desc && welcome.desc.trim()) ||
         FALLBACKS.body;
-      */
 
       const posterFile =
         (meta.posterImage && String(meta.posterImage).trim()) ||
@@ -398,7 +387,7 @@ async function boot() {
       // !!! KORRIGIERT: innerHTML für <br> im Text !!!
       startTitle.innerHTML = title;
       startSubline.innerHTML = subline;
-      // startText.innerHTML = body;  // siehe oben: bitte die korrekte body-Definition aktivieren
+      startText.innerHTML = body;
 
       if (posterFile) {
         const imageUrl = `${workerBase}/scenes/${sceneParam}/${encodeURIComponent(posterFile)}`;
@@ -549,7 +538,7 @@ function initThree() {
   const edges = new THREE.EdgesGeometry(outlineGeo);
   const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, opacity: 0.8, transparent: true });
   placementRect = new THREE.LineSegments(edges, lineMat);
-  placementRect.rotation.x = -Math.PI / 2;
+  placementRect.rotation.x = -Math.PI / 2; /* FIXED: .x */
   placementRect.position.y = 0.005;
   placementRect.scale.set(1.05, 1.05, 1.05);
   placementRect.visible = false;
