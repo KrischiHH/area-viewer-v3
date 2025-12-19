@@ -2,12 +2,8 @@
 * { box-sizing: border-box; }
 
 :root {
-  /* STELLSCHRAUBE 1: Wie weit ragt die Ranke über den Rand (in Pixel/VW)? */
-  /* Erhöhe die 88px auf 100px oder mehr, wenn der Rand noch blitzt */
+  /* Deine Werte: Erhöht für besseren Abschluss */
   --frame-overhang: clamp(40px, 7vw, 90px);
-  
-  /* STELLSCHRAUBE 2: Allgemeiner Zoom der Ranke */
-  /* Erhöhe auf 1.15 oder 1.20, um Lücken zu schließen */
   --frame-scale: 1.25; 
 }
 
@@ -20,33 +16,33 @@ html, body {
 
 /* Overlay für AR-UI */
 #overlay {
-  position: fixed; inset: 0; display: block;
-  pointer-events: auto; z-index: 10;
+  position: fixed; inset: 0; display: none; /* Wird per JS aktiviert */
+  pointer-events: none; z-index: 10;
 }
 
 /* Start-Screen Container */
 #start-screen {
   position: fixed; inset: 0;
   background: rgba(0,0,0,0.85);
-  display: none; /* JS schaltet dies um */
+  display: flex; /* Initial sichtbar */
   align-items: center; justify-content: center;
   z-index: 1000; pointer-events: auto; padding: 20px;
 }
 
 /* Wrapper für Inhalt + Ranke */
 #start-content {
-  position: relative; /* Ankerpunkt für absolute Ranke */
+  position: relative; 
   width: 100%; max-width: 760px;
-  overflow: visible !important; /* WICHTIG: Erlaubt Überhang */
+  overflow: visible !important; 
   display: flex; flex-direction: column;
   align-items: center; text-align: center;
   max-height: 100%; overflow-y: auto; padding-bottom: 24px;
 }
 
-/* Die blaue Karte (Hintergrund-Ebene) */
+/* Die blaue Karte */
 #start-card {
   position: relative;
-  z-index: 1; /* Ebene 1: Ganz unten */
+  z-index: 1;
   width: 100%;
   background: linear-gradient(135deg, #2b4790 10%, #070b14 100%);
   border: 1px solid rgba(255,255,255,0.18);
@@ -57,32 +53,30 @@ html, body {
   overflow: visible !important;
 }
 
-/* Die Ranke (Dekorations-Ebene) */
+/* Die Ranke - HIER nach oben verschoben */
 #tannengruen-frame {
   position: absolute;
   top: 50%; left: 50%;
   z-index: 2;
   width: calc(100% + var(--frame-overhang) * 2);
   height: calc(100% + var(--frame-overhang) * 2);
-  /* Y leicht anheben, z.B. 8% */
+  
+  /* calc(-50% - 8%) schiebt die Ranke nach oben. Ändere die 8% für mehr/weniger Verschiebung */
   transform: translate(-50%, calc(-50% - 8%)) scale(var(--frame-scale));
   
-  object-fit: contain; /* Oder 'fill' probieren, falls es nicht passt */
-  pointer-events: none; /* Klicks gehen durch */
-  
-  /* Resets gegen Browser-Styles */
+  object-fit: contain;
+  pointer-events: none;
   border-radius: 0 !important;
   background: none !important;
   box-shadow: none !important;
 }
 
-/* Die Inhalte (Text/Button) müssen ÜBER die Ranke */
+/* Inhalte über der Ranke */
 #start-card > * {
   position: relative;
-  z-index: 3; /* Ebene 3: Ganz oben */
+  z-index: 3;
 }
 
-/* Spezifische Styles für Inhalte */
 #start-image {
   width: 100%; max-width: 620px; height: auto;
   margin: 8px 0 12px; border-radius: 18px;
@@ -117,9 +111,8 @@ html, body {
   box-shadow: 0 10px 26px rgba(0,0,0,0.42);
   cursor: pointer; pointer-events: auto;
 }
-.btn-start:active { transform: scale(0.98); }
 
-/* AR UI Elemente */
+/* AR UI */
 .ui-row {
   position: fixed; top: 0; left: 0; right: 0;
   padding: 12px 16px; display: flex;
@@ -133,6 +126,7 @@ html, body {
   color: white; width: 44px; height: 44px;
   display: inline-flex; align-items: center; justify-content: center;
   font-size: 20px; border-radius: 50%;
+  cursor: pointer;
 }
 
 #msg-container {
