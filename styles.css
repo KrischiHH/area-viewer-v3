@@ -2,8 +2,10 @@
 * { box-sizing: border-box; }
 
 :root {
-  /* Deine Werte: Erhöht für besseren Abschluss */
+  /* STELLSCHRAUBE 1: Wie weit ragt die Ranke über den Rand (in Pixel/VW)? */
   --frame-overhang: clamp(40px, 7vw, 90px);
+  
+  /* STELLSCHRAUBE 2: Allgemeiner Zoom der Ranke */
   --frame-scale: 1.25; 
 }
 
@@ -16,33 +18,33 @@ html, body {
 
 /* Overlay für AR-UI */
 #overlay {
-  position: fixed; inset: 0; display: none; /* Wird per JS aktiviert */
-  pointer-events: none; z-index: 10;
+  position: fixed; inset: 0; display: block;
+  pointer-events: auto; z-index: 10;
 }
 
 /* Start-Screen Container */
 #start-screen {
   position: fixed; inset: 0;
   background: rgba(0,0,0,0.85);
-  display: flex; /* Initial sichtbar */
+  display: none; /* JS schaltet dies um */
   align-items: center; justify-content: center;
   z-index: 1000; pointer-events: auto; padding: 20px;
 }
 
 /* Wrapper für Inhalt + Ranke */
 #start-content {
-  position: relative; 
+  position: relative; /* Ankerpunkt für absolute Ranke */
   width: 100%; max-width: 760px;
-  overflow: visible !important; 
+  overflow: visible !important; /* WICHTIG: Erlaubt Überhang */
   display: flex; flex-direction: column;
   align-items: center; text-align: center;
   max-height: 100%; overflow-y: auto; padding-bottom: 24px;
 }
 
-/* Die blaue Karte */
+/* Die blaue Karte (Hintergrund-Ebene) */
 #start-card {
   position: relative;
-  z-index: 1;
+  z-index: 1; /* Ebene 1: Ganz unten */
   width: 100%;
   background: linear-gradient(135deg, #2b4790 10%, #070b14 100%);
   border: 1px solid rgba(255,255,255,0.18);
@@ -53,7 +55,7 @@ html, body {
   overflow: visible !important;
 }
 
-/* Die Ranke - HIER nach oben verschoben */
+/* Die Ranke (Dekorations-Ebene) */
 #tannengruen-frame {
   position: absolute;
   top: 50%; left: 50%;
@@ -61,22 +63,25 @@ html, body {
   width: calc(100% + var(--frame-overhang) * 2);
   height: calc(100% + var(--frame-overhang) * 2);
   
-  /* calc(-50% - 8%) schiebt die Ranke nach oben. Ändere die 8% für mehr/weniger Verschiebung */
+  /* HIER DIE ÄNDERUNG: Y leicht anheben um 8% */
   transform: translate(-50%, calc(-50% - 8%)) scale(var(--frame-scale));
   
   object-fit: contain;
-  pointer-events: none;
+  pointer-events: none; /* Klicks gehen durch */
+  
+  /* Resets gegen Browser-Styles */
   border-radius: 0 !important;
   background: none !important;
   box-shadow: none !important;
 }
 
-/* Inhalte über der Ranke */
+/* Die Inhalte (Text/Button) müssen ÜBER die Ranke */
 #start-card > * {
   position: relative;
-  z-index: 3;
+  z-index: 3; /* Ebene 3: Ganz oben */
 }
 
+/* Spezifische Styles für Inhalte */
 #start-image {
   width: 100%; max-width: 620px; height: auto;
   margin: 8px 0 12px; border-radius: 18px;
@@ -111,8 +116,9 @@ html, body {
   box-shadow: 0 10px 26px rgba(0,0,0,0.42);
   cursor: pointer; pointer-events: auto;
 }
+.btn-start:active { transform: scale(0.98); }
 
-/* AR UI */
+/* AR UI Elemente */
 .ui-row {
   position: fixed; top: 0; left: 0; right: 0;
   padding: 12px 16px; display: flex;
