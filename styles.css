@@ -61,14 +61,11 @@ html, body {
 #tannengruen-frame {
   position: absolute;
   top: 50%; left: 50%;
-  z-index: 2; /* Ebene 2: Über der Karte */
-  
-  /* Logik: Größe der Karte + 2x Überhang */
+  z-index: 2;
   width: calc(100% + var(--frame-overhang) * 2);
   height: calc(100% + var(--frame-overhang) * 2);
-  
-  /* Zentrierung + Zoom */
-  transform: translate(-50%, -50%) scale(var(--frame-scale));
+  /* Y leicht anheben, z.B. 8% */
+  transform: translate(-50%, calc(-50% - 8%)) scale(var(--frame-scale));
   
   object-fit: contain; /* Oder 'fill' probieren, falls es nicht passt */
   pointer-events: none; /* Klicks gehen durch */
