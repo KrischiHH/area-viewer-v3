@@ -20,10 +20,9 @@
 }
 </script>
 
-<!-- Rahmen-Overlay: Ranke liegt als absolut positionierte Ebene ÜBER der Card und wird NICHT beschnitten -->
 <style>
   :root {
-    /* Wie weit die Ranke pro Seite überstehen soll (feinjustieren) */
+    /* Wie weit die Ranke pro Seite überstehen soll */
     --frame-overhang: clamp(32px, 6.5vw, 72px);
   }
 
@@ -36,31 +35,31 @@
 
   /* Wichtig: Bezugspunkt und kein Clipping */
   #start-content {
-    position: relative;           /* Bezug für absolute Position der Ranke */
-    overflow: visible !important; /* kein Abschneiden des Überhangs */
+    position: relative;           
+    overflow: visible !important; 
   }
 
   /* Card darf nichts abschneiden */
   #start-card {
     position: relative;
     overflow: visible !important;
-    z-index: 1; /* unter der Ranke, aber über dem Hintergrund */
+    z-index: 1; 
   }
 
-  /* Ranke absolut über der Card mit Überhang (breiter + höher als die Card) */
+  /* Ranke absolut über der Card mit Überhang */
   #tannengruen-frame {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  /* NICHT eigenes transform setzen, damit styles.css gewinnt */
-  /* transform: translate(-50%, -50%);  <- entfernen */
-  width: calc(100% + var(--frame-overhang) * 2);
-  height: calc(100% + var(--frame-overhang) * 2);
+    position: absolute;
+    left: 50%;
+    /* Hier auf 58% angepasst, damit sie höher rutscht */
+    top: 50%;
+    transform: translate(-50%, -58%); 
+    width: calc(100% + var(--frame-overhang) * 2);
+    height: calc(100% + var(--frame-overhang) * 2);
     object-fit: contain;
-    pointer-events: none; /* blockiert keine Klicks */
-    z-index: 2;           /* über der Card */
+    pointer-events: none; 
+    z-index: 2;           
 
-    /* harte Resets gegen globale Styles (z. B. border-radius) */
+    /* Resets gegen globale Styles */
     border-radius: 0 !important;
     overflow: visible !important;
     clip-path: none !important;
@@ -91,7 +90,6 @@
       <button class="btn-start" id="btn-enter-ar">STARTE AR</button>
     </div>
 
-    <!-- Ranke als Sibling-Overlay über der Card (nicht innerhalb der Card, damit nichts abgeschnitten wird) -->
     <img id="tannengruen-frame" src="./assets/Tannengruen.png" alt="Dekorativer Tannengrün-Rahmen" aria-hidden="true"/>
   </div>
 </div>
@@ -372,7 +370,7 @@ async function boot() {
         (meta.posterImage && String(meta.posterImage).trim()) ||
         (welcome.poster && String(welcome.poster).trim()) ||
         '';
-// !!! KORRIGIERT: Nutzung von innerHTML, um <br> im Text zu interpretieren !!!
+
       startTitle.innerHTML = title;
       startSubline.innerHTML = subline;
       startText.innerHTML = body;
