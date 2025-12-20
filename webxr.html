@@ -195,7 +195,7 @@ function setupAudio(audioCfg) {
   audioEl.crossOrigin = 'anonymous';
   audioEl.src = AUDIO_URL;
   audioEl.loop = !!audioCfg.loop;
-  audioEl.volume = audioCfg.volume ?? 0.8;
+  audioEl.volume = audioCfg.volume ?? 0.3;
 
   try { audioEl.load(); } catch(e) {}
 
