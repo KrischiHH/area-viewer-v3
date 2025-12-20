@@ -584,6 +584,21 @@ async function onStartAR() {
     resetARState();
   });
 
+    // HIER: wenn Audio noch nicht läuft und nicht gemutet → nochmal probieren
+  session.addEventListener('inputsourceschange', async () => {
+    if (!AUDIO_URL || isMuted) return;
+    if (audioEl.paused) {
+      try {
+        ensureAudioUnlocked();
+        await audioEl.play();
+        setUiState('audio_playing', 'Audio läuft in der AR-Szene.');
+      } catch (e) {
+        console.warn('Audio im AR-Session-Kontext blockiert:', e);
+        // Hier evtl. keine weiteren Retries, sondern nur Info
+      }
+    }
+  });
+
   session.requestReferenceSpace('viewer').then((refSpace) => {
     session.requestHitTestSource({ space: refSpace }).then((source) => {
       hitTestSource = source;
