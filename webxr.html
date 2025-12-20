@@ -21,6 +21,12 @@
 </script>
 
 <style>
+  :root {
+    /* Wie weit die Ranke pro Seite überstehen soll (wird zusätzlich zu styles.css angewandt,
+       du kannst diese Zeile auch löschen, dann gilt nur der Wert aus styles.css) */
+    --frame-overhang: clamp(32px, 6.5vw, 72px);
+  }
+
   /* Startscreen sicher über dem Canvas halten */
   #start-screen {
     position: fixed;
@@ -46,23 +52,15 @@
     position: absolute;
     left: 50%;
     top: 50%;
-
-    /* ERKLÄRUNG DER WERTE:
-       -55% -> weiter nach LINKS (vorher -50%)
-       -65% -> weiter nach OBEN (vorher -45%)
-       scale -> nutzt die Stellschraube aus deiner styles.css
-    */
-    transform: translate(-50%, -51%) scale(var(--frame-scale));
-
-    /* Nutzt den Overhang aus styles.css */
+    /* Du kannst hier nach Bedarf anpassen, falls die Ranke anders sitzen soll */
+    transform: translate(-50%, -58%) scale(var(--frame-scale)); 
     width: calc(100% + var(--frame-overhang) * 2);
     height: calc(100% + var(--frame-overhang) * 2);
-    
     object-fit: contain;
     pointer-events: none; 
     z-index: 2;           
 
-    /* Resets gegen Browser-/Global-Styles */
+    /* Resets gegen globale Styles */
     border-radius: 0 !important;
     overflow: visible !important;
     clip-path: none !important;
@@ -74,9 +72,8 @@
   /* Start-Button sichtbar/klickbar über der Ranke */
   #btn-enter-ar {
     position: relative;
-    z-index: 10; /* Höher als die Ranke (z-index 2) */
+    z-index: 3;
     margin-top: 8px;
-    cursor: pointer;
   }
 </style>
 </head>
@@ -100,7 +97,7 @@
 
 <div id="overlay">
   <div class="ui-row">
-        <button class="btn-icon" id="btn-close" aria-label="AR-Session beenden">×</button>
+    <button class="btn-icon" id="btn-close" aria-label="AR-Session beenden">×</button>
     <button class="btn-icon" id="btn-mute" style="display:none" aria-label="Audio umschalten">🔊</button>
   </div>
   <div id="msg-container">
@@ -180,11 +177,15 @@ let audioCtx = null;
 
 function ensureAudioUnlocked() {
   try {
-    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
     if (audioCtx.state === 'suspended') {
       audioCtx.resume().catch(() => {});
     }
-  } catch (e) { /* ignore */ }
+  } catch (e) {
+    console.warn('AudioContext konnte nicht initialisiert werden:', e);
+  }
 }
 
 function setupAudio(audioCfg) {
@@ -210,9 +211,12 @@ function setupAudio(audioCfg) {
     btnMute.setAttribute('aria-label', isMuted ? 'Audio einschalten' : 'Audio ausschalten');
     if (!isMuted) {
       ensureAudioUnlocked();
-      audioEl.play().catch(() => tryStartAudioAfterGesture());
-      if (uiState === 'audio_blocked' || uiState === 'audio_error') {
-        setUiState('play_attempt', '');
+      try {
+        await audioEl.play();
+        setUiState('audio_playing', 'Audio läuft.');
+      } catch {
+        // Wenn das hier auch blockiert: Hinweis anzeigen
+        setUiState('audio_blocked', 'Audio blockiert. Versuche es ggf. erneut.');
       }
     } else {
       audioEl.pause();
@@ -220,35 +224,18 @@ function setupAudio(audioCfg) {
   };
 }
 
-async function tryStartAudioAfterGesture() {
-  if (!AUDIO_URL || isMuted) return;
-  ensureAudioUnlocked();
-  const HAVE_CURRENT_DATA = 2;
-
-  if (audioEl.readyState < HAVE_CURRENT_DATA) {
-    audioEl.load();
-    try {
-      await new Promise((resolve, reject) => {
-        const onReady = () => { cleanup(); resolve(); };
-        const onError = (e) => { cleanup(); reject(e); };
-        const cleanup = () => {
-          audioEl.removeEventListener('canplay', onReady);
-          audioEl.removeEventListener('error', onError);
-        };
-        audioEl.addEventListener('canplay', onReady, { once: true });
-        audioEl.addEventListener('error', onError, { once: true });
-        setTimeout(() => { if (audioEl.readyState < HAVE_CURRENT_DATA) reject(new Error('Audio Timeout')); }, 6000);
-      });
-    } catch(e) {
-      console.warn('Audio load failed:', e);
-      return;
-    }
-  }
+async function tryStartAudioIfPossible(context) {
+  // Hilfsfunktion, um an definierten Stellen nochmal zu versuchen, falls pausiert
+  if (!AUDIO_URL || isMuted || !audioEl) return;
+  if (!audioEl.paused) return;
   try {
+    ensureAudioUnlocked();
     await audioEl.play();
+    console.log('[Audio]', context, '– Audio gestartet.');
+    setUiState('audio_playing', 'Audio läuft.');
   } catch (e) {
-    console.warn('Fallback play blocked:', e);
-    setUiState('audio_blocked', 'Audio blockiert. Tippe auf 🔊 zum Abspielen.');
+    console.warn('[Audio]', context, '– Start blockiert:', e);
+    // Hier nicht spammen, UI-Status reicht
   }
 }
 
@@ -267,7 +254,9 @@ function updateMsg(txt) {
 function setUiState(nextState, msg) {
   if (uiState !== nextState) {
     uiState = nextState;
-    if (msg !== undefined) updateMsg(msg);
+    if (msg !== undefined && msg !== null && msg !== '') {
+      updateMsg(msg);
+    }
   }
 }
 
@@ -422,35 +411,35 @@ async function boot() {
 
   window.addEventListener('resize', onResize);
 
- btnEnterAR.addEventListener('click', async () => {
-  if (!modelLoaded) {
-    showErr("Modell noch nicht vollständig geladen. Bitte warten Sie kurz.");
-    return;
-  }
-
-  startScreen.style.display = 'none';
-  overlay.style.pointerEvents = 'auto';
-
-  if (AUDIO_URL && !isMuted) {
-    ensureAudioUnlocked();
-
-    try {
-      // 1. Direktes Play im User-Klick → beste Chance, dass der Browser es akzeptiert
-      await audioEl.play();
-      setUiState('audio_playing', 'Audio läuft.');
-    } catch (e) {
-      console.warn('Direktes Abspielen im Start-Click blockiert, Fallback:', e);
-      // 2. Fallback: dein bisheriger, etwas vorsichtiger Loader+Play
-      tryStartAudioAfterGesture();
+  btnEnterAR.addEventListener('click', async () => {
+    if (!modelLoaded) {
+      showErr("Modell noch nicht vollständig geladen. Bitte warten Sie kurz.");
+      return;
     }
-  }
 
-  onStartAR().catch(err => {
-    console.error('AR-Session Start Error:', err);
-    resetARState();
-    showErr('AR konnte nicht gestartet werden:\n' + (err?.message || 'Unbekannter Fehler'));
+    // 1. Audio im User-Click starten (beste Chance gegen Autoplay-Policy)
+    if (AUDIO_URL && !isMuted) {
+      ensureAudioUnlocked();
+      try {
+        await audioEl.play();
+        console.log('[Audio] Start im Button-Klick erfolgreich.');
+        setUiState('audio_playing', 'Audio läuft.');
+      } catch (e) {
+        console.warn('[Audio] Start im Button-Klick blockiert:', e);
+        setUiState('audio_blocked', 'Audio blockiert. Tippe auf 🔊 zum Abspielen.');
+      }
+    }
+
+    // 2. Danach Screen wechseln und AR starten
+    startScreen.style.display = 'none';
+    overlay.style.pointerEvents = 'auto';
+
+    onStartAR().catch(err => {
+      console.error('AR-Session Start Error:', err);
+      resetARState();
+      showErr('AR konnte nicht gestartet werden:\n' + (err?.message || 'Unbekannter Fehler'));
+    });
   });
-});
 
   document.getElementById('btn-close').addEventListener('click', () => {
     const s = renderer.xr.getSession();
@@ -584,19 +573,9 @@ async function onStartAR() {
     resetARState();
   });
 
-    // HIER: wenn Audio noch nicht läuft und nicht gemutet → nochmal probieren
-  session.addEventListener('inputsourceschange', async () => {
-    if (!AUDIO_URL || isMuted) return;
-    if (audioEl.paused) {
-      try {
-        ensureAudioUnlocked();
-        await audioEl.play();
-        setUiState('audio_playing', 'Audio läuft in der AR-Szene.');
-      } catch (e) {
-        console.warn('Audio im AR-Session-Kontext blockiert:', e);
-        // Hier evtl. keine weiteren Retries, sondern nur Info
-      }
-    }
+  // Optionaler Zweitversuch für Audio, wenn die Session steht
+  session.addEventListener('inputsourceschange', () => {
+    tryStartAudioIfPossible('inputsourceschange');
   });
 
   session.requestReferenceSpace('viewer').then((refSpace) => {
