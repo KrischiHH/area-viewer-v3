@@ -422,26 +422,35 @@ async function boot() {
 
   window.addEventListener('resize', onResize);
 
-  btnEnterAR.addEventListener('click', async () => {
-    if (!modelLoaded) {
-      showErr("Modell noch nicht vollständig geladen. Bitte warten Sie kurz.");
-      return;
-    }
+ btnEnterAR.addEventListener('click', async () => {
+  if (!modelLoaded) {
+    showErr("Modell noch nicht vollständig geladen. Bitte warten Sie kurz.");
+    return;
+  }
 
-    startScreen.style.display = 'none';
-    overlay.style.pointerEvents = 'auto';
+  startScreen.style.display = 'none';
+  overlay.style.pointerEvents = 'auto';
 
-    if (AUDIO_URL && !isMuted) {
-      ensureAudioUnlocked();
+  if (AUDIO_URL && !isMuted) {
+    ensureAudioUnlocked();
+
+    try {
+      // 1. Direktes Play im User-Klick → beste Chance, dass der Browser es akzeptiert
+      await audioEl.play();
+      setUiState('audio_playing', 'Audio läuft.');
+    } catch (e) {
+      console.warn('Direktes Abspielen im Start-Click blockiert, Fallback:', e);
+      // 2. Fallback: dein bisheriger, etwas vorsichtiger Loader+Play
       tryStartAudioAfterGesture();
     }
+  }
 
-    onStartAR().catch(err => {
-      console.error('AR-Session Start Error:', err);
-      resetARState();
-      showErr('AR konnte nicht gestartet werden:\n' + (err?.message || 'Unbekannter Fehler'));
-    });
+  onStartAR().catch(err => {
+    console.error('AR-Session Start Error:', err);
+    resetARState();
+    showErr('AR konnte nicht gestartet werden:\n' + (err?.message || 'Unbekannter Fehler'));
   });
+});
 
   document.getElementById('btn-close').addEventListener('click', () => {
     const s = renderer.xr.getSession();
