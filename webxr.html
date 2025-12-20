@@ -200,7 +200,7 @@ function setupAudio(audioCfg) {
   const sceneVolume = (typeof audioCfg.volume === 'number') ? audioCfg.volume : 0.8;
 
   // GLOBAL DÄMPFEN – z.B. auf 40 % der ursprünglichen Lautstärke
-  const masterVolume = 0.4;  // hier stellst du ein, wie leise "alles" sein soll
+  const masterVolume = 0.2;  // hier stellst du ein, wie leise "alles" sein soll
 
   audioEl.volume = sceneVolume * masterVolume;
 
