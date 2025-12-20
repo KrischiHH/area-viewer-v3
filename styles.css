@@ -6,7 +6,7 @@
   --frame-overhang: clamp(40px, 7vw, 90px);
   
   /* STELLSCHRAUBE 2: Allgemeiner Zoom der Ranke */
-  --frame-scale: 1.25; 
+  --frame-scale: 1.35; 
 }
 
 html, body {
@@ -68,7 +68,7 @@ html, body {
   /* 1. Wert (-55%): Schiebt die Ranke weiter nach LINKS (Standard war -50%)
      2. Wert (-65%): Schiebt die Ranke weiter nach OBEN (Standard war ca. -58%)
   */
-  transform: translate(-55%, -65%) scale(var(--frame-scale));
+  transform: translate(-45%, -55%) scale(var(--frame-scale));
   
   object-fit: contain;
   pointer-events: none; 
