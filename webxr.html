@@ -21,11 +21,6 @@
 </script>
 
 <style>
-  :root {
-    /* Wie weit die Ranke pro Seite überstehen soll */
-    --frame-overhang: clamp(32px, 6.5vw, 72px);
-  }
-
   /* Startscreen sicher über dem Canvas halten */
   #start-screen {
     position: fixed;
@@ -50,16 +45,24 @@
   #tannengruen-frame {
     position: absolute;
     left: 50%;
-    /* Hier auf 58% angepasst, damit sie höher rutscht */
     top: 50%;
-    transform: translate(-50%, -58%); 
+
+    /* ERKLÄRUNG DER WERTE:
+       -55% -> weiter nach LINKS (vorher -50%)
+       -65% -> weiter nach OBEN (vorher -58%)
+       scale -> nutzt die Stellschraube aus deiner styles.css
+    */
+    transform: translate(-55%, -65%) scale(var(--frame-scale));
+
+    /* Nutzt den Overhang aus styles.css */
     width: calc(100% + var(--frame-overhang) * 2);
     height: calc(100% + var(--frame-overhang) * 2);
+    
     object-fit: contain;
     pointer-events: none; 
     z-index: 2;           
 
-    /* Resets gegen globale Styles */
+    /* Resets gegen Browser-Styles */
     border-radius: 0 !important;
     overflow: visible !important;
     clip-path: none !important;
@@ -71,8 +74,9 @@
   /* Start-Button sichtbar/klickbar über der Ranke */
   #btn-enter-ar {
     position: relative;
-    z-index: 3;
+    z-index: 10; /* Höher als die Ranke (z-index 2) */
     margin-top: 8px;
+    cursor: pointer;
   }
 </style>
 </head>
