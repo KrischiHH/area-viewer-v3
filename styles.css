@@ -56,6 +56,7 @@ html, body {
 }
 
 /* Die Ranke (Dekorations-Ebene) */
+/* Die Ranke (Dekorations-Ebene) */
 #tannengruen-frame {
   position: absolute;
   top: 50%; left: 50%;
@@ -63,11 +64,14 @@ html, body {
   width: calc(100% + var(--frame-overhang) * 2);
   height: calc(100% + var(--frame-overhang) * 2);
   
-  /* HIER DIE ÄNDERUNG: Y leicht anheben um 8% */
-  transform: translate(-50%, calc(-50% - 8%)) scale(var(--frame-scale));
+  /* --- HIER IST DIE ÄNDERUNG --- */
+  /* 1. Wert (-55%): Schiebt die Ranke weiter nach LINKS (Standard war -50%)
+     2. Wert (-65%): Schiebt die Ranke weiter nach OBEN (Standard war ca. -58%)
+  */
+  transform: translate(-55%, -65%) scale(var(--frame-scale));
   
   object-fit: contain;
-  pointer-events: none; /* Klicks gehen durch */
+  pointer-events: none; 
   
   /* Resets gegen Browser-Styles */
   border-radius: 0 !important;
