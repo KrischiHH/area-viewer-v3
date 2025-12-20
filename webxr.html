@@ -195,7 +195,14 @@ function setupAudio(audioCfg) {
   audioEl.crossOrigin = 'anonymous';
   audioEl.src = AUDIO_URL;
   audioEl.loop = !!audioCfg.loop;
-  audioEl.volume = audioCfg.volume ?? 0.3;
+
+  // Ursprüngliche Szene-Lautstärke lesen
+  const sceneVolume = (typeof audioCfg.volume === 'number') ? audioCfg.volume : 0.8;
+
+  // GLOBAL DÄMPFEN – z.B. auf 40 % der ursprünglichen Lautstärke
+  const masterVolume = 0.4;  // hier stellst du ein, wie leise "alles" sein soll
+
+  audioEl.volume = sceneVolume * masterVolume;
 
   try { audioEl.load(); } catch(e) {}
 
@@ -215,7 +222,6 @@ function setupAudio(audioCfg) {
         await audioEl.play();
         setUiState('audio_playing', 'Audio läuft.');
       } catch {
-        // Wenn das hier auch blockiert: Hinweis anzeigen
         setUiState('audio_blocked', 'Audio blockiert. Versuche es ggf. erneut.');
       }
     } else {
