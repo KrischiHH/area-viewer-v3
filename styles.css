@@ -195,7 +195,6 @@ html, body {
    ================ */
 @media (orientation: landscape) {
 
-  /* Aktiviert Scrollen im Querformat für das ganze Layout */
   html, body {
     overflow: auto;
     height: 100vh;
@@ -216,14 +215,16 @@ html, body {
 
   /* KACHEL/KARTE Querformat */
   #start-card {
-    width: 60vw;            /* Weniger vw = schmaler; mehr = breiter im Querformat */
+    width: 60vw;
     max-width: 600px;
     min-width: 220px;
+    transform: scale(0.95);           /* Optional: Separate Skalierung im Querformat */
+    transform-origin: center center;  /* Optional: Ursprung der Skalierung */
   }
 
   /* RANKE Querformat */
   #tannengruen-frame {
-    --frame-scale: 1.38;
+    --frame-scale: 1.38;              /* Separate Skalierung der Ranke */
     top: 50%;
     left: 50%;
     width: auto;
