@@ -77,8 +77,8 @@ html, body {
 #tannengruen-frame {
   position: absolute;
   left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%) scale(var(--frame-scale));
+  top: 52%;
+  transform: translate(-50%, -52%) scale(var(--frame-scale, 1));
   width: calc(100% + var(--frame-overhang) * 2);
   height: calc(100% + var(--frame-overhang) * 2);
   object-fit: contain;
@@ -96,10 +96,15 @@ html, body {
 /* + Content bleibt mittig, aber über die Höhe scrollbar */
 @media (orientation: landscape) {
   #tannengruen-frame {
-    top: 49%;                                        /* Beispiel: leicht nach oben */
+    top: 49%;
     left: 50%;
-    transform: translate(-50%, -49%) scale(1.22);    /* Beispiel: individueller scale für landscape */
+    /* KEIN transform! */
+    /* Passe nur die Variable, z.B.: */
+    --frame-scale: 1.22;
+    width: auto;
+    height: calc(100% + var(--frame-overhang, 40px) * 2);
   }
+
 
   #start-content {
     min-height: 110vh;
