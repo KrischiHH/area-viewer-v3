@@ -6,7 +6,7 @@
   --frame-overhang: clamp(40px, 7vw, 90px);
   
   /* STELLSCHRAUBE 2: Allgemeiner Zoom der Ranke */
-  --frame-scale: 1.22; 
+  --frame-scale: 1.18; 
 }
 
 html, body {
