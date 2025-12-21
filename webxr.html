@@ -22,6 +22,7 @@
 
 <style>
   :root {
+    /* Wie weit die Ranke pro Seite überstehen soll */
     --frame-overhang: clamp(32px, 6.5vw, 72px);
   }
 
@@ -49,13 +50,16 @@
   #tannengruen-frame {
     position: absolute;
     left: 50%;
+    /* Hier auf 58% angepasst, damit sie höher rutscht */
     top: 50%;
-    transform: translate(-50%, -52%);
+    transform: translate(-50%, -58%); 
     width: calc(100% + var(--frame-overhang) * 2);
     height: calc(100% + var(--frame-overhang) * 2);
     object-fit: contain;
     pointer-events: none; 
-    z-index: 2;
+    z-index: 2;           
+
+    /* Resets gegen globale Styles */
     border-radius: 0 !important;
     overflow: visible !important;
     clip-path: none !important;
@@ -74,13 +78,13 @@
   /* Aufnahme / Galerie UI im unteren Bereich */
   #capture-row {
     position: fixed;
-    bottom: 72px;         /* etwas über dem Hinweistext + Safe-Area */
+    bottom: 64px;          /* über dem Hinweis-Text */
     left: 0;
     right: 0;
     display: flex;
     justify-content: center;
     gap: 16px;
-    pointer-events: none;
+    pointer-events: none;  /* Buttons selbst schalten auf pointer-events:auto */
     z-index: 30;
   }
 
@@ -145,12 +149,12 @@
   #gallery-panel {
     position: fixed;
     inset: 0;
-    background: rgba(5, 5, 15, 0.98); /* Etwas dunkler für besseren Kontrast */
-    display: none; /* Wird per JS auf 'flex' gesetzt */
+    background: rgba(5, 5, 15, 0.92);
+    display: none;
     flex-direction: column;
     padding: 18px 14px 10px;
-    z-index: 2000; /* Höher als der Start-Screen (1000) */
-}
+    z-index: 120;
+  }
 
   #gallery-header {
     display: flex;
@@ -261,10 +265,10 @@
       <p id="start-subline"></p>
       <img id="start-image" style="display:none;" alt="Vorschau"/>
       <p id="start-text"></p>
-      <button class="btn-start" id="btn-enter-ar">STARTE AR ✨</button>
+      <button class="btn-start" id="btn-enter-ar">STARTE AR</button>
     </div>
 
-    <img id="tannengruen-frame" src="./assets/Tannengruen.png" alt="Dekorativ" aria-hidden="true"/>
+    <img id="tannengruen-frame" src="./assets/Tannengruen.png" alt="Dekorativer Tannengrün-Rahmen" aria-hidden="true"/>
   </div>
 </div>
 
@@ -396,7 +400,7 @@ function setupAudio(audioCfg) {
     (audioCfg && typeof audioCfg.volume === 'number')
       ? audioCfg.volume
       : 0.8;
-  const masterVolume = 0.3;
+  const masterVolume = 0.3; // globaler Dämpfungsfaktor für webxr.html
   audioEl.volume = sceneVolume * masterVolume;
 
   try { audioEl.load(); } catch(e) {}
@@ -425,8 +429,9 @@ function setupAudio(audioCfg) {
   };
 }
 
-// --- Recording/UI References ---
+// --- Recording State (Screenshot + Video) ---
 const captureBtn = document.getElementById('btn-capture');
+const captureInner = document.getElementById('btn-capture-inner');
 const galleryPanel = document.getElementById('gallery-panel');
 const btnGallerySmall = document.getElementById('btn-gallery-small');
 const btnGalleryClose = document.getElementById('btn-gallery-close');
@@ -435,16 +440,18 @@ const galleryPreviewMedia = document.getElementById('gallery-preview-media');
 const galleryFilenameEl = document.getElementById('gallery-filename');
 const galleryDownloadBtn = document.getElementById('gallery-download');
 
-const galleryItems = [];
+const galleryItems = []; // {type:'image'|'video', url, blob, filename, date}
 
 let recPressStart = 0;
 let recPressTimer = null;
 let isRecording = false;
 let mediaRecorder = null;
 let recordedChunks = [];
+
+// Kurzer Tap vs. langer Druck
 const LONG_PRESS_MS = 450;
 
-// Galerie Helfer
+// Galerie-Helfer
 function formatItemLabel(it) {
   const kind = it.type === 'image' ? 'Foto' : 'Video';
   const ext = (it.filename?.split('.').pop() || '').toUpperCase();
@@ -476,20 +483,12 @@ function setGalleryButtonsThumbnail(latest) {
 }
 
 function openGallery() {
-    if (!galleryPanel) return;
-    
-    // Sicherstellen, dass andere Overlays nicht stören
-    galleryPanel.style.display = 'flex';
-    
-    // UI-Feedback (optional)
-    setUiState('gallery_open', 'Galerie geöffnet');
-    
-    refreshGalleryGrid(); [cite: 68]
+  if (!galleryPanel) return;
+  galleryPanel.style.display = 'flex';
 }
 
 function closeGallery() {
   if (!galleryPanel) return;
-  console.log('[Gallery] close');
   galleryPanel.style.display = 'none';
 }
 
@@ -568,6 +567,7 @@ function refreshGalleryGrid() {
     galleryGrid.appendChild(card);
   });
 
+  // Preview auf letztes Item setzen
   showGalleryPreview(galleryItems[galleryItems.length - 1]);
 }
 
@@ -597,46 +597,35 @@ function canRecordReal() {
 
 function startRealRecording() {
   if (!renderer) return;
-  const canvas = renderer.domElement;
-
-  // Stream mit 30 FPS vom Canvas holen
-  const stream = canvas.captureStream(30);
-
-  // Audio-Tracks nur hinzufügen, wenn unterstützt und verfügbar
-  if (audioEl && !isMuted) {
-    try {
-      const audioStream = audioEl.captureStream ? audioEl.captureStream() : 
-                          audioEl.mozCaptureStream ? audioEl.mozCaptureStream() : null;
-      if (audioStream) {
-        audioStream.getAudioTracks().forEach((t) => stream.addTrack(t));
-      }
-    } catch (e) {
-      console.warn('[Recording] Audio-Integration fehlgeschlagen:', e);
-    }
-  }
-
-  // Mime-Type Prüfung für bessere Kompatibilität (Android vs iOS)
-  const types = ['video/webm;codecs=vp8', 'video/mp4'];
-  const supportedType = types.find(type => MediaRecorder.isTypeSupported(type));
-
-  if (!supportedType) {
-    showErr("Videoformat wird auf diesem Gerät nicht unterstützt.");
+  if (!canRecordReal()) {
+    console.warn('[Recording] MediaRecorder nicht verfügbar, überspringe echte Aufnahme.');
     return;
   }
 
+  const canvas = renderer.domElement;
+  const stream = canvas.captureStream(30);
+  // Audio aus deinem Audio-Element dazumischen (falls aktiv und nicht gemutet)
+  if (audioEl && !isMuted && audioEl.captureStream) {
+    try {
+      const audioStream = audioEl.captureStream();
+      audioStream.getAudioTracks().forEach((t) => stream.addTrack(t));
+    } catch (e) {
+      console.warn('[Recording] Audio captureStream nicht verfügbar:', e);
+    }
+  }
+
   recordedChunks = [];
-  mediaRecorder = new MediaRecorder(stream, { mimeType: supportedType });
+  mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9,opus' });
 
   mediaRecorder.ondataavailable = (e) => {
     if (e.data && e.data.size > 0) recordedChunks.push(e.data);
   };
 
   mediaRecorder.onstop = () => {
-    const blob = new Blob(recordedChunks, { type: supportedType });
-    const extension = supportedType.includes('mp4') ? 'mp4' : 'webm';
+    const blob = new Blob(recordedChunks, { type: 'video/webm' });
+    recordedChunks = [];
     const url = URL.createObjectURL(blob);
-    const filename = `ar-video-${new Date().toISOString().replace(/[:.]/g, '-')}.${extension}`;
-    
+    const filename = 'ar-video-' + new Date().toISOString().replace(/[:.]/g, '-') + '.webm';
     const item = { type: 'video', url, blob, filename, date: new Date() };
     galleryItems.push(item);
     setGalleryButtonsThumbnail(item);
@@ -662,6 +651,7 @@ function wireCaptureButton() {
     if (isRecording) return;
     recPressStart = performance.now();
     recPressTimer = setTimeout(() => {
+      // Langer Druck → Video
       if (!isRecording) {
         startRealRecording();
       }
@@ -676,8 +666,10 @@ function wireCaptureButton() {
     const pressDuration = performance.now() - recPressStart;
 
     if (isRecording) {
+      // Video zu Ende
       stopRealRecording();
     } else if (pressDuration < LONG_PRESS_MS) {
+      // Kurzer Tap → Foto
       takeScreenshot();
     }
   };
@@ -690,32 +682,21 @@ function wireCaptureButton() {
     e.preventDefault();
     onUp();
   });
-  captureBtn.addEventListener('pointerleave', () => {
+  captureBtn.addEventListener('pointerleave', (e) => {
     if (recPressTimer) {
       clearTimeout(recPressTimer);
       recPressTimer = null;
     }
   });
 
-  // Galerie-Button logisch ankoppeln
-// In der Funktion wireCaptureButton()
-if (btnGallerySmall) {
-    // Nutze pointerdown für schnellere Reaktion in AR
-    btnGallerySmall.addEventListener('pointerdown', (e) => {
-        e.preventDefault();
-        e.stopPropagation(); // Verhindert, dass das gesture-layer den Touch verarbeitet
-        console.log('[Gallery] Öffne Galerie...');
-        openGallery();
+  if (btnGallerySmall && btnGalleryClose && galleryPanel) {
+    btnGallerySmall.addEventListener('click', () => {
+      openGallery();
     });
-}
-
-if (btnGalleryClose) {
-    btnGalleryClose.addEventListener('pointerdown', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        closeGallery();
+    btnGalleryClose.addEventListener('click', () => {
+      closeGallery();
     });
-}
+  }
 }
 
 // --- UI helpers ---
@@ -770,7 +751,6 @@ function isTouchOnModel(clientX, clientY) {
 }
 
 // --- Boot & Three init ---
-// --- Boot & Three init ---
 async function boot() {
   const startScreen = document.getElementById('start-screen');
   const overlay = document.getElementById('overlay');
@@ -781,11 +761,6 @@ async function boot() {
   const startSubline = document.getElementById('start-subline');
   const startText = document.getElementById('start-text');
 
-  // 1️⃣ UI-Events (Recording + Galerie) SOFORT binden
-  wireCaptureButton();
-  setGalleryButtonsThumbnail(null);
-
-  // 2️⃣ Startscreen-Grundzustand
   startScreen.style.display = 'flex';
   overlay.style.pointerEvents = 'none';
   btnEnterAR.disabled = true;
@@ -796,13 +771,10 @@ async function boot() {
   startText.textContent = FALLBACKS.body;
   startImage.style.display = 'none';
 
-  // 3️⃣ WebXR-Unterstützung prüfen – aber NICHT hart abbrechen
   let xrSupported = false;
   try {
     xrSupported = !!(navigator.xr) &&
-      (navigator.xr.isSessionSupported
-        ? await navigator.xr.isSessionSupported('immersive-ar')
-        : false);
+      (navigator.xr.isSessionSupported ? await navigator.xr.isSessionSupported('immersive-ar') : false);
   } catch (e) {
     console.warn('isSessionSupported check failed:', e);
     xrSupported = false;
@@ -810,11 +782,9 @@ async function boot() {
 
   if (!xrSupported) {
     showErr('AR wird auf diesem Gerät/Browser nicht unterstützt (WebXR fehlt oder Session nicht möglich).');
-    btnEnterAR.disabled = true;
-    // Kein return mehr – UI und Galerie bleiben nutzbar
+    return;
   }
 
-  // 4️⃣ URL- / Scene-Logik
   if (sceneParam) {
     if (sceneParam.endsWith('.glb')) {
       MODEL_URL = sceneParam;
@@ -825,11 +795,10 @@ async function boot() {
     MODEL_URL = 'https://modelviewer.dev/shared-assets/models/Astronaut.glb';
   }
 
-  // 5️⃣ Szene-JSON laden (Fehler tolerieren)
   if (SCENE_JSON_URL) {
     try {
       const res = await fetch(SCENE_JSON_URL);
-      if (!res.ok) throw new Error(`Scene JSON Error: ${res.status} ${res.statusText}`);
+      if(!res.ok) throw new Error(`Scene JSON Error: ${res.status} ${res.statusText}`);
       const json = await res.json();
 
       const meta    = json.meta || {};
@@ -855,9 +824,9 @@ async function boot() {
         (welcome.poster && String(welcome.poster).trim()) ||
         '';
 
-      startTitle.innerHTML   = title;
+      startTitle.innerHTML = title;
       startSubline.innerHTML = subline;
-      startText.innerHTML    = body;
+      startText.innerHTML = body;
 
       if (posterFile) {
         const imageUrl = `${workerBase}/scenes/${sceneParam}/${encodeURIComponent(posterFile)}`;
@@ -868,56 +837,50 @@ async function boot() {
         startImage.style.display = 'none';
       }
 
-      if (json.model?.url) {
+      if(json.model?.url) {
         MODEL_URL = `${workerBase}/scenes/${sceneParam}/${json.model.url}`;
       } else {
         MODEL_URL = 'https://modelviewer.dev/shared-assets/models/Astronaut.glb';
-        showErr('Hinweis: Szene-JSON enthält keine Modell-URL. Fallback-Modell wird verwendet.');
+        showErr("Hinweis: Szene-JSON enthält keine Modell-URL. Fallback-Modell wird verwendet.");
       }
 
-      if (json.audio?.url) {
+      if(json.audio?.url) {
         AUDIO_URL = `${workerBase}/scenes/${sceneParam}/${json.audio.url}`;
         setupAudio(json.audio);
       }
-    } catch (e) {
+
+    } catch(e) {
       console.error(e);
-      showErr('Fehler beim Laden der Szene-Konfiguration: ' + e.message);
-      // Kein return → wir probieren mit aktuellem MODEL_URL weiter
+      showErr("Fehler beim Laden der Szene-Konfiguration: " + e.message);
     }
   }
 
-  // 6️⃣ Three.js initialisieren
   initThree();
 
-  // 7️⃣ Modell laden – Fehler abfangen, aber App nicht komplett beenden
   try {
     await loadModel();
-  } catch (e) {
-    showErr('Modell-Ladefehler: ' + e.message);
-    console.error('Modell-Ladefehler:', e);
+  } catch(e) {
+    showErr("Modell-Ladefehler: " + e.message);
+    console.error("Modell-Ladefehler:", e);
     btnEnterAR.disabled = true;
-    // Kein return → UI/Galerie bleiben benutzbar
+    return;
   }
 
-  if (xrSupported && modelLoaded) {
-    btnEnterAR.disabled = false;
-    setUiState('loaded', 'Modell geladen. Tippe auf AR Starten.');
-  }
+  btnEnterAR.disabled = false;
+  setUiState('loaded', 'Modell geladen. Tippe auf AR Starten.');
 
   window.addEventListener('resize', onResize);
 
-  // 8️⃣ START AR-Button wie bisher
+  wireCaptureButton();
+  setGalleryButtonsThumbnail(null);
+
   btnEnterAR.addEventListener('click', async () => {
     if (!modelLoaded) {
-      showErr('Modell noch nicht vollständig geladen. Bitte warten Sie kurz.');
+      showErr("Modell noch nicht vollständig geladen. Bitte warten Sie kurz.");
       return;
     }
 
-    if (!xrSupported) {
-      showErr('AR wird auf diesem Gerät/Browser nicht unterstützt.');
-      return;
-    }
-
+    // Audio im User-Click starten
     if (AUDIO_URL && !isMuted) {
       ensureAudioUnlocked();
       try {
@@ -987,11 +950,7 @@ function initThree() {
   dirLight.shadow.mapSize.set(1024, 1024);
   scene.add(dirLight);
 
-  renderer = new THREE.WebGLRenderer({ 
-    antialias: true, 
-    alpha: true,
-    preserveDrawingBuffer: true // WICHTIG: Erlaubt das Auslesen des Canvas
-  });
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.xr.enabled = true;
