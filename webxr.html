@@ -968,7 +968,11 @@ function initThree() {
   dirLight.shadow.mapSize.set(1024, 1024);
   scene.add(dirLight);
 
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer = new THREE.WebGLRenderer({ 
+    antialias: true, 
+    alpha: true,
+    preserveDrawingBuffer: true // WICHTIG: Erlaubt das Auslesen des Canvas
+  });
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.xr.enabled = true;
