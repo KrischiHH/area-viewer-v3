@@ -196,11 +196,14 @@ function setupAudio(audioCfg) {
   audioEl.src = AUDIO_URL;
   audioEl.loop = !!audioCfg.loop;
 
-  // Ursprüngliche Szene-Lautstärke lesen
-  const sceneVolume = (typeof audioCfg.volume === 'number') ? audioCfg.volume : 0.8;
+  // Ursprüngliche Szene-Lautstärke aus scene.json lesen (falls vorhanden)
+  const sceneVolume =
+    (audioCfg && typeof audioCfg.volume === 'number')
+      ? audioCfg.volume
+      : 0.8;
 
-  // GLOBAL DÄMPFEN – z.B. auf 40 % der ursprünglichen Lautstärke
-  const masterVolume = 0.2;  // hier stellst du ein, wie leise "alles" sein soll
+  // GLOBALER DÄMPFUNGSFAKTOR für webxr.html
+  const masterVolume = 0.3;   // hier lauter/leiser stellen (0.1 = sehr leise, 1.0 = voll)
 
   audioEl.volume = sceneVolume * masterVolume;
 
