@@ -95,11 +95,12 @@ html, body {
 /* Querformat: Scrollen möglich, Karte etwas schmaler */
 /* + Content bleibt mittig, aber über die Höhe scrollbar */
 @media (orientation: landscape) {
-  #start-screen {
-    overflow: auto;
-    align-items: flex-start;
-    justify-content: center;
+  #tannengruen-frame {
+    top: 49%;                                        /* Beispiel: leicht nach oben */
+    left: 50%;
+    transform: translate(-50%, -49%) scale(1.18);    /* Beispiel: individueller scale für landscape */
   }
+
   #start-content {
     min-height: 110vh;
     padding: 40px 0;
