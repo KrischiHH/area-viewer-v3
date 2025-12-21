@@ -2,17 +2,13 @@
 * { box-sizing: border-box; }
 
 :root {
-  /* STELLSCHRAUBE 1: Wie weit ragt die Ranke über den Rand (in Pixel/VW)?
-     → Hier kannst du steuern, wie viel die Tannengrün-Ranke ÜBER die Karte hinausragt. 
-        (Erhöhe für mehr Überhang, verringere für weniger Überhang) */
+  /* STELLSCHRAUBE 1: Wie weit ragt die Ranke über den Rand? */
   --frame-overhang: clamp(40px, 7vw, 90px);
-
-  /* STELLSCHRAUBE 2: Allgemeiner Zoom der Ranke (Standard Hochformat)
-     → Hier stellst du die STANDARD-Größe der Ranke im HOCHFORMAT ein!
-        (Größer = dicker/größer, kleiner = kompakter) */
-  --frame-scale: 1.18; 
 }
 
+/* =========
+   Hochformat-Defaults (Portrait)
+   ========= */
 html, body {
   margin: 0;
   padding: 0;
@@ -48,10 +44,10 @@ html, body {
 
 /* Wrapper für Inhalt + Ranke */
 #start-content {
-  position: relative; /* Ankerpunkt für absolute Ranke */
+  position: relative;
   width: 100%;
   max-width: 760px;
-  overflow: visible !important; /* WICHTIG: Erlaubt Überhang */
+  overflow: visible !important;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -61,12 +57,15 @@ html, body {
   padding-bottom: 24px;
 }
 
-/* Die blaue Karte */
+/* ========================
+   KACHEL (Karte) HOCHFORMAT
+   ======================== */
 #start-card {
   position: relative;
   z-index: 1;
   width: 100%;
-  max-width: 600px;      /* → Größe der Karte im HOCHFORMAT! Weniger = schmaler, mehr = breiter */
+  max-width: 600px;  /* <- HIER Größe der Kachel im Hochformat einstellen! */
+  min-width: 260px;
   background: linear-gradient(135deg, #2b4790 10%, #070b14 100%);
   border: 1px solid rgba(255,255,255,0.18);
   border-radius: 26px;
@@ -79,20 +78,19 @@ html, body {
   overflow: visible !important;
 }
 
-/* DIE RANKE – absolut an start-content orientiert, immer zentriert */
+/* ========================
+   RANKE HOCHFORMAT
+   ======================== */
 #tannengruen-frame {
+  /* Größe/Position der Ranke im Hochformat */
+  --frame-scale: 1.18; /* <- HIER Größe im Hochformat einstellen! */
+
   position: absolute;
-  top: 52%;    /* → Y-POSITION der Ranke im Hochformat */
-  left: 52%;   /* → X-POSITION der Ranke im Hochformat */
+  top: 52%;   /* <- Y-Position im Hochformat */
+  left: 52%;  /* <- X-Position im Hochformat */
   z-index: 2;
   width: calc(100% + var(--frame-overhang) * 2);
   height: calc(100% + var(--frame-overhang) * 2);
-  /* 
-    → transform bestimmt ZENTRIERUNG und SKALIERUNG der Ranke:
-      - die Prozentwerte verschieben das Bild, sodass es schön den Rahmen bildet 
-      - scale(var(--frame-scale)) nutzt die oben gesetzte Variable
-    ÄNDERE scale immer über die Variable und NICHT direkt hier!
-  */
   transform: translate(-45%, -55%) scale(var(--frame-scale));
   object-fit: contain;
   pointer-events: none;
@@ -107,7 +105,9 @@ html, body {
   z-index: 3;
 }
 
-/* Spezifische Styles für Inhalte */
+/* ========================
+   Inhalte
+   ======================== */
 #start-image {
   width: 100%;
   max-width: 620px;
@@ -115,7 +115,6 @@ html, body {
   margin: 8px 0 12px;
   border-radius: 18px;
 }
-
 #start-title {
   font-family: 'Bangers', cursive;
   font-size: clamp(40px, 9vw, 70px);
@@ -125,14 +124,12 @@ html, body {
   text-shadow: 4px 4px 0px #000;
   letter-spacing: .25px;
 }
-
 #start-subline {
   font-size: clamp(18px, 4.2vw, 30px);
   font-weight: 650;
   margin: -12px 0 4px;
   color: rgba(255,255,255,0.98);
 }
-
 #start-text {
   font-size: clamp(16px, 4vw, 30px);
   margin: 8px 0 14px;
@@ -140,7 +137,6 @@ html, body {
   color: rgba(255,255,255,0.95);
   max-width: 680px;
 }
-
 .btn-start {
   background: #E6F0FF;
   color: #0B1A33;
@@ -155,7 +151,9 @@ html, body {
 }
 .btn-start:active { transform: scale(0.98); }
 
-/* AR UI Elemente */
+/* ========================
+   AR UI
+   ======================== */
 .ui-row {
   position: fixed;
   top: 0; left: 0; right: 0;
@@ -166,7 +164,6 @@ html, body {
   pointer-events: auto;
   z-index: 20;
 }
-
 .btn-icon {
   background: rgba(20,20,30,0.6);
   border: 1px solid rgba(255,255,255,0.2);
@@ -175,53 +172,46 @@ html, body {
   font-size: 20px; border-radius: 50%;
   cursor: pointer;
 }
-
 #msg-container {
   position: fixed; left: 0; right: 0; bottom: 16px;
   text-align: center; pointer-events: none; z-index: 20;
 }
-
 #msg {
   background: rgba(0,0,0,0.55); padding: 8px 16px;
   border-radius: 20px; display: inline-block; font-size: 14px;
 }
-
 #err {
   position: fixed; top: 10px; left: 10px; right: 10px;
   background: #b00020; color: white; padding: 10px;
   border-radius: 8px; font-size: 12px; display: none; z-index: 120;
 }
-
 #gesture-layer {
   position: absolute; inset: 0; z-index: 0;
   pointer-events: auto; touch-action: none;
 }
 
-/* --------------------------------------
-   RESPONSIVE QUERFORMAT-ANPASSUNGEN FÜR DIE RANKE UND KARTE!
-   -------------------------------------- */
+/* ================
+   QUERFORMAT (LANDSCAPE) – Hier separat alles fürs Querformat einstellen!
+   ================ */
 @media (orientation: landscape) {
 
+  /* KACHEL/KARTE Querformat */
   #start-card {
-    /* → Größe der Karte im QUERFORMAT anpassen!
-         width kleiner = schmaler; max-width kleiner = schmaler */
-    width: 44vw;      /* z.B. 44vw statt 100% */
-    max-width: 370px; /* z.B. kleiner als im Hochformat */
+    /* → Kachelgröße im Querformat! */
+    width: 44vw;           /* Weniger vw = schmaler; mehr = breiter im Querformat */
+    max-width: 370px;      /* Kleinere max-width = schmaler auf großen displays */
     min-width: 220px;
   }
 
+  /* RANKE Querformat */
   #tannengruen-frame {
-    /* → Größe der Ranke im Querformat!
-         Erhöhe --frame-scale solange, bis sie kräftig erscheint. */
-    --frame-scale: 1.38; /* Z.B. 1.38 für größere Ranke im Querformat */
-
-    /* Falls Rahmen in Landscape nicht korrekt zentriert ist, 
-       kannst du top/left bzw. translate hier nachjustieren: */
-    top: 50%;
-    left: 50%;
+    /* Größe/Position der Ranke NUR im Querformat! */
+    --frame-scale: 1.38;   /* Höherer Wert = größerer Rahmen im Querformat */
+    top: 50%;              /* Y-Position im Querformat */
+    left: 50%;             /* X-Position im Querformat */
     width: auto;
-    height: calc(100% + var(--frame-overhang) * 2);
-    /* Die Skalierung greift wie gehabt über transform */
-    /* transform bleibt: transform: translate(-45%, -55%) scale(var(--frame-scale)); */
+    height: calc(100% + var(--frame-overhang) * 2); /* Höhe anpassen */
+    /* Das transform bleibt wie im Hochformat: 
+       transform: translate(-45%, -55%) scale(var(--frame-scale)); */
   }
 }
