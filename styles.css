@@ -169,7 +169,7 @@ html, body {
     width: 60vw;
     max-width: 600px;
     min-width: 220px;
-    transform: scale(0.88);
+    transform: scale(0.50);
     transform-origin: center center;
   }
 
