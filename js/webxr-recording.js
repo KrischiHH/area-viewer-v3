@@ -1,305 +1,941 @@
-// js/webxr-recording.js
-// Recording (Foto + Video) + In-App-Galerie für den Three.js-WebXR-Viewer (webxr.html)
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover"/>
+<title>ARea WebXR Viewer</title>
 
-let rendererRef = null;
-let audioElRef = null;
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bangers&display=swap" rel="stylesheet"> 
+<link rel="stylesheet" href="styles.css">
 
-const LONG_PRESS_MS = 450;
-
-let isRecording = false;
-let mediaRecorder = null;
-let recordedChunks = [];
-let pressTimer = null;
-let pressStart = 0;
-
-// Galerie-State
-const galleryItems = []; // { type:'image'|'video', url, filename, blob?, date }
-
-function qs(id) {
-  return document.getElementById(id);
-}
-
-function formatItemLabel(it) {
-  const kind = it.type === 'image' ? 'Foto' : 'Video';
-  const ext = (it.filename?.split('.').pop() || '').toUpperCase();
-  return `${kind} • ${ext}`;
-}
-
-function setGalleryButtonThumbnail(latest) {
-  const btn = qs('btn-gallery-small');
-  if (!btn) return;
-  btn.innerHTML = '';
-
-  if (!latest) {
-    const ph = document.createElement('div');
-    ph.id = 'btn-gallery-small-placeholder';
-    btn.appendChild(ph);
-    return;
-  }
-
-  let media;
-  if (latest.type === 'image') {
-    media = document.createElement('img');
-    media.src = latest.url;
-  } else {
-    media = document.createElement('video');
-    media.src = latest.url;
-    media.muted = true;
-    media.loop = true;
-    media.playsInline = true;
-    media.autoplay = true;
-  }
-  btn.appendChild(media);
-}
-
-function showGalleryPreview(it) {
-  const wrap = qs('gallery-preview-media');
-  const nameEl = qs('gallery-filename');
-  const btnDownload = qs('gallery-download');
-  if (!wrap) return;
-
-  wrap.innerHTML = '';
-  if (nameEl) nameEl.textContent = it.filename || formatItemLabel(it);
-
-  let media;
-  if (it.type === 'image') {
-    media = document.createElement('img');
-    media.src = it.url;
-    media.alt = it.filename || 'Foto';
-  } else {
-    media = document.createElement('video');
-    media.src = it.url;
-    media.controls = true;
-    media.autoplay = true;
-    media.loop = true;
-    media.playsInline = true;
-  }
-  wrap.appendChild(media);
-
-  if (btnDownload) {
-    btnDownload.onclick = () => {
-      const a = document.createElement('a');
-      a.href = it.url;
-      a.download = it.filename || (it.type === 'image' ? 'photo.jpg' : 'video.webm');
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    };
+<script src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
   }
 }
+</script>
 
-function refreshGalleryGrid() {
-  const grid = qs('gallery-grid');
-  if (!grid) return;
-  grid.innerHTML = '';
-
-  if (galleryItems.length === 0) {
-    const empty = document.createElement('div');
-    empty.style.opacity = '.7';
-    empty.style.color = '#fff';
-    empty.textContent = 'Noch keine Medien aufgenommen.';
-    grid.appendChild(empty);
-    return;
+<style>
+  :root {
+    --frame-overhang: clamp(32px, 6.5vw, 72px);
   }
 
-  [...galleryItems].reverse().forEach((it) => {
-    const card = document.createElement('div');
-    card.className = 'thumb';
-
-    let media;
-    if (it.type === 'image') {
-      media = document.createElement('img');
-      media.src = it.url;
-      media.alt = it.filename || 'Foto';
-    } else {
-      media = document.createElement('video');
-      media.src = it.url;
-      media.loop = true;
-      media.muted = true;
-      media.playsInline = true;
-      media.autoplay = true;
-    }
-
-    const label = document.createElement('div');
-    label.className = 'thumb-label';
-    label.textContent = formatItemLabel(it);
-
-    card.appendChild(media);
-    card.appendChild(label);
-    card.onclick = () => showGalleryPreview(it);
-
-    grid.appendChild(card);
-  });
-
-  showGalleryPreview(galleryItems[galleryItems.length - 1]);
-}
-
-function openGallery() {
-  const panel = qs('gallery-panel');
-  if (!panel) return;
-  panel.style.display = 'flex';
-  refreshGalleryGrid();
-}
-
-function closeGallery() {
-  const panel = qs('gallery-panel');
-  if (!panel) return;
-  panel.style.display = 'none';
-}
-
-// Screenshot
-async function takeScreenshot() {
-  if (!rendererRef) return;
-  const canvas = rendererRef.domElement;
-  if (!canvas || !canvas.toBlob) return;
-
-  const blob = await new Promise((resolve) => {
-    canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.9);
-  });
-  if (!blob) return;
-
-  const url = URL.createObjectURL(blob);
-  const filename = 'ar-photo-' + new Date().toISOString().replace(/[:.]/g, '-') + '.jpg';
-  const item = { type: 'image', url, blob, filename, date: new Date() };
-  galleryItems.push(item);
-  setGalleryButtonThumbnail(item);
-  refreshGalleryGrid();
-}
-
-// Video
-function canRecordVideo() {
-  return !!window.MediaRecorder && !!rendererRef?.domElement?.captureStream;
-}
-
-function startVideoRecording(captureBtn) {
-  if (!rendererRef) return;
-  if (!canRecordVideo()) {
-    console.warn('[WebXR-Recording] MediaRecorder nicht verfügbar.');
-    return;
+  #start-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
   }
 
-  const canvas = rendererRef.domElement;
-  const stream = canvas.captureStream(30);
-
-  if (audioElRef && audioElRef.captureStream) {
-    try {
-      const audioStream = audioElRef.captureStream();
-      audioStream.getAudioTracks().forEach((t) => stream.addTrack(t));
-    } catch (e) {
-      console.warn('[WebXR-Recording] audioEl.captureStream fehlgeschlagen:', e);
-    }
+  #start-content {
+    position: relative;           
+    overflow: visible !important; 
   }
 
-  recordedChunks = [];
+  #start-card {
+    position: relative;
+    overflow: visible !important;
+    z-index: 1; 
+  }
+
+  #tannengruen-frame {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -52%) scale(var(--frame-scale));
+    width: calc(100% + var(--frame-overhang) * 2);
+    height: calc(100% + var(--frame-overhang) * 2);
+    object-fit: contain;
+    pointer-events: none; 
+    z-index: 2;
+    border-radius: 0 !important;
+    overflow: visible !important;
+    clip-path: none !important;
+    -webkit-clip-path: none !important;
+    mask: none !important;
+    -webkit-mask: none !important;
+  }
+
+  #btn-enter-ar {
+    position: relative;
+    z-index: 3;
+    margin-top: 8px;
+  }
+
+  /* Aufnahme- & Galerie-UI */
+  #capture-row {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 72px;
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    pointer-events: none;
+    z-index: 30;
+  }
+
+  #btn-capture,
+  #btn-gallery-small {
+    pointer-events: auto;
+  }
+
+  #btn-capture {
+    width: 68px;
+    height: 68px;
+    border-radius: 50%;
+    border: 3px solid rgba(255,255,255,0.9);
+    background: rgba(0,0,0,0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  #btn-capture-inner {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: #ff4e4e;
+    transition: transform 0.12s ease-out, background 0.12s ease-out;
+  }
+
+  #btn-capture.recording #btn-capture-inner {
+    background: #ffbf40;
+    transform: scale(0.82);
+  }
+
+  #btn-gallery-small {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.6);
+    background: rgba(0,0,0,0.5);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  #btn-gallery-small img,
+  #btn-gallery-small video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  #btn-gallery-small-placeholder {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    border: 2px solid rgba(255,255,255,0.8);
+    box-sizing: border-box;
+  }
+
+  /* Galerie-Panel */
+  #gallery-panel {
+    position: fixed;
+    inset: 0;
+    background: rgba(5, 5, 15, 0.92);
+    display: none;
+    flex-direction: column;
+    padding: 18px 14px 10px;
+    z-index: 120;
+  }
+
+  #gallery-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+
+  #gallery-header h2 {
+    margin: 0;
+    font-size: 18px;
+  }
+
+  #gallery-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    margin-bottom: 10px;
+    overflow-y: auto;
+    flex: 1;
+  }
+
+  .thumb {
+    position: relative;
+    border-radius: 10px;
+    overflow: hidden;
+    cursor: pointer;
+  }
+
+  .thumb img,
+  .thumb video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .thumb-label {
+    position: absolute;
+    left: 4px;
+    bottom: 4px;
+    right: 4px;
+    font-size: 10px;
+    line-height: 1.2;
+    padding: 2px 4px;
+    border-radius: 6px;
+    background: rgba(0,0,0,0.6);
+  }
+
+  #gallery-preview {
+    border-top: 1px solid rgba(255,255,255,0.15);
+    padding-top: 8px;
+  }
+
+  #gallery-preview-media {
+    width: 100%;
+    max-height: 40vh;
+    border-radius: 12px;
+    overflow: hidden;
+    background: rgba(0,0,0,0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 6px;
+  }
+
+  #gallery-preview-media img,
+  #gallery-preview-media video {
+    max-width: 100%;
+    max-height: 40vh;
+    display: block;
+  }
+
+  #gallery-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+  }
+
+  #gallery-filename {
+    flex: 1;
+    padding-right: 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  #gallery-download {
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.6);
+    background: transparent;
+    color: #fff;
+    font-size: 11px;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+
+<div id="err"></div>
+
+<div id="start-screen">
+  <div id="start-content">
+    <div id="start-card">
+      <h1 id="start-title"></h1>
+      <p id="start-subline"></p>
+      <img id="start-image" style="display:none;" alt="Vorschau"/>
+      <p id="start-text"></p>
+      <button class="btn-start" id="btn-enter-ar">STARTE AR</button>
+    </div>
+
+    <img id="tannengruen-frame" src="./assets/Tannengruen.png" alt="Dekorativ" aria-hidden="true"/>
+  </div>
+</div>
+
+<div id="overlay">
+  <div class="ui-row">
+    <button class="btn-icon" id="btn-close" aria-label="AR-Session beenden">×</button>
+    <button class="btn-icon" id="btn-mute" style="display:none" aria-label="Audio umschalten">🔊</button>
+  </div>
+  <div id="msg-container">
+    <div id="msg" role="status" aria-live="polite">Bewege dein Gerät um Fläche zu finden...</div>
+  </div>
+
+  <div id="capture-row">
+    <button class="btn-icon" id="btn-gallery-small" aria-label="Galerie öffnen">
+      <div id="btn-gallery-small-placeholder"></div>
+    </button>
+    <button id="btn-capture" aria-label="Foto/Video aufnehmen">
+      <div id="btn-capture-inner"></div>
+    </button>
+  </div>
+
+  <div id="gesture-layer"></div>
+</div>
+
+<div id="gallery-panel">
+  <div id="gallery-header">
+    <h2>Galerie</h2>
+    <button class="btn-icon" id="btn-gallery-close" aria-label="Galerie schließen">×</button>
+  </div>
+  <div id="gallery-grid"></div>
+  <div id="gallery-preview">
+    <div id="gallery-preview-media"></div>
+    <div id="gallery-meta">
+      <div id="gallery-filename"></div>
+      <button id="gallery-download">Download</button>
+    </div>
+  </div>
+</div>
+
+<audio id="ar-audio" loop playsinline preload="auto" crossorigin="anonymous"></audio>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { initWebXRRecording } from './js/webxr-recording.js';
+
+// --- dein bisheriger WebXR-Code, leicht ergänzt ---
+
+let camera, scene, renderer;
+let hitTestSource = null;
+let placementGroup;
+let placementRect;
+let model;
+let mixer;
+const clock = new THREE.Clock();
+
+let isModelPlaced = false;
+let modelLoaded = false;
+let isEditing = false;
+let isHovering = false;
+
+let currentTouches = [];
+let gestureStartTime = 0;
+let tapStartX = 0;
+let tapStartY = 0;
+let didMove = false;
+let isDraggingModel = false;
+let isRotatingModel = false;
+let isScalingModel = false;
+
+const ROTATION_FACTOR = 0.018;
+const SCALE_FACTOR = 0.005;
+const DRAG_THRESHOLD_PIX = 18;
+const TAP_THRESHOLD_MS = 350;
+const RECT_SIZE = 0.5;
+
+let initialPinchDistance = 0;
+let initialModelScale = 1;
+let lastMoveX = 0;
+
+const raycaster = new THREE.Raycaster();
+const ndc = new THREE.Vector2();
+const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+const qs = new URLSearchParams(location.search);
+const workerBase = (qs.get('base') || 'https://area-publish-proxy.area-webar.workers.dev').replace(/\/$/, '');
+const sceneParam = qs.get('scene') || qs.get('src');
+let SCENE_JSON_URL = '';
+let MODEL_URL = '';
+let AUDIO_URL = '';
+
+const FALLBACKS = {
+  title: '3D / AR Erlebnis',
+  subline: '',
+  body: 'Tippe auf START AR, um das Modell in deiner Umgebung zu sehen.',
+  image: ''
+};
+
+const audioEl = document.getElementById('ar-audio');
+const btnMute = document.getElementById('btn-mute');
+let isMuted = false;
+let audioCtx = null;
+
+function ensureAudioUnlocked() {
   try {
-    mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
-  } catch (e) {
-    console.warn('[WebXR-Recording] MediaRecorder init fehlgeschlagen:', e);
-    return;
-  }
-
-  mediaRecorder.ondataavailable = (e) => {
-    if (e.data && e.data.size > 0) recordedChunks.push(e.data);
-  };
-
-  mediaRecorder.onstop = () => {
-    const blob = new Blob(recordedChunks, { type: 'video/webm' });
-    recordedChunks = [];
-    const url = URL.createObjectURL(blob);
-    const filename = 'ar-video-' + new Date().toISOString().replace(/[:.]/g, '-') + '.webm';
-    const item = { type: 'video', url, blob, filename, date: new Date() };
-    galleryItems.push(item);
-    setGalleryButtonThumbnail(item);
-    refreshGalleryGrid();
-  };
-
-  mediaRecorder.start();
-  isRecording = true;
-  if (captureBtn) captureBtn.classList.add('recording');
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+  } catch {}
 }
 
-function stopVideoRecording(captureBtn) {
-  if (!mediaRecorder || !isRecording) return;
-  mediaRecorder.stop();
-  isRecording = false;
-  if (captureBtn) captureBtn.classList.remove('recording');
-}
+function setupAudio(audioCfg) {
+  btnMute.style.display = 'flex';
+  btnMute.textContent = '🔊';
+  btnMute.setAttribute('aria-label', 'Audio ausschalten');
+  audioEl.crossOrigin = 'anonymous';
+  audioEl.src = AUDIO_URL;
+  audioEl.loop = !!audioCfg.loop;
 
-export function initWebXRRecording({ renderer, audioEl }) {
-  rendererRef = renderer;
-  audioElRef = audioEl;
+  const sceneVolume = (typeof audioCfg.volume === 'number') ? audioCfg.volume : 0.8;
+  const masterVolume = 0.3;
+  audioEl.volume = sceneVolume * masterVolume;
 
-  const captureBtn = qs('btn-capture');
-  const galleryBtn = qs('btn-gallery-small');
-  const galleryClose = qs('btn-gallery-close');
+  try { audioEl.load(); } catch {}
 
-  if (!captureBtn) {
-    console.warn('[WebXR-Recording] btn-capture nicht gefunden.');
-    return;
-  }
+  audioEl.addEventListener('error', (e) => {
+    console.error('Audio load error:', e);
+    setUiState('audio_error', 'Audio konnte nicht geladen werden (CORS/Netzwerk).');
+  });
 
-  // Initial Galerie-Thumbnail
-  setGalleryButtonThumbnail(null);
-
-  // Capture Button: kurz = Foto, lang = Video
-  const onDown = () => {
-    if (isRecording) return;
-    pressStart = performance.now();
-    pressTimer = setTimeout(() => {
-      if (!isRecording) {
-        startVideoRecording(captureBtn);
+  btnMute.onclick = async () => {
+    isMuted = !isMuted;
+    audioEl.muted = isMuted;
+    btnMute.textContent = isMuted ? '🔇' : '🔊';
+    btnMute.setAttribute('aria-label', isMuted ? 'Audio einschalten' : 'Audio ausschalten');
+    if (!isMuted) {
+      ensureAudioUnlocked();
+      try {
+        await audioEl.play();
+        setUiState('audio_playing', 'Audio läuft.');
+      } catch {
+        setUiState('audio_blocked', 'Audio blockiert. Versuche es ggf. erneut.');
       }
-    }, LONG_PRESS_MS);
-  };
-
-  const onUp = () => {
-    if (pressTimer) {
-      clearTimeout(pressTimer);
-      pressTimer = null;
-    }
-    const duration = performance.now() - pressStart;
-
-    if (isRecording) {
-      stopVideoRecording(captureBtn);
-    } else if (duration < LONG_PRESS_MS) {
-      takeScreenshot();
+    } else {
+      audioEl.pause();
     }
   };
-
-  captureBtn.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    onDown();
-  });
-  captureBtn.addEventListener('pointerup', (e) => {
-    e.preventDefault();
-    onUp();
-  });
-  captureBtn.addEventListener('pointerleave', () => {
-    if (pressTimer) {
-      clearTimeout(pressTimer);
-      pressTimer = null;
-    }
-  });
-
-  // Galerie-Button
-  if (galleryBtn) {
-    galleryBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      openGallery();
-    });
-  }
-  if (galleryClose) {
-    galleryClose.addEventListener('click', (e) => {
-      e.preventDefault();
-      closeGallery();
-    });
-  }
-
-  // Beim Verlassen der Seite laufende Aufnahme stoppen
-  window.addEventListener('beforeunload', () => {
-    if (isRecording) {
-      try { stopVideoRecording(captureBtn); } catch {}
-    }
-  });
 }
+
+function showErr(txt) {
+  const e = document.getElementById('err');
+  e.textContent = txt;
+  e.style.display = 'block';
+  setTimeout(() => e.style.display='none', 5000);
+}
+
+let uiState = '';
+function updateMsg(txt) {
+  document.getElementById('msg').textContent = txt;
+}
+function setUiState(nextState, msg) {
+  if (uiState !== nextState) {
+    uiState = nextState;
+    if (msg) updateMsg(msg);
+  }
+}
+
+function toNDC(clientX, clientY) {
+  const w = renderer.domElement.clientWidth || window.innerWidth;
+  const h = renderer.domElement.clientHeight || window.innerHeight;
+  ndc.x = (clientX / w) * 2 - 1;
+  ndc.y = -(clientY / h) * 2 + 1;
+}
+
+function isTapInsidePlacementRect(clientX, clientY) {
+  if (!placementGroup || !placementRect || !placementRect.visible || !isHovering) return false;
+  toNDC(clientX, clientY);
+  raycaster.setFromCamera(ndc, camera);
+  const hit = new THREE.Vector3();
+  if (raycaster.ray.intersectPlane(floorPlane, hit) === null) return false;
+  const rectWorldPos = placementGroup.position;
+  const dx = hit.x - rectWorldPos.x;
+  const dz = hit.z - rectWorldPos.z;
+  const halfSize = (RECT_SIZE * placementGroup.scale.x * 1.05) / 2 + 0.05;
+  return (Math.abs(dx) <= halfSize) && (Math.abs(dz) <= halfSize);
+}
+
+function isTouchOnModel(clientX, clientY) {
+  if (!model || !isModelPlaced) return false;
+  toNDC(clientX, clientY);
+  raycaster.setFromCamera(ndc, camera);
+  const hits = raycaster.intersectObject(model, true);
+  return hits.length > 0;
+}
+
+async function boot() {
+  const startScreen = document.getElementById('start-screen');
+  const overlay = document.getElementById('overlay');
+  const btnEnterAR = document.getElementById('btn-enter-ar');
+  const startImage = document.getElementById('start-image');
+
+  const startTitle = document.getElementById('start-title');
+  const startSubline = document.getElementById('start-subline');
+  const startText = document.getElementById('start-text');
+
+  startScreen.style.display = 'flex';
+  overlay.style.pointerEvents = 'none';
+  btnEnterAR.disabled = true;
+
+  startTitle.textContent = FALLBACKS.title;
+  startSubline.textContent = FALLBACKS.subline;
+  startText.textContent = FALLBACKS.body;
+  startImage.style.display = 'none';
+
+  let xrSupported = false;
+  try {
+    xrSupported = !!(navigator.xr) &&
+      (navigator.xr.isSessionSupported ? await navigator.xr.isSessionSupported('immersive-ar') : false);
+  } catch (e) {
+    console.warn('isSessionSupported check failed:', e);
+    xrSupported = false;
+  }
+
+  if (!xrSupported) {
+    showErr('AR wird auf diesem Gerät/Browser nicht unterstützt (WebXR fehlt oder Session nicht möglich).');
+    return;
+  }
+
+  if (sceneParam) {
+    if (sceneParam.endsWith('.glb')) {
+      MODEL_URL = sceneParam;
+    } else {
+      SCENE_JSON_URL = `${workerBase}/scenes/${sceneParam}/scene.json`;
+    }
+  } else {
+    MODEL_URL = 'https://modelviewer.dev/shared-assets/models/Astronaut.glb';
+  }
+
+  if (SCENE_JSON_URL) {
+    try {
+      const res = await fetch(SCENE_JSON_URL);
+      if(!res.ok) throw new Error(`Scene JSON Error: ${res.status} ${res.statusText}`);
+      const json = await res.json();
+
+      const meta    = json.meta || {};
+      const welcome = (json.ui && json.ui.welcome) || {};
+      const title =
+        (meta.title && meta.title.trim()) ||
+        (welcome.title && welcome.title.trim()) ||
+        FALLBACKS.title;
+
+      const subline =
+        (meta.subtitle && meta.subtitle.trim()) ||
+        (welcome.eyebrow && welcome.eyebrow.trim()) ||
+        FALLBACKS.subline;
+
+      const body =
+        (meta.body && meta.body.trim()) ||
+        (meta.description && meta.description.trim()) ||
+        (welcome.desc && welcome.desc.trim()) ||
+        FALLBACKS.body;
+
+      const posterFile =
+        (meta.posterImage && String(meta.posterImage).trim()) ||
+        (welcome.poster && String(welcome.poster).trim()) ||
+        '';
+
+      startTitle.innerHTML = title;
+      startSubline.innerHTML = subline;
+      startText.innerHTML = body;
+
+      if (posterFile) {
+        const imageUrl = `${workerBase}/scenes/${sceneParam}/${encodeURIComponent(posterFile)}`;
+        startImage.src = imageUrl;
+        startImage.style.display = 'block';
+        startImage.alt = title ? `${title} Vorschau` : 'Vorschau';
+      } else {
+        startImage.style.display = 'none';
+      }
+
+      if(json.model?.url) {
+        MODEL_URL = `${workerBase}/scenes/${sceneParam}/${json.model.url}`;
+      } else {
+        MODEL_URL = 'https://modelviewer.dev/shared-assets/models/Astronaut.glb';
+        showErr("Hinweis: Szene-JSON enthält keine Modell-URL. Fallback-Modell wird verwendet.");
+      }
+
+      if(json.audio?.url) {
+        AUDIO_URL = `${workerBase}/scenes/${sceneParam}/${json.audio.url}`;
+        setupAudio(json.audio);
+      }
+
+    } catch(e) {
+      console.error(e);
+      showErr("Fehler beim Laden der Szene-Konfiguration: " + e.message);
+    }
+  }
+
+  initThree();
+
+  try {
+    await loadModel();
+  } catch(e) {
+    showErr("Modell-Ladefehler: " + e.message);
+    console.error("Modell-Ladefehler:", e);
+    btnEnterAR.disabled = true;
+    return;
+  }
+
+  // >>> HIER: Recording für WebXR initialisieren <<<
+  initWebXRRecording({ renderer, audioEl });
+
+  btnEnterAR.disabled = false;
+  setUiState('loaded', 'Modell geladen. Tippe auf AR Starten.');
+
+  window.addEventListener('resize', onResize);
+
+  btnEnterAR.addEventListener('click', async () => {
+    if (!modelLoaded) {
+      showErr("Modell noch nicht vollständig geladen. Bitte warten Sie kurz.");
+      return;
+    }
+
+    if (AUDIO_URL && !isMuted) {
+      ensureAudioUnlocked();
+      try {
+        await audioEl.play();
+        setUiState('audio_playing', 'Audio läuft.');
+      } catch (e) {
+        console.warn('[Audio] Start im Button-Klick blockiert:', e);
+        setUiState('audio_blocked', 'Audio blockiert. Tippe auf 🔊 zum Abspielen.');
+      }
+    }
+
+    startScreen.style.display = 'none';
+    overlay.style.pointerEvents = 'auto';
+
+    onStartAR().catch(err => {
+      console.error('AR-Session Start Error:', err);
+      resetARState();
+      showErr('AR konnte nicht gestartet werden:\n' + (err?.message || 'Unbekannter Fehler'));
+    });
+  });
+
+  document.getElementById('btn-close').addEventListener('click', () => {
+    const s = renderer.xr.getSession();
+    if (s) {
+      s.end();
+    } else {
+      resetARState();
+    }
+  });
+
+  const gestureLayer = document.getElementById('gesture-layer');
+  gestureLayer.addEventListener('touchstart', onTouchStart, { passive: false });
+  gestureLayer.addEventListener('touchmove', onTouchMove, { passive: false });
+  gestureLayer.addEventListener('touchend', onTouchEnd, { passive: false });
+  gestureLayer.addEventListener('touchcancel', onTouchEnd, { passive: false });
+  gestureLayer.addEventListener('mousedown', onTouchStart, { passive: false });
+  gestureLayer.addEventListener('mousemove', onTouchMove, { passive: false });
+  gestureLayer.addEventListener('mouseup', onTouchEnd, { passive: false });
+}
+
+function resetARState() {
+  const startScreen = document.getElementById('start-screen');
+  const overlay = document.getElementById('overlay');
+  const btnEnterAR = document.getElementById('btn-enter-ar');
+
+  startScreen.style.display = 'flex';
+  overlay.style.pointerEvents = 'none';
+  audioEl.pause();
+  isModelPlaced = false;
+  isEditing = false;
+  placementGroup.visible = false;
+  placementRect.visible = false;
+  btnEnterAR.disabled = !modelLoaded;
+  setUiState('initial', 'Bewege dein Gerät um Fläche zu finden...');
+}
+
+function initThree() {
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.01, 20);
+
+  const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1.2);
+  scene.add(light);
+
+  const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+  dirLight.position.set(2, 8, 4);
+  dirLight.castShadow = true;
+  dirLight.shadow.mapSize.set(1024, 1024);
+  scene.add(dirLight);
+
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.xr.enabled = true;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  document.body.appendChild(renderer.domElement);
+
+  placementGroup = new THREE.Group();
+  placementGroup.visible = false;
+  scene.add(placementGroup);
+
+  const shadowPlaneGeo = new THREE.PlaneGeometry(10, 10);
+  shadowPlaneGeo.rotateX(-Math.PI / 2);
+  const shadowPlaneMat = new THREE.ShadowMaterial({ opacity: 0.3 });
+  const shadowPlane = new THREE.Mesh(shadowPlaneGeo, shadowPlaneMat);
+  shadowPlane.position.y = 0;
+  shadowPlane.receiveShadow = true;
+  scene.add(shadowPlane);
+
+  const radius = 0.05;
+  const rectShape = new THREE.Shape();
+  rectShape.moveTo(0, radius);
+  rectShape.lineTo(0, RECT_SIZE - radius);
+  rectShape.quadraticCurveTo(0, RECT_SIZE, radius, RECT_SIZE);
+  rectShape.lineTo(RECT_SIZE - radius, RECT_SIZE);
+  rectShape.quadraticCurveTo(RECT_SIZE, RECT_SIZE, RECT_SIZE, RECT_SIZE - radius);
+  rectShape.lineTo(RECT_SIZE, radius);
+  rectShape.quadraticCurveTo(RECT_SIZE, 0, RECT_SIZE - radius, 0);
+  rectShape.lineTo(radius, 0);
+  rectShape.quadraticCurveTo(0, 0, 0, radius);
+  const outlineGeo = new THREE.ShapeGeometry(rectShape);
+  outlineGeo.translate(-RECT_SIZE / 2, -RECT_SIZE / 2, 0);
+  const edges = new THREE.EdgesGeometry(outlineGeo);
+  const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, opacity: 0.8, transparent: true });
+  placementRect = new THREE.LineSegments(edges, lineMat);
+  placementRect.rotation.x = -Math.PI / 2;
+  placementRect.position.y = 0.005;
+  placementRect.scale.set(1.05, 1.05, 1.05);
+  placementRect.visible = false;
+  placementGroup.add(placementRect);
+}
+
+async function loadModel() {
+  const loader = new GLTFLoader();
+  const draco = new DRACOLoader();
+  draco.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
+  loader.setDRACOLoader(draco);
+
+  try {
+    const gltf = await loader.loadAsync(MODEL_URL);
+    model = gltf.scene;
+    model.traverse((node) => { if (node.isMesh) { node.castShadow = true; node.receiveShadow = false; } });
+    model.scale.setScalar(0.5);
+    if (gltf.animations?.length) {
+      mixer = new THREE.AnimationMixer(model);
+      gltf.animations.forEach(clip => mixer.clipAction(clip).play());
+    }
+    placementGroup.add(model);
+    modelLoaded = true;
+    setUiState('loaded', 'Modell geladen. Tippe auf AR Starten.');
+  } catch(e) {
+    throw new Error(e.message || "Unbekannter Fehler beim Laden des 3D-Modells.");
+  }
+}
+
+async function onStartAR() {
+  const overlay = document.getElementById('overlay');
+
+  const session = await navigator.xr.requestSession('immersive-ar', {
+    requiredFeatures: ['hit-test', 'local-floor'],
+    optionalFeatures: ['dom-overlay'],
+    domOverlay: { root: overlay }
+  });
+
+  session.addEventListener('end', () => {
+    try { hitTestSource?.cancel?.(); } catch(e) { console.error("Hit test cancel failed", e); }
+    hitTestSource = null;
+    renderer.setAnimationLoop(null);
+    renderer.xr.setSession(null);
+    resetARState();
+  });
+
+  session.requestReferenceSpace('viewer').then((refSpace) => {
+    session.requestHitTestSource({ space: refSpace }).then((source) => {
+      hitTestSource = source;
+    }).catch((e) => {
+      console.warn('Hit test source failed:', e);
+      setUiState('no_hittest', 'Kein AR-Hit-Test verfügbar. Bewege das Gerät oder versuche es erneut.');
+    });
+  }).catch((e) => {
+    console.warn('Viewer reference space failed:', e);
+    setUiState('no_refspace', 'AR-Referenzraum konnte nicht erstellt werden.');
+  });
+
+  renderer.xr.setReferenceSpaceType('local-floor');
+  await renderer.xr.setSession(session);
+  renderer.setAnimationLoop(render);
+}
+
+function onResize() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+function render(timestamp, frame) {
+  if (!frame) return;
+
+  const dt = clock.getDelta();
+  if(mixer) mixer.update(dt);
+
+  if (hitTestSource && !isModelPlaced) {
+    const refSpace = renderer.xr.getReferenceSpace();
+    const results = frame.getHitTestResults(hitTestSource);
+
+    if (results.length > 0) {
+      const hit = results[0];
+      const pose = hit.getPose(refSpace);
+
+      if (pose) {
+        const matrix = new THREE.Matrix4().fromArray(pose.transform.matrix);
+        placementGroup.position.setFromMatrixPosition(matrix);
+        placementGroup.position.y = 0;
+
+        const q = new THREE.Quaternion().setFromRotationMatrix(matrix);
+        const e = new THREE.Euler().setFromQuaternion(q, 'YXZ');
+        placementGroup.rotation.y = e.y;
+
+        placementGroup.visible = true;
+        placementRect.visible = true;
+        isHovering = true;
+        setUiState('hover', "Tippe auf die Zielmarkierung, um das Modell zu platzieren.");
+      }
+    } else {
+      placementGroup.visible = false;
+      placementRect.visible = false;
+      isHovering = false;
+      setUiState('search', "Suche Boden...");
+    }
+  }
+
+  if (isModelPlaced) {
+    placementRect.visible = isEditing;
+  }
+
+  renderer.render(scene, camera);
+}
+
+function getDistance(t1, t2) {
+  return Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+}
+
+function onTouchStart(event) {
+  currentTouches = event.touches ? Array.from(event.touches) : [event];
+  if (currentTouches.length === 0) return;
+
+  gestureStartTime = performance.now();
+  didMove = false;
+  isEditing = false;
+
+  tapStartX = currentTouches[0].clientX;
+  tapStartY = currentTouches[0].clientY;
+  lastMoveX = tapStartX;
+
+  isDraggingModel = false;
+  isRotatingModel = false;
+  isScalingModel = false;
+
+  if (!isModelPlaced) return;
+
+  if (currentTouches.length === 2) {
+    isEditing = true;
+    isScalingModel = true;
+    initialPinchDistance = getDistance(currentTouches[0], currentTouches[1]);
+    initialModelScale = placementGroup.scale.x;
+    placementRect.visible = true;
+    setUiState('scale', "Skalieren (Pinch)");
+
+  } else if (currentTouches.length === 1) {
+    if (isTouchOnModel(tapStartX, tapStartY)) {
+      isEditing = true;
+      isDraggingModel = true;
+      placementRect.visible = true;
+      setUiState('drag', "Modell verschieben (Drag)");
+    } else {
+      isEditing = true;
+      isRotatingModel = true;
+      placementRect.visible = true;
+      setUiState('rotate', "Modell drehen (Swipe)");
+    }
+  }
+
+  if (isEditing) event.preventDefault();
+}
+
+function onTouchMove(event) {
+  currentTouches = event.touches ? Array.from(event.touches) : [event];
+  const touchCount = currentTouches.length;
+
+  if (isEditing || touchCount > 1) event.preventDefault();
+  if (!isEditing || !isModelPlaced) return;
+
+  const isTwoFinger = touchCount === 2;
+  const isOneFinger = touchCount === 1;
+
+  const dragDistanceTotal = Math.hypot(currentTouches[0].clientX - tapStartX, currentTouches[0].clientY - tapStartY);
+  if (dragDistanceTotal > DRAG_THRESHOLD_PIX) didMove = true;
+
+  if (isTwoFinger) {
+    if (!isScalingModel) {
+      isScalingModel = true;
+      isDraggingModel = false;
+      isRotatingModel = false;
+      initialPinchDistance = getDistance(currentTouches[0], currentTouches[1]);
+      initialModelScale = placementGroup.scale.x;
+      setUiState('scale', "Skalieren (Pinch)");
+    }
+    const newDist = getDistance(currentTouches[0], currentTouches[1]);
+    const scaleDelta = newDist - initialPinchDistance;
+    const newScale = initialModelScale + scaleDelta * SCALE_FACTOR;
+    const clamped = Math.max(0.25, Math.min(3.0, newScale));
+    placementGroup.scale.setScalar(clamped);
+
+  } else if (isScalingModel && isOneFinger) {
+    isScalingModel = false;
+    const t = currentTouches[0];
+    if (isTouchOnModel(t.clientX, t.clientY)) {
+      isDraggingModel = true;
+      isRotatingModel = false;
+      setUiState('drag', "Modell verschieben (Drag)");
+    } else {
+      isDraggingModel = false;
+      isRotatingModel = true;
+      setUiState('rotate', "Modell drehen (Swipe)");
+    }
+  } else if (isOneFinger) {
+    const t = currentTouches[0];
+    const dx = t.clientX - lastMoveX;
+
+    if (isDraggingModel) {
+      toNDC(t.clientX, t.clientY);
+      raycaster.setFromCamera(ndc, camera);
+      const hit = new THREE.Vector3();
+      if (raycaster.ray.intersectPlane(floorPlane, hit)) {
+        placementGroup.position.set(hit.x, 0, hit.z);
+      }
+    }
+    if (isRotatingModel) {
+      placementGroup.rotation.y += dx * ROTATION_FACTOR;
+    }
+
+    lastMoveX = t.clientX;
+  }
+}
+
+function onTouchEnd(event) {
+  if (event.touches && event.touches.length > 0) return;
+
+  const gestureDuration = performance.now() - gestureStartTime;
+  const isTap = !didMove && gestureDuration < TAP_THRESHOLD_MS;
+  const endedTouch = event.changedTouches ? event.changedTouches[0] : event;
+
+  if (!isModelPlaced && isTap) {
+    if (isHovering && isTapInsidePlacementRect(endedTouch.clientX, endedTouch.clientY)) {
+      isModelPlaced = true;
+      placementRect.visible = false;
+      setUiState('placed', "Modell platziert. Ziehen/Pinch zum Bearbeiten.");
+    }
+  }
+
+  if (isEditing) {
+    isEditing = false;
+    isDraggingModel = false;
+    isRotatingModel = false;
+    isScalingModel = false;
+    initialModelScale = placementGroup.scale.x;
+    placementRect.visible = false;
+    if (isModelPlaced) setUiState('placed', "Bearbeitung beendet. Tippe auf Modell zum erneuten Draggen.");
+  }
+}
+
+boot();
+</script>
+
+</body>
+</html>
