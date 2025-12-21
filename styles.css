@@ -221,7 +221,7 @@ html, body {
     width: 60vw;
     max-width: 600px;
     min-width: 220px;
-    transform: scale(0.88);           /* Proportionale Skalierung im Querformat */
+    transform: scale(0.25);           /* Proportionale Skalierung im Querformat */
     transform-origin: center center;
   }
 
