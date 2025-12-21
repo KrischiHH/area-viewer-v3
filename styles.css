@@ -6,9 +6,6 @@
   --frame-overhang: clamp(40px, 7vw, 90px);
 }
 
-/* =========
-   Hochformat-Defaults (Portrait)
-   ========= */
 html, body {
   margin: 0;
   padding: 0;
@@ -20,7 +17,6 @@ html, body {
   overflow: hidden;
 }
 
-/* Overlay für AR-UI */
 #overlay {
   position: fixed;
   inset: 0;
@@ -29,12 +25,11 @@ html, body {
   z-index: 10;
 }
 
-/* Start-Screen Container */
 #start-screen {
   position: fixed;
   inset: 0;
   background: rgba(0,0,0,0.85);
-  display: none; /* JS schaltet dies um */
+  display: none;
   align-items: center;
   justify-content: center;
   z-index: 1000;
@@ -42,7 +37,6 @@ html, body {
   padding: 20px;
 }
 
-/* Wrapper für Inhalt + Ranke */
 #start-content {
   position: relative;
   width: 100%;
@@ -57,14 +51,11 @@ html, body {
   padding-bottom: 24px;
 }
 
-/* ========================
-   KACHEL (Karte) HOCHFORMAT
-   ======================== */
 #start-card {
   position: relative;
   z-index: 1;
   width: 100%;
-  max-width: 600px;  /* <- HIER Größe der Kachel im Hochformat einstellen! */
+  max-width: 600px;
   min-width: 260px;
   background: linear-gradient(135deg, #2b4790 10%, #070b14 100%);
   border: 1px solid rgba(255,255,255,0.18);
@@ -78,14 +69,12 @@ html, body {
   overflow: visible !important;
 }
 
-/* ========================
-   RANKE HOCHFORMAT
-   ======================== */
+/* Hochformat-Standard für Ranke */
 #tannengruen-frame {
-  --frame-scale: 1.18; /* <- HIER Größe im Hochformat einstellen! */
+  --frame-scale: 1.18;
   position: absolute;
-  top: 50%;   /* <- Y-Position im Hochformat */
-  left: 50%;  /* <- X-Position im Hochformat */
+  top: 50%;
+  left: 50%;
   z-index: 2;
   width: calc(100% + var(--frame-overhang) * 2);
   height: calc(100% + var(--frame-overhang) * 2);
@@ -97,15 +86,11 @@ html, body {
   box-shadow: none !important;
 }
 
-/* Die Inhalte (Text/Button) müssen ÜBER die Ranke */
 #start-card > * {
   position: relative;
   z-index: 3;
 }
 
-/* ========================
-   Inhalte
-   ======================== */
 #start-image {
   width: 100%;
   max-width: 620px;
@@ -149,9 +134,6 @@ html, body {
 }
 .btn-start:active { transform: scale(0.98); }
 
-/* ========================
-   AR UI
-   ======================== */
 .ui-row {
   position: fixed;
   top: 0; left: 0; right: 0;
@@ -189,7 +171,7 @@ html, body {
 }
 
 /* ================
-   QUERFORMAT (LANDSCAPE) – Hier separat alles fürs Querformat einstellen!
+   QUERFORMAT (LANDSCAPE) – Empfohlene Variante!
    ================ */
 @media (orientation: landscape) {
 
@@ -198,7 +180,6 @@ html, body {
     height: 100vh;
   }
 
-  /* #start-screen: jetzt ABSOLUT statt FIXED, damit Scrollen überall klappt */
   #start-screen {
     position: absolute;
     overflow: auto;
@@ -210,27 +191,30 @@ html, body {
     bottom: 0;
   }
 
+  /* Die gesamte Kachel samt Ranke etwas nach unten rücken! */
   #start-content {
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     min-height: 100vh;
+    margin-top: 40px;       /* <<< Diese Zeile nach Wunsch anpassen! */
   }
 
-  /* KACHEL/KARTE Querformat: Proportional skalieren */
   #start-card {
     width: 60vw;
     max-width: 600px;
     min-width: 220px;
-    transform: scale(0.50);           /* Proportionale Skalierung im Querformat */
+    transform: scale(0.88);    /* Proportionale Skalierung im Querformat */
     transform-origin: center center;
   }
 
-  /* RANKE Querformat */
+  /* RANKE Querformat -- ggf. feintunen mit X/Y */
   #tannengruen-frame {
     --frame-scale: 1.18;
-    top: 50%;
+    top: 52%;
     left: 50%;
     width: auto;
     height: calc(100% + var(--frame-overhang) * 2);
+    transform: translate(-51%, -44%) scale(var(--frame-scale));
+    /* X um 1-2% erhöhen (-> links), Y um weniger negativ (-> weiter nach unten) */
   }
 }
