@@ -22,8 +22,7 @@
 
 <style>
   :root {
-    /* Wie weit die Ranke pro Seite überstehen soll (wird zusätzlich zu styles.css angewandt,
-       du kannst diese Zeile auch löschen, dann gilt nur der Wert aus styles.css) */
+    /* Wie weit die Ranke pro Seite überstehen soll */
     --frame-overhang: clamp(32px, 6.5vw, 72px);
   }
 
@@ -40,27 +39,26 @@
     overflow: visible !important; 
   }
 
-  /* Card darf nichts abschneiden + Begrenzung für alle Formate */
+  /* Card darf nichts abschneiden */
   #start-card {
     position: relative;
     overflow: visible !important;
     z-index: 1; 
-    max-width: 420px;
-    width: 100%;
-    margin: 0 auto;
   }
 
   /* Ranke absolut über der Card mit Überhang */
   #tannengruen-frame {
     position: absolute;
     left: 50%;
-    top: 52%;
-    transform: translate(-50%, -52%) scale(var(--frame-scale)); 
+    /* Hier auf 58% angepasst, damit sie höher rutscht */
+    top: 50%;
+    transform: translate(-50%, -58%); 
     width: calc(100% + var(--frame-overhang) * 2);
     height: calc(100% + var(--frame-overhang) * 2);
     object-fit: contain;
     pointer-events: none; 
-    z-index: 2;
+    z-index: 2;           
+
     /* Resets gegen globale Styles */
     border-radius: 0 !important;
     overflow: visible !important;
@@ -70,35 +68,189 @@
     -webkit-mask: none !important;
   }
 
-  /* Spezialfall Querformat – Rahmen nimmt volle Viewportbreite,
-     Card wird mittig und max. schmal */
-  @media (orientation: landscape) {
-    #tannengruen-frame {
-      width: 100vw;
-      height: auto;
-      max-height: 90vh;
-      left: 50%;
-      top: 50%;
-      transform: translate(-50%, -50%) scale(var(--frame-scale));
-    }
-    #start-card {
-      max-width: 420px;
-      width: 94vw;
-      margin: 0 auto;
-    }
-    #start-content {
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-  }
-
   /* Start-Button sichtbar/klickbar über der Ranke */
   #btn-enter-ar {
     position: relative;
     z-index: 3;
     margin-top: 8px;
+  }
+
+  /* Aufnahme / Galerie UI im unteren Bereich */
+  #capture-row {
+    position: fixed;
+    bottom: 64px;          /* über dem Hinweis-Text */
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    pointer-events: none;  /* Buttons selbst schalten auf pointer-events:auto */
+    z-index: 30;
+  }
+
+  #btn-gallery-small,
+  #btn-capture {
+    pointer-events: auto;
+  }
+
+  #btn-capture {
+    width: 68px;
+    height: 68px;
+    border-radius: 50%;
+    border: 3px solid rgba(255,255,255,0.9);
+    background: rgba(0,0,0,0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+
+  #btn-capture-inner {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: #ff4e4e;
+    transition: transform 0.12s ease-out, background 0.12s ease-out;
+  }
+
+  #btn-capture.recording #btn-capture-inner {
+    background: #ffbf40;
+    transform: scale(0.82);
+  }
+
+  #btn-gallery-small {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.6);
+    background: rgba(0,0,0,0.5);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  #btn-gallery-small img,
+  #btn-gallery-small video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  #btn-gallery-small-placeholder {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    border: 2px solid rgba(255,255,255,0.8);
+    box-sizing: border-box;
+  }
+
+  /* Galerie-Panel */
+  #gallery-panel {
+    position: fixed;
+    inset: 0;
+    background: rgba(5, 5, 15, 0.92);
+    display: none;
+    flex-direction: column;
+    padding: 18px 14px 10px;
+    z-index: 120;
+  }
+
+  #gallery-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+
+  #gallery-header h2 {
+    margin: 0;
+    font-size: 18px;
+  }
+
+  #gallery-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    margin-bottom: 10px;
+    overflow-y: auto;
+    flex: 1;
+  }
+
+  .thumb {
+    position: relative;
+    border-radius: 10px;
+    overflow: hidden;
+    cursor: pointer;
+  }
+
+  .thumb img,
+  .thumb video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .thumb-label {
+    position: absolute;
+    left: 4px;
+    bottom: 4px;
+    right: 4px;
+    font-size: 10px;
+    line-height: 1.2;
+    padding: 2px 4px;
+    border-radius: 6px;
+    background: rgba(0,0,0,0.6);
+  }
+
+  #gallery-preview {
+    border-top: 1px solid rgba(255,255,255,0.15);
+    padding-top: 8px;
+  }
+
+  #gallery-preview-media {
+    width: 100%;
+    max-height: 40vh;
+    border-radius: 12px;
+    overflow: hidden;
+    background: rgba(0,0,0,0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 6px;
+  }
+
+  #gallery-preview-media img,
+  #gallery-preview-media video {
+    max-width: 100%;
+    max-height: 40vh;
+    display: block;
+  }
+
+  #gallery-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+  }
+
+  #gallery-filename {
+    flex: 1;
+    padding-right: 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  #gallery-download {
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.6);
+    background: transparent;
+    color: #fff;
+    font-size: 11px;
+    cursor: pointer;
   }
 </style>
 </head>
@@ -128,7 +280,34 @@
   <div id="msg-container">
     <div id="msg" role="status" aria-live="polite">Bewege dein Gerät um Fläche zu finden...</div>
   </div>
+
+  <!-- Aufnahme- und Galerie-Buttons über dem Hinweistext -->
+  <div id="capture-row">
+    <button class="btn-icon" id="btn-gallery-small" aria-label="Galerie öffnen">
+      <div id="btn-gallery-small-placeholder"></div>
+    </button>
+    <button id="btn-capture" aria-label="Foto/Video aufnehmen">
+      <div id="btn-capture-inner"></div>
+    </button>
+  </div>
+
   <div id="gesture-layer"></div>
+</div>
+
+<!-- Galerie-Panel -->
+<div id="gallery-panel">
+  <div id="gallery-header">
+    <h2>Galerie</h2>
+    <button class="btn-icon" id="btn-gallery-close" aria-label="Galerie schließen">×</button>
+  </div>
+  <div id="gallery-grid"></div>
+  <div id="gallery-preview">
+    <div id="gallery-preview-media"></div>
+    <div id="gallery-meta">
+      <div id="gallery-filename"></div>
+      <button id="gallery-download">Download</button>
+    </div>
+  </div>
 </div>
 
 <audio id="ar-audio" loop playsinline preload="auto" crossorigin="anonymous"></audio>
@@ -202,15 +381,11 @@ let audioCtx = null;
 
 function ensureAudioUnlocked() {
   try {
-    if (!audioCtx) {
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    }
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state === 'suspended') {
       audioCtx.resume().catch(() => {});
     }
-  } catch (e) {
-    console.warn('AudioContext konnte nicht initialisiert werden:', e);
-  }
+  } catch (e) { /* ignore */ }
 }
 
 function setupAudio(audioCfg) {
@@ -221,15 +396,11 @@ function setupAudio(audioCfg) {
   audioEl.src = AUDIO_URL;
   audioEl.loop = !!audioCfg.loop;
 
-  // Ursprüngliche Szene-Lautstärke aus scene.json lesen (falls vorhanden)
   const sceneVolume =
     (audioCfg && typeof audioCfg.volume === 'number')
       ? audioCfg.volume
       : 0.8;
-
-  // GLOBALER DÄMPFUNGSFAKTOR für webxr.html
-  const masterVolume = 0.3;   // hier lauter/leiser stellen (0.1 = sehr leise, 1.0 = voll)
-
+  const masterVolume = 0.3; // globaler Dämpfungsfaktor für webxr.html
   audioEl.volume = sceneVolume * masterVolume;
 
   try { audioEl.load(); } catch(e) {}
@@ -258,18 +429,273 @@ function setupAudio(audioCfg) {
   };
 }
 
-async function tryStartAudioIfPossible(context) {
-  // Hilfsfunktion, um an definierten Stellen nochmal zu versuchen, falls pausiert
-  if (!AUDIO_URL || isMuted || !audioEl) return;
-  if (!audioEl.paused) return;
-  try {
-    ensureAudioUnlocked();
-    await audioEl.play();
-    console.log('[Audio]', context, '– Audio gestartet.');
-    setUiState('audio_playing', 'Audio läuft.');
-  } catch (e) {
-    console.warn('[Audio]', context, '– Start blockiert:', e);
-    // Hier nicht spammen, UI-Status reicht
+// --- Recording State (Screenshot + Video) ---
+const captureBtn = document.getElementById('btn-capture');
+const captureInner = document.getElementById('btn-capture-inner');
+const galleryPanel = document.getElementById('gallery-panel');
+const btnGallerySmall = document.getElementById('btn-gallery-small');
+const btnGalleryClose = document.getElementById('btn-gallery-close');
+const galleryGrid = document.getElementById('gallery-grid');
+const galleryPreviewMedia = document.getElementById('gallery-preview-media');
+const galleryFilenameEl = document.getElementById('gallery-filename');
+const galleryDownloadBtn = document.getElementById('gallery-download');
+
+const galleryItems = []; // {type:'image'|'video', url, blob, filename, date}
+
+let recPressStart = 0;
+let recPressTimer = null;
+let isRecording = false;
+let mediaRecorder = null;
+let recordedChunks = [];
+
+// Kurzer Tap vs. langer Druck
+const LONG_PRESS_MS = 450;
+
+// Galerie-Helfer
+function formatItemLabel(it) {
+  const kind = it.type === 'image' ? 'Foto' : 'Video';
+  const ext = (it.filename?.split('.').pop() || '').toUpperCase();
+  return `${kind} • ${ext}`;
+}
+
+function setGalleryButtonsThumbnail(latest) {
+  if (!btnGallerySmall) return;
+  btnGallerySmall.innerHTML = '';
+  if (!latest) {
+    const ph = document.createElement('div');
+    ph.id = 'btn-gallery-small-placeholder';
+    btnGallerySmall.appendChild(ph);
+    return;
+  }
+  let media;
+  if (latest.type === 'image') {
+    media = document.createElement('img');
+    media.src = latest.url;
+  } else {
+    media = document.createElement('video');
+    media.src = latest.url;
+    media.muted = true;
+    media.loop = true;
+    media.playsInline = true;
+    media.autoplay = true;
+  }
+  btnGallerySmall.appendChild(media);
+}
+
+function openGallery() {
+  if (!galleryPanel) return;
+  galleryPanel.style.display = 'flex';
+}
+
+function closeGallery() {
+  if (!galleryPanel) return;
+  galleryPanel.style.display = 'none';
+}
+
+function showGalleryPreview(it) {
+  if (!galleryPreviewMedia) return;
+  galleryPreviewMedia.innerHTML = '';
+  if (galleryFilenameEl) {
+    galleryFilenameEl.textContent = it.filename || formatItemLabel(it);
+  }
+  let media;
+  if (it.type === 'image') {
+    media = document.createElement('img');
+    media.src = it.url;
+    media.alt = it.filename || 'Foto';
+  } else {
+    media = document.createElement('video');
+    media.src = it.url;
+    media.controls = true;
+    media.autoplay = true;
+    media.loop = true;
+    media.playsInline = true;
+  }
+  galleryPreviewMedia.appendChild(media);
+
+  if (galleryDownloadBtn) {
+    galleryDownloadBtn.onclick = () => {
+      const a = document.createElement('a');
+      a.href = it.url;
+      a.download = it.filename || (it.type === 'image' ? 'photo.jpg' : 'video.webm');
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    };
+  }
+}
+
+function refreshGalleryGrid() {
+  if (!galleryGrid) return;
+  galleryGrid.innerHTML = '';
+
+  if (galleryItems.length === 0) {
+    const empty = document.createElement('div');
+    empty.style.opacity = '.7';
+    empty.style.color = '#fff';
+    empty.textContent = 'Noch keine Medien aufgenommen.';
+    galleryGrid.appendChild(empty);
+    return;
+  }
+
+  [...galleryItems].reverse().forEach((it) => {
+    const card = document.createElement('div');
+    card.className = 'thumb';
+
+    let media;
+    if (it.type === 'image') {
+      media = document.createElement('img');
+      media.src = it.url;
+      media.alt = it.filename || 'Foto';
+    } else {
+      media = document.createElement('video');
+      media.src = it.url;
+      media.loop = true;
+      media.muted = true;
+      media.playsInline = true;
+      media.autoplay = true;
+    }
+
+    const label = document.createElement('div');
+    label.className = 'thumb-label';
+    label.textContent = formatItemLabel(it);
+
+    card.appendChild(media);
+    card.appendChild(label);
+    card.onclick = () => showGalleryPreview(it);
+
+    galleryGrid.appendChild(card);
+  });
+
+  // Preview auf letztes Item setzen
+  showGalleryPreview(galleryItems[galleryItems.length - 1]);
+}
+
+// Screenshot
+async function takeScreenshot() {
+  if (!renderer) return;
+  const canvas = renderer.domElement;
+  if (!canvas) return;
+
+  const blob = await new Promise((resolve) => {
+    canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.9);
+  });
+  if (!blob) return;
+
+  const url = URL.createObjectURL(blob);
+  const filename = 'ar-photo-' + new Date().toISOString().replace(/[:.]/g, '-') + '.jpg';
+  const item = { type: 'image', url, blob, filename, date: new Date() };
+  galleryItems.push(item);
+  setGalleryButtonsThumbnail(item);
+  refreshGalleryGrid();
+}
+
+// Video Recording
+function canRecordReal() {
+  return !!window.MediaRecorder && !!renderer?.domElement?.captureStream;
+}
+
+function startRealRecording() {
+  if (!renderer) return;
+  if (!canRecordReal()) {
+    console.warn('[Recording] MediaRecorder nicht verfügbar, überspringe echte Aufnahme.');
+    return;
+  }
+
+  const canvas = renderer.domElement;
+  const stream = canvas.captureStream(30);
+  // Audio aus deinem Audio-Element dazumischen (falls aktiv und nicht gemutet)
+  if (audioEl && !isMuted && audioEl.captureStream) {
+    try {
+      const audioStream = audioEl.captureStream();
+      audioStream.getAudioTracks().forEach((t) => stream.addTrack(t));
+    } catch (e) {
+      console.warn('[Recording] Audio captureStream nicht verfügbar:', e);
+    }
+  }
+
+  recordedChunks = [];
+  mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9,opus' });
+
+  mediaRecorder.ondataavailable = (e) => {
+    if (e.data && e.data.size > 0) recordedChunks.push(e.data);
+  };
+
+  mediaRecorder.onstop = () => {
+    const blob = new Blob(recordedChunks, { type: 'video/webm' });
+    recordedChunks = [];
+    const url = URL.createObjectURL(blob);
+    const filename = 'ar-video-' + new Date().toISOString().replace(/[:.]/g, '-') + '.webm';
+    const item = { type: 'video', url, blob, filename, date: new Date() };
+    galleryItems.push(item);
+    setGalleryButtonsThumbnail(item);
+    refreshGalleryGrid();
+  };
+
+  mediaRecorder.start();
+  isRecording = true;
+  captureBtn.classList.add('recording');
+}
+
+function stopRealRecording() {
+  if (!mediaRecorder || !isRecording) return;
+  mediaRecorder.stop();
+  isRecording = false;
+  captureBtn.classList.remove('recording');
+}
+
+function wireCaptureButton() {
+  if (!captureBtn) return;
+
+  const onDown = () => {
+    if (isRecording) return;
+    recPressStart = performance.now();
+    recPressTimer = setTimeout(() => {
+      // Langer Druck → Video
+      if (!isRecording) {
+        startRealRecording();
+      }
+    }, LONG_PRESS_MS);
+  };
+
+  const onUp = () => {
+    if (recPressTimer) {
+      clearTimeout(recPressTimer);
+      recPressTimer = null;
+    }
+    const pressDuration = performance.now() - recPressStart;
+
+    if (isRecording) {
+      // Video zu Ende
+      stopRealRecording();
+    } else if (pressDuration < LONG_PRESS_MS) {
+      // Kurzer Tap → Foto
+      takeScreenshot();
+    }
+  };
+
+  captureBtn.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    onDown();
+  });
+  captureBtn.addEventListener('pointerup', (e) => {
+    e.preventDefault();
+    onUp();
+  });
+  captureBtn.addEventListener('pointerleave', (e) => {
+    if (recPressTimer) {
+      clearTimeout(recPressTimer);
+      recPressTimer = null;
+    }
+  });
+
+  if (btnGallerySmall && btnGalleryClose && galleryPanel) {
+    btnGallerySmall.addEventListener('click', () => {
+      openGallery();
+    });
+    btnGalleryClose.addEventListener('click', () => {
+      closeGallery();
+    });
   }
 }
 
@@ -445,18 +871,20 @@ async function boot() {
 
   window.addEventListener('resize', onResize);
 
+  wireCaptureButton();
+  setGalleryButtonsThumbnail(null);
+
   btnEnterAR.addEventListener('click', async () => {
     if (!modelLoaded) {
       showErr("Modell noch nicht vollständig geladen. Bitte warten Sie kurz.");
       return;
     }
 
-    // 1. Audio im User-Click starten (beste Chance gegen Autoplay-Policy)
+    // Audio im User-Click starten
     if (AUDIO_URL && !isMuted) {
       ensureAudioUnlocked();
       try {
         await audioEl.play();
-        console.log('[Audio] Start im Button-Klick erfolgreich.');
         setUiState('audio_playing', 'Audio läuft.');
       } catch (e) {
         console.warn('[Audio] Start im Button-Klick blockiert:', e);
@@ -464,7 +892,6 @@ async function boot() {
       }
     }
 
-    // 2. Danach Screen wechseln und AR starten
     startScreen.style.display = 'none';
     overlay.style.pointerEvents = 'auto';
 
@@ -605,11 +1032,6 @@ async function onStartAR() {
     renderer.setAnimationLoop(null);
     renderer.xr.setSession(null);
     resetARState();
-  });
-
-  // Optionaler Zweitversuch für Audio, wenn die Session steht
-  session.addEventListener('inputsourceschange', () => {
-    tryStartAudioIfPossible('inputsourceschange');
   });
 
   session.requestReferenceSpace('viewer').then((refSpace) => {
