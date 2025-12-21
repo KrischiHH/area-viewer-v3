@@ -1,33 +1,50 @@
 // js/webxr-recording.js
-// Recording (Foto + Video) + In-App-Galerie für den Three.js-WebXR-Viewer (webxr.html)
+// Recording (Foto + Video) + In-App-Galerie für den WebXR-Viewer (webxr.html)
 
-let rendererRef = null;
-let audioElRef = null;
+import { getPersistentAudioElement } from './audio.js';
 
-const LONG_PRESS_MS = 450;
+// Konfiguration
+const MAX_RECORD_TIME_SECONDS = 600;          // 10 Minuten
+const LONG_PRESS_THRESHOLD_MS = 300;          // Ab hier: Video statt Foto
+const SCREENSHOT_QUALITY = 0.92;              // JPEG Qualität
 
-let isRecording = false;
+// State für Aufnahme
+let recTimer = 0;
+let simulatedRecordingId = null;
 let mediaRecorder = null;
 let recordedChunks = [];
-let pressTimer = null;
-let pressStart = 0;
+let isRecordingReal = false;
+let realTimerId = null;
+let audioCtxRef = null;
+let chosenMimeType = 'video/webm';
 
-// Galerie-State
-const galleryItems = []; // { type:'image'|'video', url, filename, blob?, date }
+// Press-Erkennung
+let pressTimerId = null;
+let isPressing = false;
+let longPressActive = false;
+
+// Galerie
+const galleryItems = []; // { type:'image'|'video', url, format:'jpg'|'mp4'|'webm', ts:number }
+let galleryGridRef = null;
+
+// Referenzen auf WebXR-spezifische Elemente
+let rendererRef = null;
+let audioElRef = null;
 
 function qs(id) {
   return document.getElementById(id);
 }
 
-function formatItemLabel(it) {
+function formatLabel(it) {
   const kind = it.type === 'image' ? 'Foto' : 'Video';
   const ext = (it.filename?.split('.').pop() || '').toUpperCase();
   return `${kind} • ${ext}`;
 }
 
-function setGalleryButtonThumbnail(latest) {
+function setBtnGalleryThumbnail(latest) {
   const btn = qs('btn-gallery-small');
   if (!btn) return;
+  btn.style.backgroundImage = '';
   btn.innerHTML = '';
 
   if (!latest) {
@@ -37,62 +54,69 @@ function setGalleryButtonThumbnail(latest) {
     return;
   }
 
-  let media;
   if (latest.type === 'image') {
-    media = document.createElement('img');
-    media.src = latest.url;
+    const img = document.createElement('img');
+    img.src = latest.url;
+    img.alt = latest.filename || 'Foto';
+    btn.appendChild(img);
   } else {
-    media = document.createElement('video');
-    media.src = latest.url;
-    media.muted = true;
-    media.loop = true;
-    media.playsInline = true;
-    media.autoplay = true;
+    const vid = document.createElement('video');
+    vid.src = latest.url;
+    vid.muted = true;
+    vid.loop = true;
+    vid.playsInline = true;
+    vid.autoplay = true;
+    btn.appendChild(vid);
   }
-  btn.appendChild(media);
 }
 
-function showGalleryPreview(it) {
-  const wrap = qs('gallery-preview-media');
+function bindDownloadButton(currentPreviewRef) {
+  const btn = qs('gallery-download');
+  if (!btn) return;
+  btn.onclick = () => {
+    const it = currentPreviewRef.current;
+    if (!it) return;
+    const a = document.createElement('a');
+    a.href = it.url;
+    a.download = it.filename || (it.type === 'image' ? 'photo.jpg' : 'video.webm');
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+}
+
+function showPreview(it, currentPreviewRef) {
+  currentPreviewRef.current = it;
+  const mediaWrap = qs('gallery-preview-media');
   const nameEl = qs('gallery-filename');
-  const btnDownload = qs('gallery-download');
-  if (!wrap) return;
+  if (!mediaWrap) return;
 
-  wrap.innerHTML = '';
-  if (nameEl) nameEl.textContent = it.filename || formatItemLabel(it);
+  mediaWrap.innerHTML = '';
+  if (nameEl) nameEl.textContent = it.filename || formatLabel(it);
 
-  let media;
+  let mediaEl;
   if (it.type === 'image') {
-    media = document.createElement('img');
-    media.src = it.url;
-    media.alt = it.filename || 'Foto';
+    mediaEl = document.createElement('img');
+    mediaEl.src = it.url;
+    mediaEl.alt = it.filename || 'Foto';
   } else {
-    media = document.createElement('video');
-    media.src = it.url;
-    media.controls = true;
-    media.autoplay = true;
-    media.loop = true;
-    media.playsInline = true;
+    mediaEl = document.createElement('video');
+    mediaEl.src = it.url;
+    mediaEl.controls = true;
+    mediaEl.autoplay = true;
+    mediaEl.loop = true;
+    mediaEl.playsInline = true;
   }
-  wrap.appendChild(media);
+  mediaWrap.appendChild(mediaEl);
 
-  if (btnDownload) {
-    btnDownload.onclick = () => {
-      const a = document.createElement('a');
-      a.href = it.url;
-      a.download = it.filename || (it.type === 'image' ? 'photo.jpg' : 'video.webm');
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    };
-  }
+  bindDownloadButton(currentPreviewRef);
 }
 
-function refreshGalleryGrid() {
-  const grid = qs('gallery-grid');
+function refreshGalleryGrid(currentPreviewRef) {
+  const grid = galleryGridRef;
   if (!grid) return;
-  grid.innerHTML = '';
 
+  grid.innerHTML = '';
   if (galleryItems.length === 0) {
     const empty = document.createElement('div');
     empty.style.opacity = '.7';
@@ -106,39 +130,39 @@ function refreshGalleryGrid() {
     const card = document.createElement('div');
     card.className = 'thumb';
 
-    let media;
+    let mediaEl;
     if (it.type === 'image') {
-      media = document.createElement('img');
-      media.src = it.url;
-      media.alt = it.filename || 'Foto';
+      mediaEl = document.createElement('img');
+      mediaEl.src = it.url;
+      mediaEl.alt = it.filename || 'Foto';
     } else {
-      media = document.createElement('video');
-      media.src = it.url;
-      media.loop = true;
-      media.muted = true;
-      media.playsInline = true;
-      media.autoplay = true;
+      mediaEl = document.createElement('video');
+      mediaEl.src = it.url;
+      mediaEl.loop = true;
+      mediaEl.muted = true;
+      mediaEl.playsInline = true;
+      mediaEl.autoplay = true;
     }
 
     const label = document.createElement('div');
     label.className = 'thumb-label';
-    label.textContent = formatItemLabel(it);
+    label.textContent = formatLabel(it);
 
-    card.appendChild(media);
+    card.appendChild(mediaEl);
     card.appendChild(label);
-    card.onclick = () => showGalleryPreview(it);
+    card.onclick = () => showPreview(it, currentPreviewRef);
 
     grid.appendChild(card);
   });
 
-  showGalleryPreview(galleryItems[galleryItems.length - 1]);
+  showPreview(galleryItems[galleryItems.length - 1], currentPreviewRef);
 }
 
-function openGallery() {
+function openGallery(currentPreviewRef) {
   const panel = qs('gallery-panel');
   if (!panel) return;
   panel.style.display = 'flex';
-  refreshGalleryGrid();
+  refreshGalleryGrid(currentPreviewRef);
 }
 
 function closeGallery() {
@@ -147,159 +171,278 @@ function closeGallery() {
   panel.style.display = 'none';
 }
 
-// Screenshot
-async function takeScreenshot() {
-  if (!rendererRef) return;
-  const canvas = rendererRef.domElement;
-  if (!canvas || !canvas.toBlob) return;
+/* ---------- Screenshot ---------- */
+function takeScreenshot(btnCapture) {
+  const canvas = rendererRef?.domElement || null;
 
-  const blob = await new Promise((resolve) => {
-    canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.9);
-  });
-  if (!blob) return;
-
-  const url = URL.createObjectURL(blob);
-  const filename = 'ar-photo-' + new Date().toISOString().replace(/[:.]/g, '-') + '.jpg';
-  const item = { type: 'image', url, blob, filename, date: new Date() };
-  galleryItems.push(item);
-  setGalleryButtonThumbnail(item);
-  refreshGalleryGrid();
-}
-
-// Video
-function canRecordVideo() {
-  return !!window.MediaRecorder && !!rendererRef?.domElement?.captureStream;
-}
-
-function startVideoRecording(captureBtn) {
-  if (!rendererRef) return;
-  if (!canRecordVideo()) {
-    console.warn('[WebXR-Recording] MediaRecorder nicht verfügbar.');
+  if (!canvas) {
+    console.warn('Keine Quelle für Screenshot gefunden.');
     return;
   }
 
-  const canvas = rendererRef.domElement;
-  const stream = canvas.captureStream(30);
+  // Snap Animation
+  btnCapture?.classList.add('snap');
+  setTimeout(() => btnCapture?.classList.remove('snap'), 200);
 
-  if (audioElRef && audioElRef.captureStream) {
+  const handleBlob = (blob) => {
+    if (!blob) {
+      console.warn('Screenshot-Blob ist leer.');
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    const item = { type:'image', url, format:'jpg', ts:Date.now() };
+    galleryItems.push(item);
+    setBtnGalleryThumbnail(item);
+    refreshGalleryGrid(currentPreviewRef);
+  };
+
+  const currentPreviewRef = { current: null };
+
+  if (canvas.toBlob) {
+    canvas.toBlob(handleBlob, 'image/jpeg', SCREENSHOT_QUALITY);
+  } else {
+    console.warn('Canvas toBlob() nicht verfügbar.');
+  }
+}
+
+/* ---------- Feature Detection ---------- */
+function canRecordReal() {
+  const canvas = rendererRef?.domElement || null;
+  return !!window.MediaRecorder && !!canvas?.captureStream;
+}
+
+/* ---------- Simulierte Aufnahme ---------- */
+function startSimulatedRecording(recInfo, btnCapture) {
+  recTimer = 0;
+  recInfo.textContent = '00:00';
+  recInfo.style.display = 'flex';
+  btnCapture?.classList.add('recording');
+
+  simulatedRecordingId = setInterval(() => {
+    recTimer++;
+    recInfo.textContent = formatTime(recTimer);
+    if (recTimer >= MAX_RECORD_TIME_SECONDS) {
+      stopAllRecording(recInfo, btnCapture);
+    }
+  }, 1000);
+}
+
+function formatTime(seconds) {
+  if (seconds >= 3600) {
+    const h = String(Math.floor(seconds / 3600)).padStart(2, '0');
+    const m = String(Math.floor((seconds % 3600) / 60)).padStart(2, '0');
+    const s = String(seconds % 60).padStart(2, '0');
+    return `${h}:${m}:${s}`;
+  } else {
+    const m = String(Math.floor(seconds / 60)).padStart(2,'0');
+    const s = String(seconds % 60).padStart(2,'0');
+    return `${m}:${s}`;
+  }
+}
+
+/* ---------- Echte Aufnahme ---------- */
+function startRealRecording(recInfo, btnCapture) {
+  const canvas = rendererRef?.domElement || null;
+  if (!canvas) {
+    console.warn('Kein Canvas für Aufnahme gefunden → Fallback.');
+    startSimulatedRecording(recInfo, btnCapture);
+    return;
+  }
+
+  const stream = canvas.captureStream(30);
+  let finalStream = stream;
+
+  // Für WebXR: Audio von audioElRef oder persistentem Audioelement
+  const persistentAudio = getPersistentAudioElement() || audioElRef;
+  if (persistentAudio && persistentAudio.captureStream) {
     try {
-      const audioStream = audioElRef.captureStream();
-      audioStream.getAudioTracks().forEach((t) => stream.addTrack(t));
+      audioCtxRef = new AudioContext();
+      const srcNode = audioCtxRef.createMediaElementSource(persistentAudio);
+      const dest = audioCtxRef.createMediaStreamDestination();
+      srcNode.connect(dest);
+      srcNode.connect(audioCtxRef.destination);
+      finalStream = new MediaStream([...stream.getVideoTracks(), ...dest.stream.getAudioTracks()]);
     } catch (e) {
-      console.warn('[WebXR-Recording] audioEl.captureStream fehlgeschlagen:', e);
+      console.warn('Audiomixing fehlgeschlagen:', e);
     }
   }
 
-  recordedChunks = [];
-  try {
-    mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
-  } catch (e) {
-    console.warn('[WebXR-Recording] MediaRecorder init fehlgeschlagen:', e);
+  const mimeTypeCandidates = [
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8',
+    'video/webm'
+  ];
+  chosenMimeType = '';
+  for (const c of mimeTypeCandidates) {
+    if (MediaRecorder.isTypeSupported(c)) { chosenMimeType = c; break; }
+  }
+  if (!chosenMimeType) {
+    console.warn('Kein unterstützter WebM Codec → Simulation.');
+    startSimulatedRecording(recInfo, btnCapture);
     return;
   }
 
-  mediaRecorder.ondataavailable = (e) => {
-    if (e.data && e.data.size > 0) recordedChunks.push(e.data);
-  };
+  try {
+    mediaRecorder = new MediaRecorder(finalStream, { mimeType: chosenMimeType });
+  } catch (e) {
+    console.warn('MediaRecorder fehlgeschlagen → Simulation.', e);
+    startSimulatedRecording(recInfo, btnCapture);
+    return;
+  }
 
-  mediaRecorder.onstop = () => {
-    const blob = new Blob(recordedChunks, { type: 'video/webm' });
-    recordedChunks = [];
-    const url = URL.createObjectURL(blob);
-    const filename = 'ar-video-' + new Date().toISOString().replace(/[:.]/g, '-') + '.webm';
-    const item = { type: 'video', url, blob, filename, date: new Date() };
-    galleryItems.push(item);
-    setGalleryButtonThumbnail(item);
-    refreshGalleryGrid();
+  recordedChunks = [];
+  isRecordingReal = true;
+  recTimer = 0;
+  recInfo.textContent = '00:00';
+  recInfo.style.display = 'flex';
+  btnCapture?.classList.add('recording');
+
+  realTimerId = setInterval(() => {
+    recTimer++;
+    recInfo.textContent = formatTime(recTimer);
+    if (recTimer >= MAX_RECORD_TIME_SECONDS) {
+      stopAllRecording(recInfo, btnCapture);
+    }
+  }, 1000);
+
+  mediaRecorder.ondataavailable = (e) => {
+    if (e.data.size > 0) recordedChunks.push(e.data);
   };
 
   mediaRecorder.start();
-  isRecording = true;
-  if (captureBtn) captureBtn.classList.add('recording');
 }
 
-function stopVideoRecording(captureBtn) {
-  if (!mediaRecorder || !isRecording) return;
-  mediaRecorder.stop();
-  isRecording = false;
-  if (captureBtn) captureBtn.classList.remove('recording');
+/* ---------- Aufnahme stoppen ---------- */
+async function stopAllRecording(recInfo, btnCapture) {
+  if (simulatedRecordingId) {
+    clearInterval(simulatedRecordingId);
+    simulatedRecordingId = null;
+  }
+  if (realTimerId) {
+    clearInterval(realTimerId);
+    realTimerId = null;
+  }
+
+  let hadRealRecording = false;
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    hadRealRecording = true;
+    const stopPromise = new Promise(resolve => {
+      const onStop = () => {
+        mediaRecorder.removeEventListener('stop', onStop);
+        resolve();
+      };
+      mediaRecorder.addEventListener('stop', onStop);
+    });
+    mediaRecorder.stop();
+    await stopPromise;
+  }
+
+  recInfo.style.display = 'none';
+  btnCapture?.classList.remove('recording');
+  isRecordingReal = false;
+
+  try { audioCtxRef?.close(); } catch(_) {}
+  audioCtxRef = null;
+
+  if (hadRealRecording && recordedChunks.length > 0) {
+    const webmBlob = new Blob(recordedChunks, { type: (chosenMimeType || 'video/webm') });
+    // Für WebXR reicht WebM, Konvertierung zu MP4 ist optional
+    const url = URL.createObjectURL(webmBlob);
+    addToGallery({ type:'video', url, format:'webm', ts:Date.now() });
+  }
+
+  recordedChunks = [];
+  mediaRecorder = null;
 }
 
+/* ---------- Galerie Funktionen ---------- */
+function addToGallery(item) {
+  galleryItems.push(item);
+  refreshGalleryGrid({ current: galleryItems[galleryItems.length - 1] });
+}
+
+/* ---------- Öffentliche Initialisierung ---------- */
 export function initWebXRRecording({ renderer, audioEl }) {
   rendererRef = renderer;
   audioElRef = audioEl;
 
-  const captureBtn = qs('btn-capture');
-  const galleryBtn = qs('btn-gallery-small');
-  const galleryClose = qs('btn-gallery-close');
+  const btnCapture = qs('btn-capture');
+  const btnGallery = qs('btn-gallery-small');
+  const btnGalleryClose = qs('btn-gallery-close');
+  const galleryPanel = qs('gallery-panel');
+  galleryGridRef = qs('gallery-grid');
+  const recInfo = qs('rec-info'); // optional, wenn du später eine Recording-Anzeige möchtest
 
-  if (!captureBtn) {
-    console.warn('[WebXR-Recording] btn-capture nicht gefunden.');
+  const currentPreviewRef = { current: null };
+
+  if (!btnCapture || !galleryPanel || !galleryGridRef) {
+    console.warn('[WebXR-Recording] UI-Elemente nicht vollständig vorhanden.');
     return;
   }
 
-  // Initial Galerie-Thumbnail
-  setGalleryButtonThumbnail(null);
+  // Galerie öffnen
+  btnGallery?.addEventListener('click', () => {
+    openGallery(currentPreviewRef);
+  });
+  btnGalleryClose?.addEventListener('click', () => {
+    closeGallery();
+  });
 
-  // Capture Button: kurz = Foto, lang = Video
-  const onDown = () => {
-    if (isRecording) return;
-    pressStart = performance.now();
-    pressTimer = setTimeout(() => {
-      if (!isRecording) {
-        startVideoRecording(captureBtn);
+  // Capture Button Interaktion (Foto / Video)
+  const onPressStart = (e) => {
+    e.preventDefault();
+    if (isPressing) return;
+    isPressing = true;
+    longPressActive = false;
+    pressTimerId = setTimeout(() => {
+      longPressActive = true;
+      if (canRecordReal()) {
+        startRealRecording(recInfo || { textContent:'', style:{display:''} }, btnCapture);
+      } else {
+        console.warn('MediaRecorder nicht verfügbar → Fallback Simulation.');
+        startSimulatedRecording(recInfo || { textContent:'', style:{display:''} }, btnCapture);
       }
-    }, LONG_PRESS_MS);
+    }, LONG_PRESS_THRESHOLD_MS);
   };
 
-  const onUp = () => {
-    if (pressTimer) {
-      clearTimeout(pressTimer);
-      pressTimer = null;
-    }
-    const duration = performance.now() - pressStart;
+  const onPressEnd = async (e) => {
+    e.preventDefault();
+    if (!isPressing) return;
+    isPressing = false;
 
-    if (isRecording) {
-      stopVideoRecording(captureBtn);
-    } else if (duration < LONG_PRESS_MS) {
-      takeScreenshot();
+    if (pressTimerId) {
+      clearTimeout(pressTimerId);
+      pressTimerId = null;
+    }
+
+    if (!longPressActive) {
+      takeScreenshot(btnCapture);
+    } else {
+      if (isRecordingReal || simulatedRecordingId) {
+        await stopAllRecording(recInfo || { style:{display:'none'} }, btnCapture);
+      }
     }
   };
 
-  captureBtn.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    onDown();
+  // Touch Events
+  btnCapture.addEventListener('touchstart', onPressStart, { passive: false });
+  btnCapture.addEventListener('touchend', onPressEnd, { passive: false });
+  btnCapture.addEventListener('touchcancel', onPressEnd, { passive: false });
+
+  // Maus Events
+  btnCapture.addEventListener('mousedown', onPressStart);
+  btnCapture.addEventListener('mouseup', onPressEnd);
+  btnCapture.addEventListener('mouseleave', (e) => {
+    if (isPressing) onPressEnd(e);
   });
-  captureBtn.addEventListener('pointerup', (e) => {
-    e.preventDefault();
-    onUp();
-  });
-  captureBtn.addEventListener('pointerleave', () => {
-    if (pressTimer) {
-      clearTimeout(pressTimer);
-      pressTimer = null;
+
+  // Cleanup beim Verlassen
+  window.addEventListener('beforeunload', async () => {
+    if (isRecordingReal || simulatedRecordingId) {
+      try { await stopAllRecording(recInfo || { style:{display:'none'} }, btnCapture); } catch(_) {}
     }
   });
 
-  // Galerie-Button
-  if (galleryBtn) {
-    galleryBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      openGallery();
-    });
-  }
-  if (galleryClose) {
-    galleryClose.addEventListener('click', (e) => {
-      e.preventDefault();
-      closeGallery();
-    });
-  }
-
-  // Beim Verlassen der Seite laufende Aufnahme stoppen
-  window.addEventListener('beforeunload', () => {
-    if (isRecording) {
-      try { stopVideoRecording(captureBtn); } catch {}
-    }
-  });
+  // Initialer Thumbnail-Status
+  setBtnGalleryThumbnail(null);
 }
