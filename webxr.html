@@ -22,8 +22,7 @@
 
 <style>
   :root {
-    /* Wie weit die Ranke pro Seite überstehen soll (wird zusätzlich zu styles.css angewandt,
-       du kannst diese Zeile auch löschen, dann gilt nur der Wert aus styles.css) */
+    /* Wie weit die Ranke pro Seite überstehen soll */
     --frame-overhang: clamp(32px, 6.5vw, 72px);
   }
 
@@ -34,39 +33,66 @@
     z-index: 1000;
   }
 
-  /* Wichtig: Bezugspunkt und kein Clipping */
+  /* Container für Card und Ranke */
   #start-content {
-    position: relative;           
-    overflow: visible !important; 
+    position: relative;
+    overflow: visible !important;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
   }
 
-  /* Card darf nichts abschneiden */
+  /* Die Karte: mittig, mit sinnvoller Maximalbreite */
   #start-card {
     position: relative;
     overflow: visible !important;
-    z-index: 1; 
+    z-index: 1;
+    max-width: 420px;
+    width: 100%;
+    margin: 0 auto;
   }
 
-  /* Ranke absolut über der Card mit Überhang */
+  /* Ranke absolut über der Card mit Überhang, orientiert sich an Card-Größe */
   #tannengruen-frame {
     position: absolute;
     left: 50%;
     top: 52%;
-    /* Du kannst hier nach Bedarf anpassen, falls die Ranke anders sitzen soll */
-    transform: translate(-50%, -52%) scale(var(--frame-scale)); 
+    transform: translate(-50%, -50%) scale(var(--frame-scale));
     width: calc(100% + var(--frame-overhang) * 2);
     height: calc(100% + var(--frame-overhang) * 2);
     object-fit: contain;
-    pointer-events: none; 
-    z-index: 2;           
-
-    /* Resets gegen globale Styles */
+    pointer-events: none;
+    z-index: 2;
     border-radius: 0 !important;
     overflow: visible !important;
     clip-path: none !important;
     -webkit-clip-path: none !important;
     mask: none !important;
     -webkit-mask: none !important;
+  }
+
+  /* Optional: Im Querformat bleibt Card begrenzt, Layout bleibt mittig */
+  @media (orientation: landscape) {
+    #start-content {
+      flex-direction: row;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    #start-card {
+      max-width: 420px;
+      width: 94vw;
+      margin: 0 auto;
+    }
+    #tannengruen-frame {
+      width: calc(100% + var(--frame-overhang) * 2);
+      height: calc(100% + var(--frame-overhang) * 2);
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%) scale(var(--frame-scale));
+    }
   }
 
   /* Start-Button sichtbar/klickbar über der Ranke */
