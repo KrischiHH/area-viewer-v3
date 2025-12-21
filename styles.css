@@ -203,8 +203,8 @@ html, body {
   }
   #start-card {
     /* → Kachelgröße im Querformat! */
-    width: 44vw;           /* Weniger vw = schmaler; mehr = breiter im Querformat */
-    max-width: 370px;      /* Kleinere max-width = schmaler auf großen displays */
+    width: 22vw;           /* Weniger vw = schmaler; mehr = breiter im Querformat */
+    max-width: 600px;      /* Kleinere max-width = schmaler auf großen displays */
     min-width: 220px;
   }
 
