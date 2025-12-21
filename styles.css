@@ -2,10 +2,14 @@
 * { box-sizing: border-box; }
 
 :root {
-  /* STELLSCHRAUBE 1: Wie weit ragt die Ranke über den Rand (in Pixel/VW)? */
+  /* STELLSCHRAUBE 1: Wie weit ragt die Ranke über den Rand (in Pixel/VW)?
+     → Hier kannst du steuern, wie viel die Tannengrün-Ranke ÜBER die Karte hinausragt. 
+        (Erhöhe für mehr Überhang, verringere für weniger Überhang) */
   --frame-overhang: clamp(40px, 7vw, 90px);
-  
-  /* STELLSCHRAUBE 2: Allgemeiner Zoom der Ranke (Standard Hochformat) */
+
+  /* STELLSCHRAUBE 2: Allgemeiner Zoom der Ranke (Standard Hochformat)
+     → Hier stellst du die STANDARD-Größe der Ranke im HOCHFORMAT ein!
+        (Größer = dicker/größer, kleiner = kompakter) */
   --frame-scale: 1.18; 
 }
 
@@ -62,7 +66,7 @@ html, body {
   position: relative;
   z-index: 1;
   width: 100%;
-  max-width: 600px;
+  max-width: 600px;      /* → Größe der Karte im HOCHFORMAT! Weniger = schmaler, mehr = breiter */
   background: linear-gradient(135deg, #2b4790 10%, #070b14 100%);
   border: 1px solid rgba(255,255,255,0.18);
   border-radius: 26px;
@@ -78,11 +82,17 @@ html, body {
 /* DIE RANKE – absolut an start-content orientiert, immer zentriert */
 #tannengruen-frame {
   position: absolute;
-  top: 52%;
-  left: 52%;
+  top: 52%;    /* → Y-POSITION der Ranke im Hochformat */
+  left: 52%;   /* → X-POSITION der Ranke im Hochformat */
   z-index: 2;
   width: calc(100% + var(--frame-overhang) * 2);
   height: calc(100% + var(--frame-overhang) * 2);
+  /* 
+    → transform bestimmt ZENTRIERUNG und SKALIERUNG der Ranke:
+      - die Prozentwerte verschieben das Bild, sodass es schön den Rahmen bildet 
+      - scale(var(--frame-scale)) nutzt die oben gesetzte Variable
+    ÄNDERE scale immer über die Variable und NICHT direkt hier!
+  */
   transform: translate(-45%, -55%) scale(var(--frame-scale));
   object-fit: contain;
   pointer-events: none;
@@ -188,16 +198,30 @@ html, body {
 }
 
 /* --------------------------------------
-   RESPONSIVE QUERFORMAT-ANPASSUNGEN FÜR DIE RANKE
+   RESPONSIVE QUERFORMAT-ANPASSUNGEN FÜR DIE RANKE UND KARTE!
    -------------------------------------- */
 @media (orientation: landscape) {
+
+  #start-card {
+    /* → Größe der Karte im QUERFORMAT anpassen!
+         width kleiner = schmaler; max-width kleiner = schmaler */
+    width: 44vw;      /* z.B. 44vw statt 100% */
+    max-width: 370px; /* z.B. kleiner als im Hochformat */
+    min-width: 220px;
+  }
+
   #tannengruen-frame {
-    /* Nur die Variable setzen! */
-    --frame-scale: 1.27;    /* Passe den Wert nach Wunsch an! */
+    /* → Größe der Ranke im Querformat!
+         Erhöhe --frame-scale solange, bis sie kräftig erscheint. */
+    --frame-scale: 1.38; /* Z.B. 1.38 für größere Ranke im Querformat */
+
+    /* Falls Rahmen in Landscape nicht korrekt zentriert ist, 
+       kannst du top/left bzw. translate hier nachjustieren: */
     top: 50%;
     left: 50%;
     width: auto;
     height: calc(100% + var(--frame-overhang) * 2);
-    /* Das transform bleibt unverändert und nutzt weiterhin die Variable! */
+    /* Die Skalierung greift wie gehabt über transform */
+    /* transform bleibt: transform: translate(-45%, -55%) scale(var(--frame-scale)); */
   }
 }
