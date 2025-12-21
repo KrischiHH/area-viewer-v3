@@ -196,6 +196,11 @@ html, body {
 @media (orientation: landscape) {
 
   /* KACHEL/KARTE Querformat */
+  
+  #start-screen {
+    overflow: auto;       /* → Erlaubt Scrollen, wenn etwas überläuft */
+    height: 100vh;        /* → Stellt sicher, dass der Viewport ausgefüllt wird */
+  }
   #start-card {
     /* → Kachelgröße im Querformat! */
     width: 44vw;           /* Weniger vw = schmaler; mehr = breiter im Querformat */
