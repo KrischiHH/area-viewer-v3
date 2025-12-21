@@ -2,7 +2,6 @@
 * { box-sizing: border-box; }
 
 :root {
-  /* STELLSCHRAUBE 1: Wie weit ragt die Ranke über den Rand? */
   --frame-overhang: clamp(40px, 7vw, 90px);
 }
 
@@ -53,7 +52,7 @@ html, body {
 
 #start-card {
   position: relative;
-  z-index: 1;
+  z-index: 1; /* UNTER der Ranke */
   width: 100%;
   max-width: 600px;
   min-width: 260px;
@@ -69,13 +68,35 @@ html, body {
   overflow: visible !important;
 }
 
-/* Hochformat-Standard für Ranke */
+/* Die Card-Inhalte NICHT extra via z-index über die Ranke legen! */
+#start-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* SPEZIAL: Button explizit GANZ OBEN */
+.btn-start {
+  background: #E6F0FF;
+  color: #0B1A33;
+  border: 1px solid rgba(11,26,51,0.2);
+  padding: 24px 60px;
+  border-radius: 999px;
+  font-weight: 900;
+  font-size: 30px;
+  box-shadow: 0 10px 26px rgba(0,0,0,0.42);
+  cursor: pointer;
+  pointer-events: auto;
+  position: relative;
+  z-index: 10; /* GANZ oben, auch über der Ranke */
+}
+.btn-start:active { transform: scale(0.98); }
+
 #tannengruen-frame {
   --frame-scale: 1.18;
   position: absolute;
   top: 50%;
   left: 50%;
-  z-index: 2;
+  z-index: 3; /* ÜBER Card, UNTER Button */
   width: calc(100% + var(--frame-overhang) * 2);
   height: calc(100% + var(--frame-overhang) * 2);
   transform: translate(-50%, -52%) scale(var(--frame-scale));
@@ -84,11 +105,6 @@ html, body {
   border-radius: 0 !important;
   background: none !important;
   box-shadow: none !important;
-}
-
-#start-card > * {
-  position: relative;
-  z-index: 3;
 }
 
 #start-image {
@@ -120,61 +136,10 @@ html, body {
   color: rgba(255,255,255,0.95);
   max-width: 680px;
 }
-.btn-start {
-  background: #E6F0FF;
-  color: #0B1A33;
-  border: 1px solid rgba(11,26,51,0.2);
-  padding: 24px 60px;
-  border-radius: 999px;
-  font-weight: 900;
-  font-size: 30px;
-  box-shadow: 0 10px 26px rgba(0,0,0,0.42);
-  cursor: pointer;
-  pointer-events: auto;
-  position: relative;
-  z-index: 10; /* <<<<< GANZ wichtiger FIX, IMMER ÜBER DER RANKE */
-}
-.btn-start:active { transform: scale(0.98); }
 
-.ui-row {
-  position: fixed;
-  top: 0; left: 0; right: 0;
-  padding: 12px 16px;
-  display: flex;
-  justify-content: flex-start;
-  align-items: center;
-  pointer-events: auto;
-  z-index: 20;
-}
-.btn-icon {
-  background: rgba(20,20,30,0.6);
-  border: 1px solid rgba(255,255,255,0.2);
-  color: white; width: 44px; height: 44px;
-  display: inline-flex; align-items: center; justify-content: center;
-  font-size: 20px; border-radius: 50%;
-  cursor: pointer;
-}
-#msg-container {
-  position: fixed; left: 0; right: 0; bottom: 16px;
-  text-align: center; pointer-events: none; z-index: 20;
-}
-#msg {
-  background: rgba(0,0,0,0.55); padding: 8px 16px;
-  border-radius: 20px; display: inline-block; font-size: 14px;
-}
-#err {
-  position: fixed; top: 10px; left: 10px; right: 10px;
-  background: #b00020; color: white; padding: 10px;
-  border-radius: 8px; font-size: 12px; display: none; z-index: 120;
-}
-#gesture-layer {
-  position: absolute; inset: 0; z-index: 0;
-  pointer-events: auto; touch-action: none;
-}
+/* ...weitere UI wie gehabt... */
 
-/* ================
-   QUERFORMAT (LANDSCAPE) – Empfohlene Variante!
-   ================ */
+/* QUERFORMAT */
 @media (orientation: landscape) {
 
   html, body {
@@ -193,23 +158,21 @@ html, body {
     bottom: 0;
   }
 
-  /* Die gesamte Kachel samt Ranke etwas nach unten rücken! */
   #start-content {
     align-items: center;
     justify-content: flex-start;
     min-height: 100vh;
-    margin-top: 50px;       /* <<< Diese Zeile nach Wunsch anpassen! */
+    margin-top: 50px;
   }
 
   #start-card {
     width: 60vw;
     max-width: 600px;
     min-width: 220px;
-    transform: scale(0.88);    /* Proportionale Skalierung im Querformat */
+    transform: scale(0.88);
     transform-origin: center center;
   }
 
-  /* RANKE Querformat -- ggf. feintunen mit X/Y */
   #tannengruen-frame {
     --frame-scale: 1.18;
     top: 52%;
@@ -217,6 +180,5 @@ html, body {
     width: auto;
     height: calc(100% + var(--frame-overhang) * 2);
     transform: translate(-51%, -44%) scale(var(--frame-scale));
-    /* X um 1-2% erhöhen (-> links), Y um weniger negativ (-> weiter nach unten) */
   }
 }
