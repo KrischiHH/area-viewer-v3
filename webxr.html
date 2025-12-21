@@ -145,12 +145,12 @@
   #gallery-panel {
     position: fixed;
     inset: 0;
-    background: rgba(5, 5, 15, 0.92);
-    display: none;
+    background: rgba(5, 5, 15, 0.98); /* Etwas dunkler für besseren Kontrast */
+    display: none; /* Wird per JS auf 'flex' gesetzt */
     flex-direction: column;
     padding: 18px 14px 10px;
-    z-index: 120;
-  }
+    z-index: 2000; /* Höher als der Start-Screen (1000) */
+}
 
   #gallery-header {
     display: flex;
@@ -476,10 +476,15 @@ function setGalleryButtonsThumbnail(latest) {
 }
 
 function openGallery() {
-  if (!galleryPanel) return;
-  console.log('[Gallery] open');
-  galleryPanel.style.display = 'flex';
-  refreshGalleryGrid();
+    if (!galleryPanel) return;
+    
+    // Sicherstellen, dass andere Overlays nicht stören
+    galleryPanel.style.display = 'flex';
+    
+    // UI-Feedback (optional)
+    setUiState('gallery_open', 'Galerie geöffnet');
+    
+    refreshGalleryGrid(); [cite: 68]
 }
 
 function closeGallery() {
@@ -683,20 +688,24 @@ function wireCaptureButton() {
   });
 
   // Galerie-Button logisch ankoppeln
-  if (btnGallerySmall) {
-    btnGallerySmall.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      console.log('[Gallery] small button clicked');
-      openGallery();
+// In der Funktion wireCaptureButton()
+if (btnGallerySmall) {
+    // Nutze pointerdown für schnellere Reaktion in AR
+    btnGallerySmall.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        e.stopPropagation(); // Verhindert, dass das gesture-layer den Touch verarbeitet
+        console.log('[Gallery] Öffne Galerie...');
+        openGallery();
     });
-  }
-  if (btnGalleryClose) {
-    btnGalleryClose.addEventListener('click', (e) => {
-      e.preventDefault();
-      closeGallery();
+}
+
+if (btnGalleryClose) {
+    btnGalleryClose.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        closeGallery();
     });
-  }
+}
 }
 
 // --- UI helpers ---
