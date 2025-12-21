@@ -81,10 +81,9 @@ html, body {
   transform: translate(-50%, -52%) scale(var(--frame-scale, 1.10));
   width: calc(100% + var(--frame-overhang, 40px) * 2);
   height: auto;
-  z-index: 3;
+  z-index: 2; /* nur einmal setzen! */
   object-fit: contain;
   pointer-events: none;
-  z-index: 4;
   border-radius: 0 !important;
   overflow: visible !important;
   clip-path: none !important;
@@ -93,20 +92,19 @@ html, body {
   -webkit-mask: none !important;
 }
 
-/* Nur im Querformat: scale UND Scroll steuern */
+/* Nur im Querformat: scale und Höhe anpassen, scrollen erlauben */
 @media (orientation: landscape) {
   #tannengruen-frame {
     --frame-scale: 1.22;
     top: 50%;
-    /* kein transform mehr hier, nur die Variable setzen! */
     width: auto;
     height: calc(100% + var(--frame-overhang, 40px) * 2);
+    /* Kein transform mehr hier, NUR die Variable überschreiben! */
   }
   #start-screen {
     overflow: auto;
-    height: 100vh; /* stellt die Scrollbarkeit sicher */
+    height: 100vh;
   }
-
   #start-content {
     min-height: 110vh;
     padding: 40px 0;
