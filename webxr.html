@@ -47,27 +47,37 @@
     z-index: 1; 
   }
 
-  /* Ranke absolut über der Card mit Überhang */
-  #tannengruen-frame {
-    position: absolute;
-    left: 50%;
-    top: 52%;
-    /* Du kannst hier nach Bedarf anpassen, falls die Ranke anders sitzen soll */
-    transform: translate(-50%, -52%) scale(var(--frame-scale)); 
-    width: calc(100% + var(--frame-overhang) * 2);
-    height: calc(100% + var(--frame-overhang) * 2);
-    object-fit: contain;
-    pointer-events: none; 
-    z-index: 2;           
+/* Ranke absolut über der Card mit Überhang */
+#tannengruen-frame {
+  position: absolute;
+  left: 50%;
+  top: 52%;
+  transform: translate(-50%, -52%) scale(var(--frame-scale)); 
+  width: calc(100% + var(--frame-overhang) * 2);
+  height: calc(100% + var(--frame-overhang) * 2);
+  object-fit: contain;
+  pointer-events: none; 
+  z-index: 2;
+  /* Resets gegen globale Styles */
+  border-radius: 0 !important;
+  overflow: visible !important;
+  clip-path: none !important;
+  -webkit-clip-path: none !important;
+  mask: none !important;
+  -webkit-mask: none !important;
+}
 
-    /* Resets gegen globale Styles */
-    border-radius: 0 !important;
-    overflow: visible !important;
-    clip-path: none !important;
-    -webkit-clip-path: none !important;
-    mask: none !important;
-    -webkit-mask: none !important;
+/* Spezialfall Querformat – Rahmen nimmt volle Viewportbreite */
+@media (orientation: landscape) {
+  #tannengruen-frame {
+    width: calc(100vw - 32px);    /* Abstand 32px, nach Bedarf anpassen */
+    height: auto;
+    max-height: calc(100% + var(--frame-overhang) * 2);
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%) scale(var(--frame-scale));
   }
+}
 
   /* Start-Button sichtbar/klickbar über der Ranke */
   #btn-enter-ar {
