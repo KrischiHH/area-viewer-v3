@@ -215,7 +215,7 @@ html, body {
     max-width: 600px;
     min-width: 220px;
     transform: scale(0.60);
-    transform-origin: center center;
+    transform-origin: top center;
   }
 
   #tannengruen-frame {
