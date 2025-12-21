@@ -82,9 +82,7 @@ html, body {
    RANKE HOCHFORMAT
    ======================== */
 #tannengruen-frame {
-  /* Größe/Position der Ranke im Hochformat */
   --frame-scale: 1.18; /* <- HIER Größe im Hochformat einstellen! */
-
   position: absolute;
   top: 50%;   /* <- Y-Position im Hochformat */
   left: 56%;  /* <- X-Position im Hochformat */
@@ -202,34 +200,37 @@ html, body {
 
   /* #start-screen: jetzt ABSOLUT statt FIXED, damit Scrollen überall klappt */
   #start-screen {
-    position: absolute;    /* <- Ohne das funktioniert Scrollen NICHT sicher auf Mobiles! */
-    overflow: auto;        /* -> Ermöglicht das Scrollen im Querformat */
+    position: absolute;
+    overflow: auto;
     height: 100vh;
     width: 100vw;
     top: 0;
     left: 0;
     right: 0;
     bottom: 0;
-    /* display, align-items, justify-content bleiben wie gehabt */
   }
 
-  /* KACHEL/KARTE Querformat */
+  #start-content {
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+  }
+
+  /* KACHEL/KARTE Querformat: Proportional skalieren */
   #start-card {
     width: 60vw;
     max-width: 600px;
     min-width: 220px;
-    transform: scale(0.95);           /* Optional: Separate Skalierung im Querformat */
-    transform-origin: center center;  /* Optional: Ursprung der Skalierung */
+    transform: scale(0.88);           /* Proportionale Skalierung im Querformat */
+    transform-origin: center center;
   }
 
   /* RANKE Querformat */
   #tannengruen-frame {
-    --frame-scale: 1.38;              /* Separate Skalierung der Ranke */
+    --frame-scale: 1.38;
     top: 50%;
     left: 50%;
     width: auto;
     height: calc(100% + var(--frame-overhang) * 2);
-    /* transform bleibt wie im Hochformat: 
-       transform: translate(-45%, -55%) scale(var(--frame-scale)); */
   }
 }
