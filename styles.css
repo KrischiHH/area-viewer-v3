@@ -221,13 +221,13 @@ html, body {
     width: 60vw;
     max-width: 600px;
     min-width: 220px;
-    transform: scale(0.25);           /* Proportionale Skalierung im Querformat */
+    transform: scale(0.50);           /* Proportionale Skalierung im Querformat */
     transform-origin: center center;
   }
 
   /* RANKE Querformat */
   #tannengruen-frame {
-    --frame-scale: 1.38;
+    --frame-scale: 1.18;
     top: 50%;
     left: 50%;
     width: auto;
