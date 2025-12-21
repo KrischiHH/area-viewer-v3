@@ -21,18 +21,19 @@
 </script>
 
 <style>
-  :root {
+:root {
   --frame-overhang: clamp(20px, 5vw, 44px);
 }
 
 /* Grundstruktur */
 html, body {
+  height: 100%;
   margin: 0;
   padding: 0;
-  height: 100%;
   background: #000;
 }
 
+/* Im Hochformat: alles steckt im Viewport, kein Scroll */
 #start-screen {
   position: fixed;
   inset: 0;
@@ -40,9 +41,10 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;            /* verhindert Scrollen im Hochformat */
+  overflow: hidden;
 }
 
+/* Container für Card + Ranke */
 #start-content {
   position: relative;
   display: flex;
@@ -52,22 +54,26 @@ html, body {
   min-height: 100vh;
   width: 100vw;
   max-width: 100vw;
+  background: transparent;
   overflow: visible !important;
 }
 
-/* Card: sinnvolle min/max-Breite, zentriert, nie zu schmal */
+/* Card: jetzt breiter im Hochformat! */
 #start-card {
   position: relative;
   overflow: visible !important;
-  z-index: 1;
-  width: 92vw;
-  min-width: 320px;
-  max-width: 420px;
+  z-index: 3;
+  width: 98vw;
+  max-width: 480px;
+  min-width: 340px;
   margin: 32px auto;
-  background: inherit;       /* falls du Transparenz willst, sonst rausnehmen */
+  background: #18357a; /* Hier DEINE Wunschfarbe! */
+  border-radius: 24px;
+  box-shadow: 0 6px 32px 0 #0006;
+  color: #fff;
 }
 
-/* Ranke orientiert sich exakt an Card-Größe plus Überhang */
+/* Ranke immer über der Card, aber darunter im z-index */
 #tannengruen-frame {
   position: absolute;
   left: 50%;
@@ -86,30 +92,30 @@ html, body {
   -webkit-mask: none !important;
 }
 
-/* Scrollen & flotte Layout-Änderungen im Querformat */
+/* Querformat: Scrollen möglich, Karte etwas schmaler */
+/* + Content bleibt mittig, aber über die Höhe scrollbar */
 @media (orientation: landscape) {
   #start-screen {
-    overflow: auto;             /* Scrollen im Querformat aktivieren */
-    align-items: flex-start;    /* Start-Content oben zentrieren für großen Content */
+    overflow: auto;
+    align-items: flex-start;
     justify-content: center;
   }
   #start-content {
-    min-height: 120vh;          /* Enough space to allow scrolling if needed */
-    align-items: center;
-    justify-content: flex-start;
+    min-height: 110vh;
     padding: 40px 0;
   }
   #start-card {
+    width: 60vw;
     max-width: 410px;
-    width: 62vw;
     min-width: 260px;
     margin: 40px auto;
   }
 }
 
+/* Start-Button sichtbar/klickbar über der Ranke */
 #btn-enter-ar {
   position: relative;
-  z-index: 3;
+  z-index: 4;
   margin-top: 8px;
 }
 </style>
