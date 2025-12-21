@@ -131,6 +131,8 @@ html, body {
   box-shadow: 0 10px 26px rgba(0,0,0,0.42);
   cursor: pointer;
   pointer-events: auto;
+  position: relative;
+  z-index: 10; /* <<<<< GANZ wichtiger FIX, IMMER ÜBER DER RANKE */
 }
 .btn-start:active { transform: scale(0.98); }
 
