@@ -33,7 +33,11 @@ export function initAudio(state) {
   audioEl.crossOrigin = 'anonymous';
   audioEl.src = audioUrl;
   audioEl.loop = !!cfg.audio.loop;
-  audioEl.volume = cfg.audio.volume !== undefined ? cfg.audio.volume : 0.8;
+  // Ursprüngliche Szene-Lautstärke
+const sceneVolume = (typeof cfg.audio.volume === 'number') ? cfg.audio.volume : 0.8;
+// Globaler Dämpfungsfaktor
+const masterVolume = 0.3; // alles auf 30% runter
+audioEl.volume = sceneVolume * masterVolume;
   audioEl.preload = 'auto';
 
   // Vorsichtiges Preload – manche Browser blockieren bis zur Geste
