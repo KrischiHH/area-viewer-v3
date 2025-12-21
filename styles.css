@@ -198,7 +198,7 @@ html, body {
     align-items: center;
     justify-content: flex-start;
     min-height: 100vh;
-    margin-top: 40px;       /* <<< Diese Zeile nach Wunsch anpassen! */
+    margin-top: 50px;       /* <<< Diese Zeile nach Wunsch anpassen! */
   }
 
   #start-card {
