@@ -1,3 +1,6 @@
+Hier ist die **vollständige, aktualisierte `webxr.html`** inklusive iOS-Fallback (Redirect auf `viewer.html`) und allen bisherigen Anpassungen (Tannengrün-Frame, Audio-Handling, Gesten etc.). Ich habe nichts gekürzt oder ausgelassen.
+
+```html
 <!doctype html>
 <html lang="de">
 <head>
@@ -117,7 +120,7 @@
       <button class="btn-start" id="btn-enter-ar">STARTE AR</button>
     </div>
 
-    <img id="tannengruen-frame" src="./assets/Tannengruen.png" alt="Dekorativer Tannengrün-Rahmen" aria-hidden="true"/>
+    <img id="tannengruen-frame" src="./assets/Tannengrün.png" alt="Dekorativer Tannengrün-Rahmen" aria-hidden="true"/>
   </div>
 </div>
 
@@ -186,6 +189,19 @@ const sceneParam = qs.get('scene') || qs.get('src');
 let SCENE_JSON_URL = '';
 let MODEL_URL = '';
 let AUDIO_URL = '';
+
+// iOS-Erkennung + optionaler Debug-Flag, um WebXR trotzdem zu erzwingen
+const FORCE_WEBXR = qs.get('forceWebXR') === '1';
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+
+// URL für nativen Viewer (viewer.html) bauen
+function buildNativeViewerUrl() {
+  const url = new URL('viewer.html', window.location.href);
+  if (sceneParam) url.searchParams.set('scene', sceneParam);
+  const baseParam = qs.get('base');
+  if (baseParam) url.searchParams.set('base', baseParam);
+  return url.toString();
+}
 
 // Fallbacks für Poster/Texte
 const FALLBACKS = {
@@ -345,6 +361,14 @@ async function boot() {
   startSubline.textContent = FALLBACKS.subline;
   startText.textContent = FALLBACKS.body;
   startImage.style.display = 'none';
+
+  // iOS -> direkt auf nativen Viewer (viewer.html) umleiten, außer forceWebXR=1
+  if (isIOS && !FORCE_WEBXR) {
+    const nativeUrl = buildNativeViewerUrl();
+    console.log('[ARea] iOS erkannt – leite auf nativen Viewer um:', nativeUrl);
+    window.location.replace(nativeUrl);
+    return;
+  }
 
   let xrSupported = false;
   try {
@@ -817,3 +841,4 @@ boot();
 
 </body>
 </html>
+```
