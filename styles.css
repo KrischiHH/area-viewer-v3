@@ -85,7 +85,7 @@ html, body {
   --frame-scale: 1.18; /* <- HIER Größe im Hochformat einstellen! */
   position: absolute;
   top: 50%;   /* <- Y-Position im Hochformat */
-  left: 56%;  /* <- X-Position im Hochformat */
+  left: 50%;  /* <- X-Position im Hochformat */
   z-index: 2;
   width: calc(100% + var(--frame-overhang) * 2);
   height: calc(100% + var(--frame-overhang) * 2);
