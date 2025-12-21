@@ -196,6 +196,11 @@ html, body {
 @media (orientation: landscape) {
 
   /* KACHEL/KARTE Querformat */
+
+   html, body {
+    overflow: auto;
+    height: 100vh;
+  }
   
   #start-screen {
     overflow: auto;       /* → Erlaubt Scrollen, wenn etwas überläuft */
