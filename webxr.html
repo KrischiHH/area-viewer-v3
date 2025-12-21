@@ -770,6 +770,7 @@ function isTouchOnModel(clientX, clientY) {
 }
 
 // --- Boot & Three init ---
+// --- Boot & Three init ---
 async function boot() {
   const startScreen = document.getElementById('start-screen');
   const overlay = document.getElementById('overlay');
@@ -780,30 +781,40 @@ async function boot() {
   const startSubline = document.getElementById('start-subline');
   const startText = document.getElementById('start-text');
 
+  // 1️⃣ UI-Events (Recording + Galerie) SOFORT binden
+  wireCaptureButton();
+  setGalleryButtonsThumbnail(null);
+
+  // 2️⃣ Startscreen-Grundzustand
   startScreen.style.display = 'flex';
   overlay.style.pointerEvents = 'none';
   btnEnterAR.disabled = true;
 
-  // Fallbacks
+  // Fallback-Texte
   startTitle.textContent = FALLBACKS.title;
   startSubline.textContent = FALLBACKS.subline;
   startText.textContent = FALLBACKS.body;
   startImage.style.display = 'none';
 
+  // 3️⃣ WebXR-Unterstützung prüfen – aber NICHT hart abbrechen
   let xrSupported = false;
   try {
     xrSupported = !!(navigator.xr) &&
-      (navigator.xr.isSessionSupported ? await navigator.xr.isSessionSupported('immersive-ar') : false);
+      (navigator.xr.isSessionSupported
+        ? await navigator.xr.isSessionSupported('immersive-ar')
+        : false);
   } catch (e) {
     console.warn('isSessionSupported check failed:', e);
     xrSupported = false;
   }
 
   if (!xrSupported) {
+    // Nur Hinweis + Button deaktivieren, aber Rest der UI/Renderer trotzdem initialisieren
     showErr('AR wird auf diesem Gerät/Browser nicht unterstützt (WebXR fehlt oder Session nicht möglich).');
-    return;
+    btnEnterAR.disabled = true;
   }
 
+  // 4️⃣ URL- / Scene-Logik
   if (sceneParam) {
     if (sceneParam.endsWith('.glb')) {
       MODEL_URL = sceneParam;
@@ -814,14 +825,16 @@ async function boot() {
     MODEL_URL = 'https://modelviewer.dev/shared-assets/models/Astronaut.glb';
   }
 
+  // 5️⃣ scene.json laden (falls vorhanden), aber Fehler abfangen
   if (SCENE_JSON_URL) {
     try {
       const res = await fetch(SCENE_JSON_URL);
-      if(!res.ok) throw new Error(`Scene JSON Error: ${res.status} ${res.statusText}`);
+      if (!res.ok) throw new Error(`Scene JSON Error: ${res.status} ${res.statusText}`);
       const json = await res.json();
 
       const meta    = json.meta || {};
       const welcome = (json.ui && json.ui.welcome) || {};
+
       const title =
         (meta.title && meta.title.trim()) ||
         (welcome.title && welcome.title.trim()) ||
@@ -843,9 +856,9 @@ async function boot() {
         (welcome.poster && String(welcome.poster).trim()) ||
         '';
 
-      startTitle.innerHTML = title;
-      startSubline.innerHTML = subline;
-      startText.innerHTML = body;
+      startTitle.textContent   = title;
+      startSubline.textContent = subline;
+      startText.textContent    = body;
 
       if (posterFile) {
         const imageUrl = `${workerBase}/scenes/${sceneParam}/${encodeURIComponent(posterFile)}`;
@@ -856,46 +869,58 @@ async function boot() {
         startImage.style.display = 'none';
       }
 
-      if(json.model?.url) {
+      // Dein echtes Feld ist json.model.url, nicht json.model.file
+      if (json.model?.url) {
         MODEL_URL = `${workerBase}/scenes/${sceneParam}/${json.model.url}`;
       } else {
         MODEL_URL = 'https://modelviewer.dev/shared-assets/models/Astronaut.glb';
-        showErr("Hinweis: Szene-JSON enthält keine Modell-URL. Fallback-Modell wird verwendet.");
+        showErr('Hinweis: Szene-JSON enthält keine Modell-URL. Fallback-Modell wird verwendet.');
       }
 
-      if(json.audio?.url) {
+      if (json.audio?.url) {
         AUDIO_URL = `${workerBase}/scenes/${sceneParam}/${json.audio.url}`;
         setupAudio(json.audio);
       }
-
-    } catch(e) {
-      console.error(e);
-      showErr("Fehler beim Laden der Szene-Konfiguration: " + e.message);
+    } catch (e) {
+      console.error('Fehler beim Laden der Szene-Konfiguration:', e);
+      // Kein hartes return – wir versuchen es mit dem aktuellen MODEL_URL weiter
+      showErr('Fehler beim Laden der Szene-Konfiguration: ' + e.message);
     }
   }
 
+  // 6️⃣ Three.js initialisieren
   initThree();
 
+  // 7️⃣ Modell laden – Fehler abfangen, aber UI weiterleben lassen
   try {
     await loadModel();
-  } catch(e) {
-    showErr("Modell-Ladefehler: " + e.message);
-    console.error("Modell-Ladefehler:", e);
+    modelLoaded = true;
+    if (xrSupported) {
+      btnEnterAR.disabled = false;
+      setUiState('loaded', 'Modell geladen. Tippe auf AR Starten.');
+    } else {
+      // XR nicht unterstützt, aber 3D-Modell geladen → ggf. Hinweis
+      setUiState('no_xr', 'Modell geladen. AR wird auf diesem Gerät nicht unterstützt.');
+    }
+  } catch (e) {
+    console.error('Modell-Ladefehler:', e);
+    showErr('Modell-Ladefehler: ' + e.message);
     btnEnterAR.disabled = true;
-    return;
   }
-
-  btnEnterAR.disabled = false;
-  setUiState('loaded', 'Modell geladen. Tippe auf AR Starten.');
 
   window.addEventListener('resize', onResize);
 
-  wireCaptureButton();
-  setGalleryButtonsThumbnail(null);
+  console.log('[boot] Initialisierung abgeschlossen');
 
+  // 8️⃣ START AR-Button bleibt wie in deinem Code
   btnEnterAR.addEventListener('click', async () => {
     if (!modelLoaded) {
-      showErr("Modell noch nicht vollständig geladen. Bitte warten Sie kurz.");
+      showErr('Modell noch nicht vollständig geladen. Bitte warten Sie kurz.');
+      return;
+    }
+
+    if (!xrSupported) {
+      showErr('AR wird auf diesem Gerät/Browser nicht unterstützt.');
       return;
     }
 
@@ -920,6 +945,7 @@ async function boot() {
     });
   });
 
+  // 9️⃣ Close-Button & Gesten wie gehabt (dein Originalcode)
   document.getElementById('btn-close').addEventListener('click', () => {
     const s = renderer.xr.getSession();
     if (s) {
