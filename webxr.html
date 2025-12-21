@@ -22,85 +22,96 @@
 
 <style>
   :root {
-    /* Wie weit die Ranke pro Seite überstehen soll */
-    --frame-overhang: clamp(32px, 6.5vw, 72px);
-  }
+  --frame-overhang: clamp(20px, 5vw, 44px);
+}
 
-  /* Startscreen sicher über dem Canvas halten */
+/* Grundstruktur */
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #000;
+}
+
+#start-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;            /* verhindert Scrollen im Hochformat */
+}
+
+#start-content {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  width: 100vw;
+  max-width: 100vw;
+  overflow: visible !important;
+}
+
+/* Card: sinnvolle min/max-Breite, zentriert, nie zu schmal */
+#start-card {
+  position: relative;
+  overflow: visible !important;
+  z-index: 1;
+  width: 92vw;
+  min-width: 320px;
+  max-width: 420px;
+  margin: 32px auto;
+  background: inherit;       /* falls du Transparenz willst, sonst rausnehmen */
+}
+
+/* Ranke orientiert sich exakt an Card-Größe plus Überhang */
+#tannengruen-frame {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(var(--frame-scale));
+  width: calc(100% + var(--frame-overhang) * 2);
+  height: calc(100% + var(--frame-overhang) * 2);
+  object-fit: contain;
+  pointer-events: none;
+  z-index: 2;
+  border-radius: 0 !important;
+  overflow: visible !important;
+  clip-path: none !important;
+  -webkit-clip-path: none !important;
+  mask: none !important;
+  -webkit-mask: none !important;
+}
+
+/* Scrollen & flotte Layout-Änderungen im Querformat */
+@media (orientation: landscape) {
   #start-screen {
-    position: fixed;
-    inset: 0;
-    z-index: 1000;
-  }
-
-  /* Container für Card und Ranke */
-  #start-content {
-    position: relative;
-    overflow: visible !important;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
+    overflow: auto;             /* Scrollen im Querformat aktivieren */
+    align-items: flex-start;    /* Start-Content oben zentrieren für großen Content */
     justify-content: center;
-    min-height: 100vh;
   }
-
-  /* Die Karte: mittig, mit sinnvoller Maximalbreite */
+  #start-content {
+    min-height: 120vh;          /* Enough space to allow scrolling if needed */
+    align-items: center;
+    justify-content: flex-start;
+    padding: 40px 0;
+  }
   #start-card {
-    position: relative;
-    overflow: visible !important;
-    z-index: 1;
-    max-width: 420px;
-    width: 100%;
-    margin: 0 auto;
+    max-width: 410px;
+    width: 62vw;
+    min-width: 260px;
+    margin: 40px auto;
   }
+}
 
-  /* Ranke absolut über der Card mit Überhang, orientiert sich an Card-Größe */
-  #tannengruen-frame {
-    position: absolute;
-    left: 50%;
-    top: 52%;
-    transform: translate(-50%, -50%) scale(var(--frame-scale));
-    width: calc(100% + var(--frame-overhang) * 2);
-    height: calc(100% + var(--frame-overhang) * 2);
-    object-fit: contain;
-    pointer-events: none;
-    z-index: 2;
-    border-radius: 0 !important;
-    overflow: visible !important;
-    clip-path: none !important;
-    -webkit-clip-path: none !important;
-    mask: none !important;
-    -webkit-mask: none !important;
-  }
-
-  /* Optional: Im Querformat bleibt Card begrenzt, Layout bleibt mittig */
-  @media (orientation: landscape) {
-    #start-content {
-      flex-direction: row;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-    }
-    #start-card {
-      max-width: 420px;
-      width: 94vw;
-      margin: 0 auto;
-    }
-    #tannengruen-frame {
-      width: calc(100% + var(--frame-overhang) * 2);
-      height: calc(100% + var(--frame-overhang) * 2);
-      left: 50%;
-      top: 50%;
-      transform: translate(-50%, -50%) scale(var(--frame-scale));
-    }
-  }
-
-  /* Start-Button sichtbar/klickbar über der Ranke */
-  #btn-enter-ar {
-    position: relative;
-    z-index: 3;
-    margin-top: 8px;
-  }
+#btn-enter-ar {
+  position: relative;
+  z-index: 3;
+  margin-top: 8px;
+}
 </style>
 </head>
 <body>
