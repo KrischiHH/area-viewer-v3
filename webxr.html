@@ -597,36 +597,46 @@ function canRecordReal() {
 
 function startRealRecording() {
   if (!renderer) return;
-  if (!canRecordReal()) {
-    console.warn('[Recording] MediaRecorder nicht verfügbar.');
-    return;
-  }
-
   const canvas = renderer.domElement;
+
+  // Stream mit 30 FPS vom Canvas holen
   const stream = canvas.captureStream(30);
 
-  // Audio vom ar-audio dazu
-  if (audioEl && !isMuted && audioEl.captureStream) {
+  // Audio-Tracks nur hinzufügen, wenn unterstützt und verfügbar
+  if (audioEl && !isMuted) {
     try {
-      const audioStream = audioEl.captureStream();
-      audioStream.getAudioTracks().forEach((t) => stream.addTrack(t));
+      const audioStream = audioEl.captureStream ? audioEl.captureStream() : 
+                          audioEl.mozCaptureStream ? audioEl.mozCaptureStream() : null;
+      if (audioStream) {
+        audioStream.getAudioTracks().forEach((t) => stream.addTrack(t));
+      }
     } catch (e) {
-      console.warn('[Recording] Audio captureStream nicht verfügbar:', e);
+      console.warn('[Recording] Audio-Integration fehlgeschlagen:', e);
     }
   }
 
+  // Mime-Type Prüfung für bessere Kompatibilität (Android vs iOS)
+  const types = ['video/webm;codecs=vp8', 'video/mp4'];
+  const supportedType = types.find(type => MediaRecorder.isTypeSupported(type));
+
+  if (!supportedType) {
+    showErr("Videoformat wird auf diesem Gerät nicht unterstützt.");
+    return;
+  }
+
   recordedChunks = [];
-  mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+  mediaRecorder = new MediaRecorder(stream, { mimeType: supportedType });
 
   mediaRecorder.ondataavailable = (e) => {
     if (e.data && e.data.size > 0) recordedChunks.push(e.data);
   };
 
   mediaRecorder.onstop = () => {
-    const blob = new Blob(recordedChunks, { type: 'video/webm' });
-    recordedChunks = [];
+    const blob = new Blob(recordedChunks, { type: supportedType });
+    const extension = supportedType.includes('mp4') ? 'mp4' : 'webm';
     const url = URL.createObjectURL(blob);
-    const filename = 'ar-video-' + new Date().toISOString().replace(/[:.]/g, '-') + '.webm';
+    const filename = `ar-video-${new Date().toISOString().replace(/[:.]/g, '-')}.${extension}`;
+    
     const item = { type: 'video', url, blob, filename, date: new Date() };
     galleryItems.push(item);
     setGalleryButtonsThumbnail(item);
