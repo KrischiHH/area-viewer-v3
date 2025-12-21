@@ -216,7 +216,7 @@ html, body {
 
   /* KACHEL/KARTE Querformat */
   #start-card {
-    width: 22vw;            /* Weniger vw = schmaler; mehr = breiter im Querformat */
+    width: 60vw;            /* Weniger vw = schmaler; mehr = breiter im Querformat */
     max-width: 600px;
     min-width: 220px;
   }
