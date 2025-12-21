@@ -195,33 +195,40 @@ html, body {
    ================ */
 @media (orientation: landscape) {
 
-  /* KACHEL/KARTE Querformat */
-
-   html, body {
+  /* Aktiviert Scrollen im Querformat für das ganze Layout */
+  html, body {
     overflow: auto;
     height: 100vh;
   }
-  
+
+  /* #start-screen: jetzt ABSOLUT statt FIXED, damit Scrollen überall klappt */
   #start-screen {
-    overflow: auto;       /* → Erlaubt Scrollen, wenn etwas überläuft */
-    height: 100vh;        /* → Stellt sicher, dass der Viewport ausgefüllt wird */
+    position: absolute;    /* <- Ohne das funktioniert Scrollen NICHT sicher auf Mobiles! */
+    overflow: auto;        /* -> Ermöglicht das Scrollen im Querformat */
+    height: 100vh;
+    width: 100vw;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    /* display, align-items, justify-content bleiben wie gehabt */
   }
+
+  /* KACHEL/KARTE Querformat */
   #start-card {
-    /* → Kachelgröße im Querformat! */
-    width: 22vw;           /* Weniger vw = schmaler; mehr = breiter im Querformat */
-    max-width: 600px;      /* Kleinere max-width = schmaler auf großen displays */
+    width: 22vw;            /* Weniger vw = schmaler; mehr = breiter im Querformat */
+    max-width: 600px;
     min-width: 220px;
   }
 
   /* RANKE Querformat */
   #tannengruen-frame {
-    /* Größe/Position der Ranke NUR im Querformat! */
-    --frame-scale: 1.38;   /* Höherer Wert = größerer Rahmen im Querformat */
-    top: 50%;              /* Y-Position im Querformat */
-    left: 50%;             /* X-Position im Querformat */
+    --frame-scale: 1.38;
+    top: 50%;
+    left: 50%;
     width: auto;
-    height: calc(100% + var(--frame-overhang) * 2); /* Höhe anpassen */
-    /* Das transform bleibt wie im Hochformat: 
+    height: calc(100% + var(--frame-overhang) * 2);
+    /* transform bleibt wie im Hochformat: 
        transform: translate(-45%, -55%) scale(var(--frame-scale)); */
   }
 }
