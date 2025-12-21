@@ -40,44 +40,59 @@
     overflow: visible !important; 
   }
 
-  /* Card darf nichts abschneiden */
+  /* Card darf nichts abschneiden + Begrenzung für alle Formate */
   #start-card {
     position: relative;
     overflow: visible !important;
     z-index: 1; 
+    max-width: 420px;
+    width: 100%;
+    margin: 0 auto;
   }
 
-/* Ranke absolut über der Card mit Überhang */
-#tannengruen-frame {
-  position: absolute;
-  left: 50%;
-  top: 52%;
-  transform: translate(-50%, -52%) scale(var(--frame-scale)); 
-  width: calc(100% + var(--frame-overhang) * 2);
-  height: calc(100% + var(--frame-overhang) * 2);
-  object-fit: contain;
-  pointer-events: none; 
-  z-index: 2;
-  /* Resets gegen globale Styles */
-  border-radius: 0 !important;
-  overflow: visible !important;
-  clip-path: none !important;
-  -webkit-clip-path: none !important;
-  mask: none !important;
-  -webkit-mask: none !important;
-}
-
-/* Spezialfall Querformat – Rahmen nimmt volle Viewportbreite */
-@media (orientation: landscape) {
+  /* Ranke absolut über der Card mit Überhang */
   #tannengruen-frame {
-    width: calc(100vw - 32px);    /* Abstand 32px, nach Bedarf anpassen */
-    height: auto;
-    max-height: calc(100% + var(--frame-overhang) * 2);
+    position: absolute;
     left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%) scale(var(--frame-scale));
+    top: 52%;
+    transform: translate(-50%, -52%) scale(var(--frame-scale)); 
+    width: calc(100% + var(--frame-overhang) * 2);
+    height: calc(100% + var(--frame-overhang) * 2);
+    object-fit: contain;
+    pointer-events: none; 
+    z-index: 2;
+    /* Resets gegen globale Styles */
+    border-radius: 0 !important;
+    overflow: visible !important;
+    clip-path: none !important;
+    -webkit-clip-path: none !important;
+    mask: none !important;
+    -webkit-mask: none !important;
   }
-}
+
+  /* Spezialfall Querformat – Rahmen nimmt volle Viewportbreite,
+     Card wird mittig und max. schmal */
+  @media (orientation: landscape) {
+    #tannengruen-frame {
+      width: 100vw;
+      height: auto;
+      max-height: 90vh;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%) scale(var(--frame-scale));
+    }
+    #start-card {
+      max-width: 420px;
+      width: 94vw;
+      margin: 0 auto;
+    }
+    #start-content {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+  }
 
   /* Start-Button sichtbar/klickbar über der Ranke */
   #btn-enter-ar {
