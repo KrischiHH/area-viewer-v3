@@ -78,9 +78,10 @@ html, body {
   position: absolute;
   left: 50%;
   top: 52%;
-  transform: translate(-50%, -52%) scale(var(--frame-scale, 1));
-  width: calc(100% + var(--frame-overhang) * 2);
-  height: calc(100% + var(--frame-overhang) * 2);
+  transform: translate(-50%, -52%) scale(var(--frame-scale, 1.10));
+  width: calc(100% + var(--frame-overhang, 40px) * 2);
+  height: auto;
+  z-index: 3;
   object-fit: contain;
   pointer-events: none;
   z-index: 4;
@@ -92,19 +93,19 @@ html, body {
   -webkit-mask: none !important;
 }
 
-/* Querformat: Scrollen möglich, Karte etwas schmaler */
-/* + Content bleibt mittig, aber über die Höhe scrollbar */
+/* Nur im Querformat: scale UND Scroll steuern */
 @media (orientation: landscape) {
   #tannengruen-frame {
-    top: 49%;
-    left: 50%;
-    /* KEIN transform! */
-    /* Passe nur die Variable, z.B.: */
     --frame-scale: 1.22;
+    top: 50%;
+    /* kein transform mehr hier, nur die Variable setzen! */
     width: auto;
     height: calc(100% + var(--frame-overhang, 40px) * 2);
   }
-
+  #start-screen {
+    overflow: auto;
+    height: 100vh; /* stellt die Scrollbarkeit sicher */
+  }
 
   #start-content {
     min-height: 110vh;
