@@ -22,7 +22,6 @@
 
 <style>
   :root {
-    /* Wie weit die Ranke pro Seite überstehen soll */
     --frame-overhang: clamp(32px, 6.5vw, 72px);
   }
 
@@ -50,16 +49,13 @@
   #tannengruen-frame {
     position: absolute;
     left: 50%;
-    /* Hier auf 58% angepasst, damit sie höher rutscht */
     top: 50%;
-    transform: translate(-50%, -58%); 
+    transform: translate(-50%, -58%);
     width: calc(100% + var(--frame-overhang) * 2);
     height: calc(100% + var(--frame-overhang) * 2);
     object-fit: contain;
     pointer-events: none; 
-    z-index: 2;           
-
-    /* Resets gegen globale Styles */
+    z-index: 2;
     border-radius: 0 !important;
     overflow: visible !important;
     clip-path: none !important;
@@ -78,13 +74,13 @@
   /* Aufnahme / Galerie UI im unteren Bereich */
   #capture-row {
     position: fixed;
-    bottom: 64px;          /* über dem Hinweis-Text */
+    bottom: 72px;         /* etwas über dem Hinweistext + Safe-Area */
     left: 0;
     right: 0;
     display: flex;
     justify-content: center;
     gap: 16px;
-    pointer-events: none;  /* Buttons selbst schalten auf pointer-events:auto */
+    pointer-events: none;
     z-index: 30;
   }
 
@@ -268,7 +264,7 @@
       <button class="btn-start" id="btn-enter-ar">STARTE AR</button>
     </div>
 
-    <img id="tannengruen-frame" src="./assets/Tannengruen.png" alt="Dekorativer Tannengrün-Rahmen" aria-hidden="true"/>
+    <img id="tannengruen-frame" src="./assets/Tannengruen.png" alt="Dekorativ" aria-hidden="true"/>
   </div>
 </div>
 
@@ -400,7 +396,7 @@ function setupAudio(audioCfg) {
     (audioCfg && typeof audioCfg.volume === 'number')
       ? audioCfg.volume
       : 0.8;
-  const masterVolume = 0.3; // globaler Dämpfungsfaktor für webxr.html
+  const masterVolume = 0.3;
   audioEl.volume = sceneVolume * masterVolume;
 
   try { audioEl.load(); } catch(e) {}
@@ -429,9 +425,8 @@ function setupAudio(audioCfg) {
   };
 }
 
-// --- Recording State (Screenshot + Video) ---
+// --- Recording/UI References ---
 const captureBtn = document.getElementById('btn-capture');
-const captureInner = document.getElementById('btn-capture-inner');
 const galleryPanel = document.getElementById('gallery-panel');
 const btnGallerySmall = document.getElementById('btn-gallery-small');
 const btnGalleryClose = document.getElementById('btn-gallery-close');
@@ -440,18 +435,16 @@ const galleryPreviewMedia = document.getElementById('gallery-preview-media');
 const galleryFilenameEl = document.getElementById('gallery-filename');
 const galleryDownloadBtn = document.getElementById('gallery-download');
 
-const galleryItems = []; // {type:'image'|'video', url, blob, filename, date}
+const galleryItems = [];
 
 let recPressStart = 0;
 let recPressTimer = null;
 let isRecording = false;
 let mediaRecorder = null;
 let recordedChunks = [];
-
-// Kurzer Tap vs. langer Druck
 const LONG_PRESS_MS = 450;
 
-// Galerie-Helfer
+// Galerie Helfer
 function formatItemLabel(it) {
   const kind = it.type === 'image' ? 'Foto' : 'Video';
   const ext = (it.filename?.split('.').pop() || '').toUpperCase();
@@ -484,11 +477,14 @@ function setGalleryButtonsThumbnail(latest) {
 
 function openGallery() {
   if (!galleryPanel) return;
+  console.log('[Gallery] open');
   galleryPanel.style.display = 'flex';
+  refreshGalleryGrid();
 }
 
 function closeGallery() {
   if (!galleryPanel) return;
+  console.log('[Gallery] close');
   galleryPanel.style.display = 'none';
 }
 
@@ -567,7 +563,6 @@ function refreshGalleryGrid() {
     galleryGrid.appendChild(card);
   });
 
-  // Preview auf letztes Item setzen
   showGalleryPreview(galleryItems[galleryItems.length - 1]);
 }
 
@@ -598,13 +593,14 @@ function canRecordReal() {
 function startRealRecording() {
   if (!renderer) return;
   if (!canRecordReal()) {
-    console.warn('[Recording] MediaRecorder nicht verfügbar, überspringe echte Aufnahme.');
+    console.warn('[Recording] MediaRecorder nicht verfügbar.');
     return;
   }
 
   const canvas = renderer.domElement;
   const stream = canvas.captureStream(30);
-  // Audio aus deinem Audio-Element dazumischen (falls aktiv und nicht gemutet)
+
+  // Audio vom ar-audio dazu
   if (audioEl && !isMuted && audioEl.captureStream) {
     try {
       const audioStream = audioEl.captureStream();
@@ -615,7 +611,7 @@ function startRealRecording() {
   }
 
   recordedChunks = [];
-  mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9,opus' });
+  mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
 
   mediaRecorder.ondataavailable = (e) => {
     if (e.data && e.data.size > 0) recordedChunks.push(e.data);
@@ -651,7 +647,6 @@ function wireCaptureButton() {
     if (isRecording) return;
     recPressStart = performance.now();
     recPressTimer = setTimeout(() => {
-      // Langer Druck → Video
       if (!isRecording) {
         startRealRecording();
       }
@@ -666,10 +661,8 @@ function wireCaptureButton() {
     const pressDuration = performance.now() - recPressStart;
 
     if (isRecording) {
-      // Video zu Ende
       stopRealRecording();
     } else if (pressDuration < LONG_PRESS_MS) {
-      // Kurzer Tap → Foto
       takeScreenshot();
     }
   };
@@ -682,18 +675,25 @@ function wireCaptureButton() {
     e.preventDefault();
     onUp();
   });
-  captureBtn.addEventListener('pointerleave', (e) => {
+  captureBtn.addEventListener('pointerleave', () => {
     if (recPressTimer) {
       clearTimeout(recPressTimer);
       recPressTimer = null;
     }
   });
 
-  if (btnGallerySmall && btnGalleryClose && galleryPanel) {
-    btnGallerySmall.addEventListener('click', () => {
+  // Galerie-Button logisch ankoppeln
+  if (btnGallerySmall) {
+    btnGallerySmall.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      console.log('[Gallery] small button clicked');
       openGallery();
     });
-    btnGalleryClose.addEventListener('click', () => {
+  }
+  if (btnGalleryClose) {
+    btnGalleryClose.addEventListener('click', (e) => {
+      e.preventDefault();
       closeGallery();
     });
   }
@@ -880,7 +880,6 @@ async function boot() {
       return;
     }
 
-    // Audio im User-Click starten
     if (AUDIO_URL && !isMuted) {
       ensureAudioUnlocked();
       try {
