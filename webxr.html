@@ -790,7 +790,7 @@ async function boot() {
   overlay.style.pointerEvents = 'none';
   btnEnterAR.disabled = true;
 
-  // Fallback-Texte
+  // Fallbacks
   startTitle.textContent = FALLBACKS.title;
   startSubline.textContent = FALLBACKS.subline;
   startText.textContent = FALLBACKS.body;
@@ -809,9 +809,9 @@ async function boot() {
   }
 
   if (!xrSupported) {
-    // Nur Hinweis + Button deaktivieren, aber Rest der UI/Renderer trotzdem initialisieren
     showErr('AR wird auf diesem Gerät/Browser nicht unterstützt (WebXR fehlt oder Session nicht möglich).');
     btnEnterAR.disabled = true;
+    // Kein return mehr – UI und Galerie bleiben nutzbar
   }
 
   // 4️⃣ URL- / Scene-Logik
@@ -825,7 +825,7 @@ async function boot() {
     MODEL_URL = 'https://modelviewer.dev/shared-assets/models/Astronaut.glb';
   }
 
-  // 5️⃣ scene.json laden (falls vorhanden), aber Fehler abfangen
+  // 5️⃣ Szene-JSON laden (Fehler tolerieren)
   if (SCENE_JSON_URL) {
     try {
       const res = await fetch(SCENE_JSON_URL);
@@ -834,7 +834,6 @@ async function boot() {
 
       const meta    = json.meta || {};
       const welcome = (json.ui && json.ui.welcome) || {};
-
       const title =
         (meta.title && meta.title.trim()) ||
         (welcome.title && welcome.title.trim()) ||
@@ -856,9 +855,9 @@ async function boot() {
         (welcome.poster && String(welcome.poster).trim()) ||
         '';
 
-      startTitle.textContent   = title;
-      startSubline.textContent = subline;
-      startText.textContent    = body;
+      startTitle.innerHTML   = title;
+      startSubline.innerHTML = subline;
+      startText.innerHTML    = body;
 
       if (posterFile) {
         const imageUrl = `${workerBase}/scenes/${sceneParam}/${encodeURIComponent(posterFile)}`;
@@ -869,7 +868,6 @@ async function boot() {
         startImage.style.display = 'none';
       }
 
-      // Dein echtes Feld ist json.model.url, nicht json.model.file
       if (json.model?.url) {
         MODEL_URL = `${workerBase}/scenes/${sceneParam}/${json.model.url}`;
       } else {
@@ -882,37 +880,33 @@ async function boot() {
         setupAudio(json.audio);
       }
     } catch (e) {
-      console.error('Fehler beim Laden der Szene-Konfiguration:', e);
-      // Kein hartes return – wir versuchen es mit dem aktuellen MODEL_URL weiter
+      console.error(e);
       showErr('Fehler beim Laden der Szene-Konfiguration: ' + e.message);
+      // Kein return → wir probieren mit aktuellem MODEL_URL weiter
     }
   }
 
   // 6️⃣ Three.js initialisieren
   initThree();
 
-  // 7️⃣ Modell laden – Fehler abfangen, aber UI weiterleben lassen
+  // 7️⃣ Modell laden – Fehler abfangen, aber App nicht komplett beenden
   try {
     await loadModel();
-    modelLoaded = true;
-    if (xrSupported) {
-      btnEnterAR.disabled = false;
-      setUiState('loaded', 'Modell geladen. Tippe auf AR Starten.');
-    } else {
-      // XR nicht unterstützt, aber 3D-Modell geladen → ggf. Hinweis
-      setUiState('no_xr', 'Modell geladen. AR wird auf diesem Gerät nicht unterstützt.');
-    }
   } catch (e) {
-    console.error('Modell-Ladefehler:', e);
     showErr('Modell-Ladefehler: ' + e.message);
+    console.error('Modell-Ladefehler:', e);
     btnEnterAR.disabled = true;
+    // Kein return → UI/Galerie bleiben benutzbar
+  }
+
+  if (xrSupported && modelLoaded) {
+    btnEnterAR.disabled = false;
+    setUiState('loaded', 'Modell geladen. Tippe auf AR Starten.');
   }
 
   window.addEventListener('resize', onResize);
 
-  console.log('[boot] Initialisierung abgeschlossen');
-
-  // 8️⃣ START AR-Button bleibt wie in deinem Code
+  // 8️⃣ START AR-Button wie bisher
   btnEnterAR.addEventListener('click', async () => {
     if (!modelLoaded) {
       showErr('Modell noch nicht vollständig geladen. Bitte warten Sie kurz.');
@@ -945,7 +939,6 @@ async function boot() {
     });
   });
 
-  // 9️⃣ Close-Button & Gesten wie gehabt (dein Originalcode)
   document.getElementById('btn-close').addEventListener('click', () => {
     const s = renderer.xr.getSession();
     if (s) {
