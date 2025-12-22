@@ -12,119 +12,17 @@ export function hideLoading() {
   if (el) el.style.display = 'none';
 }
 
-// Poster ein/aus + Befüllen (kompatibel zu ALT & NEU)
-export function showPoster(state) {
-  const poster       = document.getElementById('poster');
-  const titleEl      = document.getElementById('posterTitle');
-  // Subline (neu)
-  const subtitleEl   = document.getElementById('posterSubtitle');
-  // Text: versuche zuerst posterText (neu), sonst posterDesc (alt)
-  const textEl       = document.getElementById('posterText') || document.getElementById('posterDesc');
-  // Image: neu = posterImageEl, alt = posterImage
-  const imgEl        = document.getElementById('posterImageEl') || document.getElementById('posterImage');
-  // Optionaler Wrapper – wenn nicht vorhanden, nutzen wir notfalls parentElement des Bildes
-  const mediaWrapper = document.getElementById('poster-media') || (imgEl ? imgEl.parentElement : null);
+// --------------
+// Willkommenskarte (Startscreen/Card) statt Poster
+// --------------
 
-  const cfg     = state?.cfg || {};
-  const meta    = cfg.meta || {};
-  const welcome = (cfg.ui && cfg.ui.welcome) || {};
-
-  // 🔹 Titel: zuerst neues Schema (meta.title), sonst altes (welcome.title / meta.description)
-  const title =
-    (meta.title && meta.title.trim()) ||
-    (welcome.title && welcome.title.trim()) ||
-    '3D / AR Erlebnis';
-
-  // 🔹 Subline: neues Feld (meta.subtitle) oder altes Eyebrow (welcome.eyebrow)
-  const subtitle =
-    (meta.subtitle && meta.subtitle.trim()) ||
-    (welcome.eyebrow && welcome.eyebrow.trim()) ||
-    '';
-
-  // 🔹 Body-Text: neu = meta.body, alt = meta.description oder welcome.desc
-  const body =
-    (meta.body && meta.body.trim()) ||
-    (meta.description && meta.description.trim()) ||
-    (welcome.desc && welcome.desc.trim()) ||
-    'Tippe auf START AR, um das Modell in deiner Umgebung zu sehen.';
-
-  // 🔹 Posterbild-Dateiname: neu = meta.posterImage, alt = welcome.poster
-  const posterFile =
-    (meta.posterImage && String(meta.posterImage).trim()) ||
-    (welcome.poster && String(welcome.poster).trim()) ||
-    '';
-
-  console.log('ARea Viewer – showPoster()', {
-    meta,
-    welcome,
-    resolved: { title, subtitle, body, posterFile },
-    sceneId: state?.sceneId,
-    workerBase: state?.workerBase
-  });
-
-  if (titleEl) {
-    titleEl.textContent = title;
-  }
-
-  if (textEl) {
-    textEl.textContent = body;
-  }
-
-  // Subline nur anzeigen, wenn Element existiert
-  if (subtitleEl) {
-    if (subtitle) {
-      subtitleEl.textContent = subtitle;
-      subtitleEl.classList.remove('hidden');
-    } else {
-      subtitleEl.textContent = '';
-      subtitleEl.classList.add('hidden');
-    }
-  }
-
-  // Posterbild nur, wenn wir ein Dateiname UND sceneId/base haben
-  if (imgEl) {
-    if (posterFile && state?.workerBase && state?.sceneId) {
-      const url = `${state.workerBase}/scenes/${encodeURIComponent(
-        state.sceneId
-      )}/${encodeURIComponent(posterFile)}`;
-      console.log('ARea Viewer – Posterbild URL:', url);
-      imgEl.src = url;
-
-      // alt-Styling aus altem Viewer: display:block
-      if (imgEl.style) {
-        imgEl.style.display = 'block';
-      }
-
-      if (mediaWrapper) {
-        mediaWrapper.classList.remove('hidden');
-        if (mediaWrapper.style) mediaWrapper.style.display = '';
-      }
-    } else {
-      // Kein Bild → ausblenden
-      if (imgEl.style) {
-        imgEl.removeAttribute('src');
-        imgEl.style.display = 'none';
-      }
-      if (mediaWrapper) {
-        mediaWrapper.classList.add('hidden');
-      }
-    }
-  }
-
-  if (poster) {
-    poster.style.display = 'flex';
-  }
-}
-
-export function hidePoster() {
-  const poster = document.getElementById('poster');
-  if (poster) poster.style.display = 'none';
-}
+// Die eigentliche Befüllung und Anzeige passiert direkt in index.js (updateStartScreen/andere Methoden)
+// Hier ist KEINE Funktion für einen Poster/Legacy-Poster mehr nötig!
 
 // UI-Grundverdrahtung: Start-Button, Galerie-Buttons etc.
 // optionales options.onStartAR für WebXR-Viewer
 export function initUI(state, options = {}) {
-  const startBtn        = document.getElementById('startAr');
+  const startBtn        = document.getElementById('btn-enter-ar'); // NEUE ID!
   const mvEl            = document.getElementById('ar-scene-element');
   const btnGallery      = document.getElementById('btn-gallery');
   const btnGalleryClose = document.getElementById('btn-gallery-close');
