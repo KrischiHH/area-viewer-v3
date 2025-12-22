@@ -231,6 +231,6 @@ html, body {
     width: auto;
     height: calc(100% + var(--frame-overhang) * 2);
     /* Die Ranke orientiert sich an der skalierten Karte */
-    transform: translate(-50%, -55%) scale(var(--frame-scale));
+    transform: translate(-50%, -45%) scale(var(--frame-scale));
   }
 }
