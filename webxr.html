@@ -1,4 +1,3 @@
-<!-- webxr.html -->
 <!doctype html>
 <html lang="de">
 <head>
@@ -8,7 +7,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bangers&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bangers&display=swap" rel="stylesheet"> 
 <link rel="stylesheet" href="styles.css">
 
 <script src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
@@ -33,7 +32,7 @@
       <p id="start-subline"></p>
       <img id="start-image" style="display:none;" alt="Vorschau"/>
       <p id="start-text"></p>
-      <button class="btn-start" id="btn-enter-ar" type="button">STARTE AR</button>
+      <button class="btn-start" id="btn-enter-ar">STARTE AR</button>
     </div>
     <img id="tannengruen-frame" src="./assets/Tannengruen.png" alt="Dekorativer Tannengrün-Rahmen" aria-hidden="true"/>
   </div>
@@ -41,8 +40,8 @@
 
 <div id="overlay">
   <div class="ui-row">
-    <button class="btn-icon" id="btn-close" aria-label="AR-Session beenden" type="button">×</button>
-    <button class="btn-icon" id="btn-mute" style="display:none" aria-label="Audio umschalten" type="button">🔊</button>
+    <button class="btn-icon" id="btn-close" aria-label="AR-Session beenden">×</button>
+    <button class="btn-icon" id="btn-mute" style="display:none" aria-label="Audio umschalten">🔊</button>
   </div>
   <div id="msg-container">
     <div id="msg" role="status" aria-live="polite">Bewege dein Gerät um Fläche zu finden...</div>
@@ -136,20 +135,6 @@ function ensureAudioUnlocked() {
   }
 }
 
-async function tryStartAudioIfPossible(reason = '') {
-  try {
-    if (!AUDIO_URL) return;
-    if (isMuted) return;
-    ensureAudioUnlocked();
-    if (!audioEl.paused) return;
-    await audioEl.play();
-    console.log('[Audio] Autostart Versuch:', reason);
-    setUiState('audio_playing', 'Audio läuft.');
-  } catch (e) {
-    // Autoplay-Policies -> ok
-  }
-}
-
 function setupAudio(audioCfg) {
   btnMute.style.display = 'flex';
   btnMute.textContent = '🔊';
@@ -165,7 +150,7 @@ function setupAudio(audioCfg) {
       : 0.8;
 
   // GLOBALER DÄMPFUNGSFAKTOR für webxr.html
-  const masterVolume = 0.3;
+  const masterVolume = 0.3;   
   audioEl.volume = sceneVolume * masterVolume;
 
   try { audioEl.load(); } catch(e) {}
@@ -217,8 +202,8 @@ function setUiState(nextState, msg) {
 
 // --- NDC helper ---
 function toNDC(clientX, clientY) {
-  const w = renderer?.domElement?.clientWidth || window.innerWidth;
-  const h = renderer?.domElement?.clientHeight || window.innerHeight;
+  const w = renderer.domElement.clientWidth || window.innerWidth;
+  const h = renderer.domElement.clientHeight || window.innerHeight;
   ndc.x = (clientX / w) * 2 - 1;
   ndc.y = -(clientY / h) * 2 + 1;
 }
@@ -247,14 +232,6 @@ function isTouchOnModel(clientX, clientY) {
 
 // --- Boot & Three init ---
 async function boot() {
-  // ✅ iOS-Redirect als allererste Aktion (kein UI/Flash/State vorher)
-  if (isIOS && !FORCE_WEBXR) {
-    const nativeUrl = buildNativeViewerUrl();
-    console.log('[ARea] iOS erkannt – leite auf nativen Viewer um:', nativeUrl);
-    window.location.replace(nativeUrl);
-    return;
-  }
-
   const startScreen = document.getElementById('start-screen');
   const overlay = document.getElementById('overlay');
   const btnEnterAR = document.getElementById('btn-enter-ar');
@@ -264,7 +241,7 @@ async function boot() {
   const startSubline = document.getElementById('start-subline');
   const startText = document.getElementById('start-text');
 
-  startScreen.classList.add('is-open');
+  startScreen.style.display = 'flex';
   overlay.style.pointerEvents = 'none';
   btnEnterAR.disabled = true;
 
@@ -273,6 +250,14 @@ async function boot() {
   startSubline.textContent = '';
   startText.textContent = '';
   startImage.style.display = 'none';
+
+  // iOS -> direkt auf nativen Viewer (viewer.html) umleiten, außer forceWebXR=1
+  if (isIOS && !FORCE_WEBXR) {
+    const nativeUrl = buildNativeViewerUrl();
+    console.log('[ARea] iOS erkannt – leite auf nativen Viewer um:', nativeUrl);
+    window.location.replace(nativeUrl);
+    return;
+  }
 
   let xrSupported = false;
   try {
@@ -374,16 +359,7 @@ async function boot() {
 
   window.addEventListener('resize', onResize);
 
-  // iOS/Klick-Robustheit: pointerup + touchend + click + throttle
-  let lastEnter = 0;
-  const enterHandler = async (ev) => {
-    const now = Date.now();
-    if (now - lastEnter < 650) return;
-    lastEnter = now;
-
-    ev?.preventDefault?.();
-    ev?.stopPropagation?.();
-
+  btnEnterAR.addEventListener('click', async () => {
     if (!modelLoaded) {
       showErr("Modell noch nicht vollständig geladen. Bitte warten Sie kurz.");
       return;
@@ -403,7 +379,7 @@ async function boot() {
     }
 
     // 2. Danach Screen wechseln und AR starten
-    startScreen.classList.remove('is-open');
+    startScreen.style.display = 'none';
     overlay.style.pointerEvents = 'auto';
 
     onStartAR().catch(err => {
@@ -411,11 +387,7 @@ async function boot() {
       resetARState();
       showErr('AR konnte nicht gestartet werden:\n' + (err?.message || 'Unbekannter Fehler'));
     });
-  };
-
-  btnEnterAR.addEventListener('pointerup', enterHandler);
-  btnEnterAR.addEventListener('touchend', enterHandler, { passive: false });
-  btnEnterAR.addEventListener('click', enterHandler);
+  });
 
   document.getElementById('btn-close').addEventListener('click', () => {
     const s = renderer.xr.getSession();
@@ -441,22 +413,15 @@ function resetARState() {
   const overlay = document.getElementById('overlay');
   const btnEnterAR = document.getElementById('btn-enter-ar');
 
-  startScreen.classList.add('is-open');
+  startScreen.style.display = 'flex';
   overlay.style.pointerEvents = 'none';
   audioEl.pause();
   isModelPlaced = false;
   isEditing = false;
-
-  // ✅ FIX: Syntaxfehler behoben (Klammern fehlten)
-  if (considerVisibility(placementGroup)) placementGroup.visible = false;
-  if (considerVisibility(placementRect)) placementRect.visible = false;
-
+  placementGroup.visible = false;
+  placementRect.visible = false;
   btnEnterAR.disabled = !modelLoaded;
   setUiState('initial', 'Bewege dein Gerät um Fläche zu finden...');
-}
-
-function considerVisibility(obj){
-  return obj && typeof obj.visible !== 'undefined';
 }
 
 function initThree() {
@@ -479,12 +444,6 @@ function initThree() {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
-  // Canvas sicher hinter dem UI
-  renderer.domElement.style.position = 'fixed';
-  renderer.domElement.style.inset = '0';
-  renderer.domElement.style.zIndex = '1';
-
   document.body.appendChild(renderer.domElement);
 
   placementGroup = new THREE.Group();
@@ -510,12 +469,10 @@ function initThree() {
   rectShape.quadraticCurveTo(RECT_SIZE, 0, RECT_SIZE - radius, 0);
   rectShape.lineTo(radius, 0);
   rectShape.quadraticCurveTo(0, 0, 0, radius);
-
   const outlineGeo = new THREE.ShapeGeometry(rectShape);
   outlineGeo.translate(-RECT_SIZE / 2, -RECT_SIZE / 2, 0);
   const edges = new THREE.EdgesGeometry(outlineGeo);
   const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, opacity: 0.8, transparent: true });
-
   placementRect = new THREE.LineSegments(edges, lineMat);
   placementRect.rotation.x = -Math.PI / 2;
   placementRect.position.y = 0.005;
