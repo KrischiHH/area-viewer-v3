@@ -1,6 +1,6 @@
 // js/index.js
 import { initCore, loadConfig, configureModel } from './core.js';
-import { initUI, showLoading, hideLoading, showPoster, hidePoster, bindARStatus } from './ui.js';
+import { initUI, showLoading, hideLoading, bindARStatus } from './ui.js';
 import { initAudio, toggleAudio, pauseAudioOnHide } from './audio.js';
 import { initHotspots } from './hotspots.js';
 import { initRecording, stopRecordingOnARSessionEnd } from './recording.js';
@@ -104,7 +104,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       toggleAudio(false);
       await stopRecordingOnARSessionEnd();
       
-      const startBtn = document.getElementById('startAr');
+      const startBtn = document.getElementById('btn-enter-ar');
       if (startBtn) startBtn.disabled = false;
     },
     onFailed(msg) {
@@ -114,7 +114,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         errEl.textContent = 'AR FEHLER: ' + msg;
         errEl.style.display = 'block';
       }
-      const startBtn = document.getElementById('startAr');
+      const startBtn = document.getElementById('btn-enter-ar');
       if (startBtn) startBtn.disabled = false;
     }
   });
@@ -145,7 +145,7 @@ function updateStartScreen(state) {
     textEl.textContent = meta.description || welcome.desc || 'Tippe auf STARTE AR, um das Modell in deiner Umgebung zu sehen.';
   }
 
-  // Vorschaubild (Poster)
+  // Vorschaubild (Poster/Bild)
   const imgEl = document.getElementById('start-image');
   const posterFile = meta.posterImage || welcome.poster;
   if (imgEl && posterFile) {
