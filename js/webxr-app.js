@@ -63,7 +63,7 @@ async function initWebXRViewer() {
   state.cfg = await loadSceneConfig(state.sceneId, state.workerBase);
   console.log('[WebXR] SceneConfig:', state.cfg);
 
-  // Poster aus Meta befüllen
+  // Poster aus Meta befüllen (jetzt sauber: nur neue Welcome-Card, keine Fallback-Strings mehr!)
   applyPosterFromConfig(state);
 
   // Three.js Szene aufsetzen
@@ -130,6 +130,10 @@ function hidePoster() {
   if (posterEl) posterEl.style.display = 'none';
 }
 
+/**
+ * Setzt NUR noch die Welcome-Card (poster) mit config-Werten – KEIN Fallback-Text/AR-Erlebnis mehr!
+ * Bleiben Felder leer, bleibt die Welcome-Card optisch leer/stumm.
+ */
 function applyPosterFromConfig(st) {
   const cfg  = st.cfg || {};
   const meta = cfg.meta || {};
@@ -138,7 +142,7 @@ function applyPosterFromConfig(st) {
   const title =
     (meta.title && meta.title.trim()) ||
     (welcome.title && welcome.title.trim()) ||
-    '3D / AR Erlebnis';
+    ''; // kein Default mehr!
 
   const subtitle =
     (meta.subtitle && meta.subtitle.trim()) ||
@@ -149,13 +153,14 @@ function applyPosterFromConfig(st) {
     (meta.body && meta.body.trim()) ||
     (meta.description && meta.description.trim()) ||
     (welcome.desc && welcome.desc.trim()) ||
-    'Tippe auf START AR, um das Modell in deiner Umgebung zu sehen.';
+    '';
 
   const posterFile =
     (meta.posterImage && String(meta.posterImage).trim()) ||
     (welcome.poster && String(welcome.poster).trim()) ||
     '';
 
+  // Fülle die neuen, passenden Felder
   if (posterTitleEl) posterTitleEl.textContent = title;
   if (posterTextEl)  posterTextEl.textContent  = body;
 
