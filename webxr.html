@@ -34,8 +34,7 @@
       <p id="start-text"></p>
       <button class="btn-start" id="btn-enter-ar">STARTE AR</button>
     </div>
-
-    <img id="tannengruen-frame" src="./assets/Tannengruen.png" alt="Dekorativer Tannengrün-Rahmen" aria-hidden="true"/>
+    <img id="tannengruen-frame" src="./assets/Tannengrün.png" alt="Dekorativer Tannengrün-Rahmen" aria-hidden="true"/>
   </div>
 </div>
 
@@ -109,7 +108,6 @@ let AUDIO_URL = '';
 const FORCE_WEBXR = qs.get('forceWebXR') === '1';
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
 
-// URL für nativen Viewer (viewer.html) bauen
 function buildNativeViewerUrl() {
   const url = new URL('viewer.html', window.location.href);
   if (sceneParam) url.searchParams.set('scene', sceneParam);
@@ -117,14 +115,6 @@ function buildNativeViewerUrl() {
   if (baseParam) url.searchParams.set('base', baseParam);
   return url.toString();
 }
-
-// Fallbacks für Poster/Texte
-const FALLBACKS = {
-  title: '3D / AR Erlebnis',
-  subline: '',
-  body: 'Tippe auf START AR, um das Modell in deiner Umgebung zu sehen.',
-  image: ''
-};
 
 // --- Audio ---
 const audioEl = document.getElementById('ar-audio');
@@ -160,8 +150,7 @@ function setupAudio(audioCfg) {
       : 0.8;
 
   // GLOBALER DÄMPFUNGSFAKTOR für webxr.html
-  const masterVolume = 0.3;   // hier lauter/leiser stellen (0.1 = sehr leise, 1.0 = voll)
-
+  const masterVolume = 0.3;   
   audioEl.volume = sceneVolume * masterVolume;
 
   try { audioEl.load(); } catch(e) {}
@@ -188,21 +177,6 @@ function setupAudio(audioCfg) {
       audioEl.pause();
     }
   };
-}
-
-async function tryStartAudioIfPossible(context) {
-  // Hilfsfunktion, um an definierten Stellen nochmal zu versuchen, falls pausiert
-  if (!AUDIO_URL || isMuted || !audioEl) return;
-  if (!audioEl.paused) return;
-  try {
-    ensureAudioUnlocked();
-    await audioEl.play();
-    console.log('[Audio]', context, '– Audio gestartet.');
-    setUiState('audio_playing', 'Audio läuft.');
-  } catch (e) {
-    console.warn('[Audio]', context, '– Start blockiert:', e);
-    // Hier nicht spammen, UI-Status reicht
-  }
 }
 
 // --- UI helpers ---
@@ -271,10 +245,10 @@ async function boot() {
   overlay.style.pointerEvents = 'none';
   btnEnterAR.disabled = true;
 
-  // Fallbacks
-  startTitle.textContent = FALLBACKS.title;
-  startSubline.textContent = FALLBACKS.subline;
-  startText.textContent = FALLBACKS.body;
+  // KEINE Fallback-Texte mehr! Alles leer als Default.
+  startTitle.textContent = '';
+  startSubline.textContent = '';
+  startText.textContent = '';
   startImage.style.display = 'none';
 
   // iOS -> direkt auf nativen Viewer (viewer.html) umleiten, außer forceWebXR=1
@@ -320,18 +294,18 @@ async function boot() {
       const title =
         (meta.title && meta.title.trim()) ||
         (welcome.title && welcome.title.trim()) ||
-        FALLBACKS.title;
+        '';
 
       const subline =
         (meta.subtitle && meta.subtitle.trim()) ||
         (welcome.eyebrow && welcome.eyebrow.trim()) ||
-        FALLBACKS.subline;
+        '';
 
       const body =
         (meta.body && meta.body.trim()) ||
         (meta.description && meta.description.trim()) ||
         (welcome.desc && welcome.desc.trim()) ||
-        FALLBACKS.body;
+        '';
 
       const posterFile =
         (meta.posterImage && String(meta.posterImage).trim()) ||
@@ -756,4 +730,3 @@ boot();
 
 </body>
 </html>
-```
