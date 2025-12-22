@@ -194,36 +194,43 @@ html, body {
 
   #start-screen {
     position: absolute;
-    overflow: auto;
+    overflow-y: auto; /* Erlaubt Scrollen, falls Karte zu hoch */
     height: 100vh;
     width: 100vw;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    display: flex; /* Zentriert den Content-Wrapper */
+    align-items: flex-start; 
+    justify-content: center;
   }
 
   #start-content {
     align-items: center;
     justify-content: flex-start;
     min-height: 100vh;
-    margin-top: 50px;
+    margin-top: 0; /* Margin entfernen, wir nutzen translate */
+    padding-top: 20px;
   }
 
   #start-card {
     width: 60vw;
     max-width: 600px;
     min-width: 220px;
-    transform: scale(0.50);
+    
+    /* POSITIONIERUNG HIER: */
+    /* Erster Wert (X): 0 ist Mitte */
+    /* Zweiter Wert (Y): Verschiebung nach unten/oben */
+    /* Dritter Wert: Der Scale-Faktor */
+    transform: translate(0px, 20px) scale(0.50);
+    
     transform-origin: top center;
   }
 
   #tannengruen-frame {
     --frame-scale: 1.18;
-    top: 52%;
+    top: 50%;
     left: 50%;
     width: auto;
     height: calc(100% + var(--frame-overhang) * 2);
-    transform: translate(-50%, -44%) scale(var(--frame-scale));
+    /* Die Ranke orientiert sich an der skalierten Karte */
+    transform: translate(-50%, -50%) scale(var(--frame-scale));
   }
 }
