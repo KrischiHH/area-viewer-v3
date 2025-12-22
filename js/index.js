@@ -32,35 +32,40 @@ document.addEventListener('DOMContentLoaded', async () => {
   initUI(state);
 
   try {
-    // Szene-Konfiguration laden
+    // 1. Szene-Konfiguration laden
     state.cfg = await loadConfig(state.sceneId, state.workerBase);
     console.log('ARea Viewer – geladene SceneConfig:', state.cfg);
 
-    // Meta-Block sichern, falls configureModel ihn ändern sollte
+    // Meta-Block sichern
     const originalMeta = JSON.parse(JSON.stringify(state.cfg.meta || {}));
 
-    // Modell + AR-Optionen konfigurieren
+    // 2. Modell + AR-Optionen konfigurieren (model-viewer)
     configureModel(state.cfg, state.sceneId, state.workerBase);
 
-    // falls core.js meta "leergeputzt" hätte, ursprüngliche Meta wieder herstellen
     if (!state.cfg.meta || Object.keys(state.cfg.meta).length === 0) {
       state.cfg.meta = originalMeta;
     }
 
-    // Titel auch in den Dokumenttitel schreiben (nice to have)
+    // Dokumenttitel setzen
     if (state.cfg.meta && state.cfg.meta.title) {
       document.title = `ARea Viewer – ${state.cfg.meta.title}`;
     }
 
-    // Audio + Hotspots + Recording initialisieren
+    // 3. Start-Screen mit Daten befüllen (Einheitliches WebXR Design)
+    updateStartScreen(state);
+
+    // 4. Audio + Hotspots + Recording initialisieren
     initAudio(state);
     pauseAudioOnHide();
     initHotspots(state);
     initRecording(state);
 
     hideLoading();
-    // Poster mit Meta-Daten anzeigen (inkl. Fallbacks)
-    showPoster(state);
+    
+    // Start-Screen anzeigen
+    const startScreen = document.getElementById('start-screen');
+    if (startScreen) startScreen.style.display = 'flex';
+
   } catch (e) {
     hideLoading();
     const errEl = document.getElementById('err');
@@ -72,18 +77,33 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
-  // AR-Status an UI / Audio / Recording koppeln
+  // 5. AR-Status an UI / Audio / Recording koppeln
   bindARStatus(state, {
     onSessionStart() {
       state.arSessionActive = true;
-      hidePoster();
+      
+      // UI Wechsel: Start-Screen weg, AR-UI her
+      const startScreen = document.getElementById('start-screen');
+      if (startScreen) startScreen.style.display = 'none';
+      
+      const arUi = document.getElementById('ar-ui');
+      if (arUi) arUi.style.display = 'block';
+
       toggleAudio(true);
     },
     async onSessionEnd() {
       state.arSessionActive = false;
-      showPoster(state);
+      
+      // UI Wechsel: Zurück zum Start-Screen
+      const startScreen = document.getElementById('start-screen');
+      if (startScreen) startScreen.style.display = 'flex';
+      
+      const arUi = document.getElementById('ar-ui');
+      if (arUi) arUi.style.display = 'none';
+
       toggleAudio(false);
       await stopRecordingOnARSessionEnd();
+      
       const startBtn = document.getElementById('startAr');
       if (startBtn) startBtn.disabled = false;
     },
@@ -99,3 +119,39 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 });
+
+/**
+ * Befüllt die Elemente des neuen Start-Screens mit Daten aus der Scene-Config
+ */
+function updateStartScreen(state) {
+  const meta = state.cfg.meta || {};
+  const welcome = (state.cfg.ui && state.cfg.ui.welcome) || {};
+
+  // Titel (Bangers Font via CSS)
+  const titleEl = document.getElementById('start-title');
+  if (titleEl) {
+    titleEl.textContent = meta.title || welcome.title || '3D / AR Erlebnis';
+  }
+
+  // Subline
+  const sublineEl = document.getElementById('start-subline');
+  if (sublineEl) {
+    sublineEl.textContent = meta.subtitle || welcome.eyebrow || '';
+  }
+
+  // Beschreibungstext
+  const textEl = document.getElementById('start-text');
+  if (textEl) {
+    textEl.textContent = meta.description || welcome.desc || 'Tippe auf STARTE AR, um das Modell in deiner Umgebung zu sehen.';
+  }
+
+  // Vorschaubild (Poster)
+  const imgEl = document.getElementById('start-image');
+  const posterFile = meta.posterImage || welcome.poster;
+  if (imgEl && posterFile) {
+    imgEl.src = `${state.workerBase}/scenes/${state.sceneId}/${posterFile}`;
+    imgEl.style.display = 'block';
+  } else if (imgEl) {
+    imgEl.style.display = 'none';
+  }
+}
