@@ -206,7 +206,7 @@ html, body {
     align-items: center;
     justify-content: flex-start;
     min-height: 100vh;
-    margin-top: -30; /* Margin entfernen, wir nutzen translate */
+    margin-top: 0; /* Margin entfernen, wir nutzen translate */
     padding-top: 0px;
   }
 
@@ -220,7 +220,7 @@ html, body {
     /* Erster Wert (X): 0 ist Mitte */
     /* Zweiter Wert (Y): Verschiebung nach unten/oben */
     /* Dritter Wert: Der Scale-Faktor */
-    transform: translate(0px, 20px) scale(0.50);
+    transform: translate(0px, 10px) scale(0.50);
     
     transform-origin: top center;
   }
@@ -232,6 +232,6 @@ html, body {
     width: auto;
     height: calc(100% + var(--frame-overhang) * 2);
     /* Tiefergelegt: Y von -55% auf -60% z.B. */
-    transform: translate(-50%, -48%) scale(var(--frame-scale));
+    transform: translate(-50%, -40%) scale(var(--frame-scale));
   }
 }
