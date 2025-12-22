@@ -12,17 +12,9 @@ export function hideLoading() {
   if (el) el.style.display = 'none';
 }
 
-// --------------
-// Willkommenskarte (Startscreen/Card) statt Poster
-// --------------
-
-// Die eigentliche Befüllung und Anzeige passiert direkt in index.js (updateStartScreen/andere Methoden)
-// Hier ist KEINE Funktion für einen Poster/Legacy-Poster mehr nötig!
-
 // UI-Grundverdrahtung: Start-Button, Galerie-Buttons etc.
-// optionales options.onStartAR für WebXR-Viewer
 export function initUI(state, options = {}) {
-  const startBtn        = document.getElementById('btn-enter-ar'); // NEUE ID!
+  const startBtn        = document.getElementById('btn-enter-ar'); // WebXR/Viewer-Button
   const mvEl            = document.getElementById('ar-scene-element');
   const btnGallery      = document.getElementById('btn-gallery');
   const btnGalleryClose = document.getElementById('btn-gallery-close');
@@ -37,7 +29,7 @@ export function initUI(state, options = {}) {
     startBtn.addEventListener('click', async () => {
       startBtn.disabled = true;
 
-      // 🔹 WebXR-Viewer oder andere Custom-Implementierung
+      // Optional: WebXR-Viewer oder andere Custom-Implementierung
       if (onStartARCustom) {
         try {
           await onStartARCustom();
@@ -53,7 +45,7 @@ export function initUI(state, options = {}) {
         return;
       }
 
-      // 🔹 Standard: model-viewer AR
+      // Standard: model-viewer AR
       const canActivate = ('canActivateAR' in mvEl) ? mvEl.canActivateAR : undefined;
       console.log('[ARea Viewer] canActivateAR:', canActivate);
 
