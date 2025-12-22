@@ -146,7 +146,7 @@ async function tryStartAudioIfPossible(reason = '') {
     console.log('[Audio] Autostart Versuch:', reason);
     setUiState('audio_playing', 'Audio läuft.');
   } catch (e) {
-    // still ok – autoplay policies
+    // Autoplay-Policies -> ok
   }
 }
 
@@ -247,6 +247,14 @@ function isTouchOnModel(clientX, clientY) {
 
 // --- Boot & Three init ---
 async function boot() {
+  // ✅ iOS-Redirect als allererste Aktion (kein UI/Flash/State vorher)
+  if (isIOS && !FORCE_WEBXR) {
+    const nativeUrl = buildNativeViewerUrl();
+    console.log('[ARea] iOS erkannt – leite auf nativen Viewer um:', nativeUrl);
+    window.location.replace(nativeUrl);
+    return;
+  }
+
   const startScreen = document.getElementById('start-screen');
   const overlay = document.getElementById('overlay');
   const btnEnterAR = document.getElementById('btn-enter-ar');
@@ -265,14 +273,6 @@ async function boot() {
   startSubline.textContent = '';
   startText.textContent = '';
   startImage.style.display = 'none';
-
-  // iOS -> direkt auf nativen Viewer (viewer.html) umleiten, außer forceWebXR=1
-  if (isIOS && !FORCE_WEBXR) {
-    const nativeUrl = buildNativeViewerUrl();
-    console.log('[ARea] iOS erkannt – leite auf nativen Viewer um:', nativeUrl);
-    window.location.replace(nativeUrl);
-    return;
-  }
 
   let xrSupported = false;
   try {
@@ -447,8 +447,9 @@ function resetARState() {
   isModelPlaced = false;
   isEditing = false;
 
-  if considerVisibility(placementGroup) placementGroup.visible = false;
-  if considerVisibility(placementRect) placementRect.visible = false;
+  // ✅ FIX: Syntaxfehler behoben (Klammern fehlten)
+  if (considerVisibility(placementGroup)) placementGroup.visible = false;
+  if (considerVisibility(placementRect)) placementRect.visible = false;
 
   btnEnterAR.disabled = !modelLoaded;
   setUiState('initial', 'Bewege dein Gerät um Fläche zu finden...');
