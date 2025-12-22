@@ -51,7 +51,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.title = `ARea Viewer – ${state.cfg.meta.title}`;
     }
 
-    // 3. Start-Screen mit Daten befüllen (Einheitliches WebXR Design)
+    // 3. Start-Screen mit Daten befüllen (absolut identisch zu WebXR!)
     updateStartScreen(state);
 
     // 4. Audio + Hotspots + Recording initialisieren
@@ -121,16 +121,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 /**
- * Befüllt die Elemente des neuen Start-Screens mit Daten aus der Scene-Config
+ * Befüllt die Elemente des neuen Start-Screens mit Daten aus der Scene-Config – **KEINE Fallbacktexte mehr**!
  */
 function updateStartScreen(state) {
   const meta = state.cfg.meta || {};
   const welcome = (state.cfg.ui && state.cfg.ui.welcome) || {};
 
-  // Titel (Bangers Font via CSS)
+  // Titel (identisch zu WebXR)
   const titleEl = document.getElementById('start-title');
   if (titleEl) {
-    titleEl.textContent = meta.title || welcome.title || '3D / AR Erlebnis';
+    titleEl.textContent = meta.title || welcome.title || '';
   }
 
   // Subline
@@ -142,7 +142,7 @@ function updateStartScreen(state) {
   // Beschreibungstext
   const textEl = document.getElementById('start-text');
   if (textEl) {
-    textEl.textContent = meta.description || welcome.desc || 'Tippe auf STARTE AR, um das Modell in deiner Umgebung zu sehen.';
+    textEl.textContent = meta.description || welcome.desc || '';
   }
 
   // Vorschaubild (Poster/Bild)
