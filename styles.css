@@ -220,7 +220,7 @@ html, body {
     /* Erster Wert (X): 0 ist Mitte */
     /* Zweiter Wert (Y): Verschiebung nach unten/oben */
     /* Dritter Wert: Der Scale-Faktor */
-    transform: translate(0px, 15px) scale(0.50);
+    transform: translate(0px, 25px) scale(0.50);
     
     transform-origin: top center;
   }
