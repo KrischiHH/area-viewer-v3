@@ -206,11 +206,12 @@ html, body {
     align-items: center;
     justify-content: flex-start;
     min-height: 100vh;
-    margin-top: 0; /* Margin entfernen, wir nutzen translate */
-    padding-top: 20px;
+    margin-top: -30; /* Margin entfernen, wir nutzen translate */
+    padding-top: 0px;
   }
 
   #start-card {
+    margin-top: 0;
     width: 60vw;
     max-width: 600px;
     min-width: 220px;
