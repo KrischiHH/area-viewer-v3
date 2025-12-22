@@ -230,7 +230,7 @@ html, body {
     left: 50%;
     width: auto;
     height: calc(100% + var(--frame-overhang) * 2);
-    /* Die Ranke orientiert sich an der skalierten Karte */
-    transform: translate(-50%, -45%) scale(var(--frame-scale));
+    /* Tiefergelegt: Y von -55% auf -60% z.B. */
+    transform: translate(-50%, -60%) scale(var(--frame-scale));
   }
 }
