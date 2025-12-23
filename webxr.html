@@ -44,19 +44,20 @@
     <button class="btn-icon" id="btn-close" aria-label="AR-Session beenden">×</button>
     <button class="btn-icon" id="btn-mute" style="display:none" aria-label="Audio umschalten">🔊</button>
   </div>
+
+  <div id="ar-capture-controls">
+    <button id="btn-main-capture" class="btn-capture" aria-label="Foto (tippen) oder Video (halten)">
+      <svg id="progress-ring" width="76" height="76">
+        <circle id="progress-circle" cx="38" cy="38" r="33" stroke="#ef233c" stroke-width="6" fill="none"/>
+      </svg>
+      <span id="capture-icon">📸</span>
+    </button>
+  </div>
+
   <div id="msg-container">
     <div id="msg" role="status" aria-live="polite">Bewege dein Gerät um Fläche zu finden...</div>
   </div>
   <div id="gesture-layer"></div>
-</div>
-
-  <div id="ar-capture-controls">
-  <button id="btn-main-capture" class="btn-capture" aria-label="Foto (tippen) oder Video (halten)">
-    <svg id="progress-ring" width="76" height="76">
-      <circle id="progress-circle" cx="38" cy="38" r="33" stroke="#ef233c" stroke-width="6" fill="none"/>
-    </svg>
-    <span id="capture-icon">📸</span>
-  </button>
 </div>
 
 <audio id="ar-audio" loop playsinline preload="auto" crossorigin="anonymous"></audio>
@@ -66,72 +67,12 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
-// --- Globals ---
-let camera, scene, renderer;
-let hitTestSource = null;
-let placementGroup;
-let placementRect;
-let model;
-let mixer;
-const clock = new THREE.Clock();
-
-// State & Config
-let isModelPlaced = false;
-let modelLoaded = false;
-let isEditing = false;
-let isHovering = false;
-
-// Gesten
-let currentTouches = [];
-let gestureStartTime = 0;
-let tapStartX = 0;
-let tapStartY = 0;
-let didMove = false;
-let isDraggingModel = false;
-let isRotatingModel = false;
-let isScalingModel = false;
-
-const ROTATION_FACTOR = 0.018;
-const SCALE_FACTOR = 0.005;
-const DRAG_THRESHOLD_PIX = 18;
-const TAP_THRESHOLD_MS = 350;
-const RECT_SIZE = 0.5;
-
-let initialPinchDistance = 0;
-let initialModelScale = 1;
-let lastMoveX = 0;
-
-// Ray/Planes
-const raycaster = new THREE.Raycaster();
-const ndc = new THREE.Vector2();
-const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-
-// URL Params
-const qs = new URLSearchParams(location.search);
-const workerBase = (qs.get('base') || 'https://area-publish-proxy.area-webar.workers.dev').replace(/\/$/, '');
-const sceneParam = qs.get('scene') || qs.get('src');
-let SCENE_JSON_URL = '';
-let MODEL_URL = '';
-let AUDIO_URL = '';
-
-// iOS-Erkennung + optionaler Debug-Flag, um WebXR trotzdem zu erzwingen
-const FORCE_WEBXR = qs.get('forceWebXR') === '1';
-const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-
-function buildNativeViewerUrl() {
-  const url = new URL('viewer.html', window.location.href);
-  if (sceneParam) url.searchParams.set('scene', sceneParam);
-  const baseParam = qs.get('base');
-  if (baseParam) url.searchParams.set('base', baseParam);
-  return url.toString();
-}
-
-  // Aufnahme-Button Smart-UX Logic
+// --- Aufnahme-Button Smart-UX Logic ---
 let pressTimer;
 let isLongPress = false;
 let progressInterval;
 const LONG_PRESS_THRESHOLD = 500; // ms
-const RECORD_MAX = 10000; // z.B. Max-Dauer für Video: 10 Sek.
+const RECORD_MAX = 10000; // Max-Dauer Video: 10 Sek.
 
 const mainBtn = document.getElementById('btn-main-capture');
 const icon = document.getElementById('capture-icon');
@@ -196,7 +137,7 @@ mainBtn.addEventListener('mouseup', handleEnd);
 
 // Foto-Blitz Effekt beim Foto
 function takePhoto() {
-  // Blitz anzeigen
+  // Visuelles Feedback: Weißer Blitz
   const flash = document.createElement('div');
   flash.style.cssText = "position:fixed; inset:0; background:white; z-index:9999; opacity:0.8;";
   document.body.appendChild(flash);
@@ -218,6 +159,7 @@ function takePhoto() {
 
 // Video Start/Stop getrennt
 let mediaRecorder, recordedChunks = [];
+
 function startVideo() {
   recordedChunks = [];
   const stream = renderer.domElement.captureStream(30);
@@ -229,6 +171,9 @@ function startVideo() {
 
 function stopVideo() {
   if (mediaRecorder && mediaRecorder.state !== "inactive") {
+    mainBtn.style.pointerEvents = "none";      // Button sperren
+    icon.textContent = "⏳";                   // Sanduhr-Icon als Feedback
+
     mediaRecorder.stop();
     mediaRecorder.onstop = () => {
       const blob = new Blob(recordedChunks, { type: 'video/webm' });
@@ -237,9 +182,72 @@ function stopVideo() {
       a.href = url;
       a.download = `santa-video-${Date.now()}.webm`;
       a.click();
+
+      icon.textContent = "📸";                 // Icon zurücksetzen
+      mainBtn.style.pointerEvents = "auto";    // Button wieder aktivieren
     };
-    setUiState('placed', "Video gespeichert!");
+    setUiState('processing', "Video wird verarbeitet …");
   }
+}
+
+// --- AR Logik ---
+let camera, scene, renderer;
+let hitTestSource = null;
+let placementGroup;
+let placementRect;
+let model;
+let mixer;
+const clock = new THREE.Clock();
+
+// State & Config
+let isModelPlaced = false;
+let modelLoaded = false;
+let isEditing = false;
+let isHovering = false;
+
+// Gesten
+let currentTouches = [];
+let gestureStartTime = 0;
+let tapStartX = 0;
+let tapStartY = 0;
+let didMove = false;
+let isDraggingModel = false;
+let isRotatingModel = false;
+let isScalingModel = false;
+
+const ROTATION_FACTOR = 0.018;
+const SCALE_FACTOR = 0.005;
+const DRAG_THRESHOLD_PIX = 18;
+const TAP_THRESHOLD_MS = 350;
+const RECT_SIZE = 0.5;
+
+let initialPinchDistance = 0;
+let initialModelScale = 1;
+let lastMoveX = 0;
+
+// Ray/Planes
+const raycaster = new THREE.Raycaster();
+const ndc = new THREE.Vector2();
+const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+// URL Params
+const qs = new URLSearchParams(location.search);
+const workerBase = (qs.get('base') || 'https://area-publish-proxy.area-webar.workers.dev').replace(/\/$/, '');
+const sceneParam = qs.get('scene') || qs.get('src');
+let SCENE_JSON_URL = '';
+let MODEL_URL = '';
+let AUDIO_URL = '';
+
+// iOS-Erkennung + optionaler Debug-Flag, um WebXR trotzdem zu erzwingen
+const FORCE_WEBXR = qs.get('forceWebXR') === '1';
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+
+function buildNativeViewerUrl() {
+  const url = new URL('viewer.html', window.location.href);
+  if (sceneParam) url.searchParams.set('scene', sceneParam);
+  const baseParam = qs.get('base');
+  if (baseParam) url.searchParams.set('base', baseParam);
+  return url.toString();
 }
 
 // --- Audio ---
@@ -496,10 +504,8 @@ async function boot() {
       ensureAudioUnlocked();
       try {
         await audioEl.play();
-        console.log('[Audio] Start im Button-Klick erfolgreich.');
         setUiState('audio_playing', 'Audio läuft.');
       } catch (e) {
-        console.warn('[Audio] Start im Button-Klick blockiert:', e);
         setUiState('audio_blocked', 'Audio blockiert. Tippe auf 🔊 zum Abspielen.');
       }
     }
@@ -509,7 +515,6 @@ async function boot() {
     overlay.style.pointerEvents = 'auto';
 
     onStartAR().catch(err => {
-      console.error('AR-Session Start Error:', err);
       resetARState();
       showErr('AR konnte nicht gestartet werden:\n' + (err?.message || 'Unbekannter Fehler'));
     });
@@ -563,7 +568,11 @@ function initThree() {
   dirLight.shadow.mapSize.set(1024, 1024);
   scene.add(dirLight);
 
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer = new THREE.WebGLRenderer({ 
+    antialias: true, 
+    alpha: true,
+    preserveDrawingBuffer: true // KRITISCH für Foto/Video
+  });
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.xr.enabled = true;
@@ -634,20 +643,19 @@ async function onStartAR() {
   const overlay = document.getElementById('overlay');
 
   const session = await navigator.xr.requestSession('immersive-ar', {
-    requiredFeatures: ['hit-test', 'local-floor'],
+    requiredFeatures: ['hit-test', 'local-floor', 'camera-access'], // <-- WICHTIG!
     optionalFeatures: ['dom-overlay'],
     domOverlay: { root: overlay }
   });
 
   session.addEventListener('end', () => {
-    try { hitTestSource?.cancel?.(); } catch(e) { console.error("Hit test cancel failed", e); }
+    try { hitTestSource?.cancel?.(); } catch(e) {}
     hitTestSource = null;
     renderer.setAnimationLoop(null);
     renderer.xr.setSession(null);
     resetARState();
   });
 
-  // Optionaler Zweitversuch für Audio, wenn die Session steht
   session.addEventListener('inputsourceschange', () => {
     tryStartAudioIfPossible('inputsourceschange');
   });
@@ -656,11 +664,9 @@ async function onStartAR() {
     session.requestHitTestSource({ space: refSpace }).then((source) => {
       hitTestSource = source;
     }).catch((e) => {
-      console.warn('Hit test source failed:', e);
-      setUiState('no_hittest', 'Kein AR-Hit-Test verfügbar. Bewege das Gerät oder versuche es erneut.');
+      setUiState('no_hittest', 'Kein AR-Hit-Test verfügbar.');
     });
   }).catch((e) => {
-    console.warn('Viewer reference space failed:', e);
     setUiState('no_refspace', 'AR-Referenzraum konnte nicht erstellt werden.');
   });
 
