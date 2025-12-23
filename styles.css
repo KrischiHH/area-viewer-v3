@@ -79,13 +79,15 @@ html, body {
 
 /* NEU: Blauer Label über SANTA TANZT */
 #ar-experience-label {
-  font-size: 2.3rem;
+  font-family: 'Arial Black', 'Arial', sans-serif;
   font-weight: bold;
-  color: #2b4790;
-  letter-spacing: 2.5px;
+  font-size: 2.1rem;
+  color: #c5d6f9;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
   margin-bottom: 6px;
   margin-top: 10px;
-  font-family: system-ui, sans-serif;
+  text-align: center;
 }
 
 /* Button explizit ganz oben */
