@@ -57,7 +57,7 @@ html, body {
   position: relative;
   
   width: 100%;
-  max-width: 600px;
+  max-width: 650px;
   min-width: 260px;
   background: linear-gradient(135deg, #2b4790 10%, #070b14 100%);
   border: 1px solid rgba(255,255,255,0.18);
