@@ -131,7 +131,7 @@ html, body {
   height: auto;
   margin: 8px 0 12px;
   border-radius: 18px;
-  filter: drop-shadow(0 0 40px #c5d6f9);
+  filter: drop-shadow(0 0 40px #c5d6f980);
 }
 #start-title {
   font-family: 'Bangers', cursive;
