@@ -179,10 +179,9 @@ html, body {
   display: flex;
   flex-direction: column;
 }
-
 .btn-capture {
   position: relative;
-  background: rgba(230, 240, 255, 0.60);
+  background: rgba(230,240,255,0.60);
   color: #2b4790;
   border: 1px solid rgba(43,71,144,0.18);
   box-shadow: 0 8px 24px rgba(0,0,0,0.32), 0 1.5px 0 rgba(255,255,255,0.15) inset;
@@ -208,7 +207,6 @@ html, body {
   color: #fff;
   box-shadow: 0 0 32px #ef233c49;
 }
-
 #progress-ring {
   position: absolute;
   top: 0; left: 0;
@@ -224,7 +222,6 @@ html, body {
 .btn-capture:not(.recording-active) #progress-circle {
   stroke: rgba(43, 71, 144, 0.3);
 }
-
 #capture-icon {
   position: relative;
   z-index: 1;
