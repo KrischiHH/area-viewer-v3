@@ -246,6 +246,6 @@ html, body {
     width: auto;
     height: calc(100% + var(--frame-overhang) * 2);
     /* Tiefergelegt: Y von -55% auf -60% z.B. */
-    transform: translate(-50%, -35%) scale(var(--frame-scale));
+    transform: translate(-50%, -30%) scale(var(--frame-scale));
   }
 }
