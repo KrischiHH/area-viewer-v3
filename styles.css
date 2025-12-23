@@ -240,12 +240,18 @@ html, body {
   }
 
   #tannengruen-frame {
-    --frame-scale: 1.20;
-    top: 50%;
-    left: 50%;
-    width: auto;
-    height: calc(100% + var(--frame-overhang) * 2);
-    /* Tiefergelegt: Y von -55% auf -60% z.B. */
-    transform: translate(-50%, -35%) scale(var(--frame-scale));
-  }
+  --frame-scale: 1.20;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 3; /* über Card, unter Button */
+  width: calc(100% + var(--frame-overhang) * 2);
+  height: calc(100% + var(--frame-overhang) * 2);
+  transform: translate(-50%, -54%) scale(var(--frame-scale));
+  object-fit: contain;
+  pointer-events: none;
+  border-radius: 0 !important;
+  background: none !important;
+  box-shadow: none !important;
+}
 }
