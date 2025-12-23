@@ -178,6 +178,73 @@ html, body {
   font-size: 20px; border-radius: 50%;
   cursor: pointer;
 }
+
+#ar-capture-controls {
+  position: fixed;
+  bottom: 32px;
+  right: 28px;
+  z-index: 1000; /* Über allem! */
+  display: flex;
+  flex-direction: column;
+}
+
+.btn-capture {
+  position: relative;
+  background: rgba(230, 240, 255, 0.60);
+  color: #2b4790;
+  border: 1px solid rgba(43,71,144,0.18);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.32), 0 1.5px 0 rgba(255,255,255,0.15) inset;
+  border-radius: 50%;
+  font-size: 2.2rem;
+  font-weight: bold;
+  width: 76px;
+  height: 76px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  overflow: hidden;
+}
+
+#progress-ring {
+  position: absolute;
+  top: 0; left: 0;
+  width: 76px; height: 76px;
+  pointer-events: none;
+}
+
+#progress-circle {
+  transition: stroke-dashoffset 0.1s linear;
+  transform: rotate(-90deg); /* Start bei 12 Uhr */
+  transform-origin: 50% 50%;
+  stroke: #ef233c;
+}
+
+.btn-capture:not(.recording-active) #progress-circle {
+  stroke: rgba(43, 71, 144, 0.3);
+}
+
+#capture-icon {
+  position: relative;
+  z-index: 1;
+  font-size: 2.2rem;
+}
+
+.btn-capture.recording-active {
+  background: #ef233c;
+  color: #fff;
+  box-shadow: 0 0 32px #ef233c49;
+}
+
+#gesture-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 100; /* Unterhalb des Capture-Button */
+  touch-action: none;
+}
+
+
 #msg-container {
   position: fixed; left: 0; right: 0; bottom: 16px;
   text-align: center; pointer-events: none; z-index: 20;
