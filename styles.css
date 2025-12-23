@@ -55,7 +55,6 @@ html, body {
 
 #start-card {
   position: relative;
-  
   width: 100%;
   max-width: 670px;
   min-width: 260px;
@@ -71,13 +70,11 @@ html, body {
   overflow: visible !important;
 }
 
-/* Die Card-Inhalte NICHT extra via z-index über die Ranke legen */
 #start-card > * {
   position: relative;
-  z-index: 1; /* unterhalb der Ranke */
+  z-index: 1;
 }
 
-/* NEU: Blauer Label über SANTA TANZT */
 #ar-experience-label {
   font-family: 'Arial Black', 'Arial', sans-serif;
   font-size: 1.5rem;
@@ -89,10 +86,9 @@ html, body {
   text-align: center;
 }
 
-/* Button explizit ganz oben */
 .btn-start {
   background: #E6F0FF;
-  color: #2b4790;   /* NEU: Blaue Schrift */
+  color: #2b4790;
   border: 1px solid rgba(11,26,51,0.2);
   padding: 32px 80px;
   border-radius: 999px;
@@ -102,7 +98,7 @@ html, body {
   cursor: pointer;
   pointer-events: auto;
   position: relative;
-  z-index: 10; /* GANZ oben, auch über der Ranke */
+  z-index: 10;
 }
 .btn-start:active { transform: scale(0.98); }
 
@@ -111,7 +107,7 @@ html, body {
   position: absolute;
   top: 50%;
   left: 50%;
-  z-index: 3; /* über Card, unter Button */
+  z-index: 3;
   width: calc(100% + var(--frame-overhang) * 2);
   height: calc(100% + var(--frame-overhang) * 2);
   transform: translate(-50%, -51%) scale(var(--frame-scale));
@@ -122,9 +118,7 @@ html, body {
   box-shadow: none !important;
 }
 
-/* ========================
-   Inhalte
-   ======================== */
+/* Inhalt */
 #start-image {
   width: 100%;
   max-width: 620px;
@@ -157,9 +151,7 @@ html, body {
   max-width: 680px;
 }
 
-/* ========================
-   AR UI
-   ======================== */
+/* AR UI */
 .ui-row {
   position: fixed;
   top: 0; left: 0; right: 0;
@@ -183,7 +175,7 @@ html, body {
   position: fixed;
   bottom: 32px;
   right: 28px;
-  z-index: 1000; /* Über allem! */
+  z-index: 1000;
   display: flex;
   flex-direction: column;
 }
@@ -205,6 +197,16 @@ html, body {
   cursor: pointer;
   backdrop-filter: blur(8px);
   overflow: hidden;
+  transition: box-shadow .28s, background .28s;
+}
+.btn-capture:active {
+  transform: scale(0.92);
+  transition: transform 0.1s;
+}
+.btn-capture.recording-active {
+  background: rgba(239, 35, 60, 0.8) !important;
+  color: #fff;
+  box-shadow: 0 0 32px #ef233c49;
 }
 
 #progress-ring {
@@ -212,15 +214,13 @@ html, body {
   top: 0; left: 0;
   width: 76px; height: 76px;
   pointer-events: none;
+  transform: rotate(-90deg);
+  transform-origin: center;
 }
-
 #progress-circle {
   transition: stroke-dashoffset 0.1s linear;
-  transform: rotate(-90deg); /* Start bei 12 Uhr */
-  transform-origin: 50% 50%;
   stroke: #ef233c;
 }
-
 .btn-capture:not(.recording-active) #progress-circle {
   stroke: rgba(43, 71, 144, 0.3);
 }
@@ -230,20 +230,6 @@ html, body {
   z-index: 1;
   font-size: 2.2rem;
 }
-
-.btn-capture.recording-active {
-  background: #ef233c;
-  color: #fff;
-  box-shadow: 0 0 32px #ef233c49;
-}
-
-#gesture-layer {
-  position: absolute;
-  inset: 0;
-  z-index: 100; /* Unterhalb des Capture-Button */
-  touch-action: none;
-}
-
 
 #msg-container {
   position: fixed; left: 0; right: 0; bottom: 16px;
@@ -258,14 +244,16 @@ html, body {
   background: #b00020; color: white; padding: 10px;
   border-radius: 8px; font-size: 12px; display: none; z-index: 120;
 }
+
 #gesture-layer {
-  position: absolute; inset: 0; z-index: 0;
-  pointer-events: auto; touch-action: none;
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  touch-action: none;
+  pointer-events: auto;
 }
 
-/* ================
-   QUERFORMAT (LANDSCAPE)
-   ================ */
+/* Querformat */
 @media (orientation: landscape) {
 
   html, body {
@@ -275,11 +263,11 @@ html, body {
 
   #start-screen {
     position: absolute;
-    overflow-y: auto; /* Erlaubt Scrollen, falls Karte zu hoch */
+    overflow-y: auto;
     height: 100vh;
     width: 100vw;
-    display: flex; /* Zentriert den Content-Wrapper */
-    align-items: flex-start; 
+    display: flex;
+    align-items: flex-start;
     justify-content: center;
   }
 
@@ -287,7 +275,7 @@ html, body {
     align-items: center;
     justify-content: flex-start;
     min-height: 100vh;
-    margin-top: 0; /* Margin entfernen, wir nutzen translate */
+    margin-top: 0;
     padding-top: 0px;
   }
 
@@ -296,29 +284,23 @@ html, body {
     width: 60vw;
     max-width: 600px;
     min-width: 220px;
-    
-    /* POSITIONIERUNG HIER: */
-    /* Erster Wert (X): 0 ist Mitte */
-    /* Zweiter Wert (Y): Verschiebung nach unten/oben */
-    /* Dritter Wert: Der Scale-Faktor */
     transform: translate(0px, 45px) scale(0.50);
-    
     transform-origin: top center;
   }
 
   #tannengruen-frame {
-  --frame-scale: 1.20;
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  z-index: 3; /* über Card, unter Button */
-  width: calc(100% + var(--frame-overhang) * 2);
-  height: calc(100% + var(--frame-overhang) * 2);
-  transform: translate(-50%, -54%) scale(var(--frame-scale));
-  object-fit: contain;
-  pointer-events: none;
-  border-radius: 0 !important;
-  background: none !important;
-  box-shadow: none !important;
-}
+    --frame-scale: 1.20;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    z-index: 3;
+    width: calc(100% + var(--frame-overhang) * 2);
+    height: calc(100% + var(--frame-overhang) * 2);
+    transform: translate(-50%, -54%) scale(var(--frame-scale));
+    object-fit: contain;
+    pointer-events: none;
+    border-radius: 0 !important;
+    background: none !important;
+    box-shadow: none !important;
+  }
 }
