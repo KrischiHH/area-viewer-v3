@@ -50,6 +50,15 @@
   <div id="gesture-layer"></div>
 </div>
 
+  <div id="ar-capture-controls">
+  <button id="btn-main-capture" class="btn-capture" aria-label="Foto (tippen) oder Video (halten)">
+    <svg id="progress-ring" width="76" height="76">
+      <circle id="progress-circle" cx="38" cy="38" r="33" stroke="#ef233c" stroke-width="6" fill="none"/>
+    </svg>
+    <span id="capture-icon">📸</span>
+  </button>
+</div>
+
 <audio id="ar-audio" loop playsinline preload="auto" crossorigin="anonymous"></audio>
 
 <script type="module">
