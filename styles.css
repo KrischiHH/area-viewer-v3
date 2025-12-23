@@ -81,11 +81,11 @@ html, body {
 #ar-experience-label {
   font-family: 'Arial Black', 'Arial', sans-serif;
   font-weight: bold;
-  font-size: 2.1rem;
+  font-size: 1.8rem;
   color: #c5d6f9;
   text-transform: uppercase;
   letter-spacing: 0.16em;
-  margin-bottom: 6px;
+  margin-bottom: 3px;
   margin-top: 10px;
   text-align: center;
 }
