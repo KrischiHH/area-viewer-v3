@@ -126,6 +126,122 @@ function buildNativeViewerUrl() {
   return url.toString();
 }
 
+  // Aufnahme-Button Smart-UX Logic
+let pressTimer;
+let isLongPress = false;
+let progressInterval;
+const LONG_PRESS_THRESHOLD = 500; // ms
+const RECORD_MAX = 10000; // z.B. Max-Dauer für Video: 10 Sek.
+
+const mainBtn = document.getElementById('btn-main-capture');
+const icon = document.getElementById('capture-icon');
+const ring = document.getElementById('progress-ring');
+const circle = document.getElementById('progress-circle');
+const circleLength = 2 * Math.PI * circle.r.baseVal.value;
+
+// Fortschritts-Ring anzeigen/füllen
+function setProgress(percent) {
+  const offset = circleLength * (1 - percent);
+  circle.style.strokeDasharray = `${circleLength}`;
+  circle.style.strokeDashoffset = offset;
+}
+
+function handleStart(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  isLongPress = false;
+  setProgress(0);
+
+  let startTime = Date.now();
+  pressTimer = setTimeout(() => {
+    isLongPress = true;
+    startVideo();
+    icon.textContent = "🔴";
+    mainBtn.classList.add('recording-active');
+    let elapsed = 0;
+
+    progressInterval = setInterval(() => {
+      elapsed = Date.now() - startTime - LONG_PRESS_THRESHOLD;
+      let percent = Math.min(elapsed / RECORD_MAX, 1);
+      setProgress(percent);
+      if (percent >= 1) {
+        handleEnd(e); // Automatisch stoppen
+      }
+    }, 30);
+
+  }, LONG_PRESS_THRESHOLD);
+}
+
+function handleEnd(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  clearTimeout(pressTimer);
+  clearInterval(progressInterval);
+  setProgress(0);
+
+  if (!isLongPress) {
+    takePhoto();
+  } else {
+    stopVideo();
+    icon.textContent = "📸";
+    mainBtn.classList.remove('recording-active');
+  }
+}
+
+// Bind Events
+mainBtn.addEventListener('touchstart', handleStart, { passive: false });
+mainBtn.addEventListener('touchend', handleEnd, { passive: false });
+mainBtn.addEventListener('mousedown', handleStart);
+mainBtn.addEventListener('mouseup', handleEnd);
+
+// Foto-Blitz Effekt beim Foto
+function takePhoto() {
+  // Blitz anzeigen
+  const flash = document.createElement('div');
+  flash.style.cssText = "position:fixed; inset:0; background:white; z-index:9999; opacity:0.8;";
+  document.body.appendChild(flash);
+
+  setTimeout(() => {
+    flash.style.transition = "opacity 0.3s";
+    flash.style.opacity = "0";
+    setTimeout(() => flash.remove(), 300);
+  }, 50);
+
+  // Existierende Foto-Logik: Renderer etc.
+  renderer.render(scene, camera);
+  const url = renderer.domElement.toDataURL('image/png');
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `area-ar-snapshot-${Date.now()}.png`;
+  link.click();
+}
+
+// Video Start/Stop getrennt
+let mediaRecorder, recordedChunks = [];
+function startVideo() {
+  recordedChunks = [];
+  const stream = renderer.domElement.captureStream(30);
+  mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+  mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
+  mediaRecorder.start();
+  setUiState('recording', "Video wird aufgenommen...");
+}
+
+function stopVideo() {
+  if (mediaRecorder && mediaRecorder.state !== "inactive") {
+    mediaRecorder.stop();
+    mediaRecorder.onstop = () => {
+      const blob = new Blob(recordedChunks, { type: 'video/webm' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `santa-video-${Date.now()}.webm`;
+      a.click();
+    };
+    setUiState('placed', "Video gespeichert!");
+  }
+}
+
 // --- Audio ---
 const audioEl = document.getElementById('ar-audio');
 const btnMute = document.getElementById('btn-mute');
