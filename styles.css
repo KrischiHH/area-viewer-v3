@@ -106,7 +106,7 @@ html, body {
 .btn-start:active { transform: scale(0.98); }
 
 #tannengruen-frame {
-  --frame-scale: 1.18;
+  --frame-scale: 1.20;
   position: absolute;
   top: 50%;
   left: 50%;
