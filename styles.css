@@ -301,3 +301,26 @@ html, body {
     box-shadow: none !important;
   }
 }
+
+/* --- Screen Capture Button (Weg A) --- */
+#btn-screenrec {
+  margin-top: 18px;
+  background: rgba(245, 245, 255, 0.70);
+  color: #b82f16;
+  font-size: 2rem;
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(0,0,0,.14);
+}
+#btn-screenrec.recording {
+  background: #b82f16;
+  color: #fff;
+  animation: blink-record 1s infinite alternate;
+}
+@keyframes blink-record {
+  0% { box-shadow: 0 8px 20px #b82f1640; }
+  100% { box-shadow: 0 0 36px #b82f16a0; }
+}
