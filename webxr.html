@@ -1,333 +1,3 @@
-```css
-/* Basis-Reset */
-* { box-sizing: border-box; }
-
-:root {
-  --frame-overhang: clamp(40px, 7vw, 90px);
-}
-
-html, body {
-  margin: 0;
-  padding: 0;
-  width: 100%;
-  height: 100%;
-  background-color: #111;
-  color: #fff;
-  font-family: system-ui, -apple-system, sans-serif;
-  overflow: hidden;
-}
-
-/* Overlay für AR-UI */
-#overlay {
-  position: fixed;
-  inset: 0;
-  display: block;
-  pointer-events: auto;
-  z-index: 10;
-}
-
-/* Start-Screen Container */
-#start-screen {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.85);
-  display: none;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  pointer-events: auto;
-  padding: 20px;
-}
-
-/* Wrapper für Inhalt + Ranke */
-#start-content {
-  position: relative;
-  width: 100%;
-  max-width: 760px;
-  overflow: visible !important;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  max-height: 100%;
-  overflow-y: auto;
-  padding-bottom: 24px;
-}
-
-#start-card {
-  position: relative;
-  width: 100%;
-  max-width: 670px;
-  min-width: 260px;
-  background: linear-gradient(135deg, #2b4790 10%, #070b14 100%);
-  border: 1px solid rgba(255,255,255,0.18);
-  border-radius: 26px;
-  box-shadow: 0 36px 80px rgba(0,0,0,0.60), inset 0 1px 0 rgba(255,255,255,0.12);
-  padding: 42px 40px 46px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 20px;
-  overflow: visible !important;
-}
-
-#start-card > * {
-  position: relative;
-  z-index: 1;
-}
-
-#ar-experience-label {
-  font-family: 'Arial Black', 'Arial', sans-serif;
-  font-size: 1.5rem;
-  color: #c5d6f9;
-  text-transform: uppercase;
-  letter-spacing: 0.16em;
-  margin-bottom: 3px;
-  margin-top: 10px;
-  text-align: center;
-}
-
-.btn-start {
-  background: #E6F0FF;
-  color: #2b4790;
-  border: 1px solid rgba(11,26,51,0.2);
-  padding: 32px 80px;
-  border-radius: 999px;
-  font-weight: 900;
-  font-size: 40px;
-  box-shadow: 0 10px 26px rgba(0,0,0,0.42);
-  cursor: pointer;
-  pointer-events: auto;
-  position: relative;
-  z-index: 10;
-}
-.btn-start:active { transform: scale(0.98); }
-
-#tannengruen-frame {
-  --frame-scale: 1.20;
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  z-index: 3;
-  width: calc(100% + var(--frame-overhang) * 2);
-  height: calc(100% + var(--frame-overhang) * 2);
-  transform: translate(-50%, -51%) scale(var(--frame-scale));
-  object-fit: contain;
-  pointer-events: none;
-  border-radius: 0 !important;
-  background: none !important;
-  box-shadow: none !important;
-}
-
-/* Inhalt */
-#start-image {
-  width: 100%;
-  max-width: 620px;
-  height: auto;
-  margin: 8px 0 12px;
-  border-radius: 18px;
-  filter: drop-shadow(0 0 40px #c5d6f980);
-}
-#start-title {
-  font-family: 'Bangers', cursive;
-  font-size: clamp(40px, 9vw, 70px);
-  font-weight: 850;
-  margin: 0;
-  color: #fff;
-  text-shadow: 4px 4px 0px #000;
-  letter-spacing: .25px;
-}
-#start-subline {
-  font-size: clamp(18px, 4.2vw, 30px);
-  font-weight: 650;
-  margin: -12px 0 4px;
-  color: rgba(255,255,255,0.98);
-}
-#start-text {
-  font-size: clamp(18px, 4.2vw, 30px);
-  font-weight: 650;
-  margin: 2px 0 14px;
-  line-height: 1.65;
-  color: rgba(255,255,255,0.98);
-  max-width: 680px;
-}
-
-/* AR UI */
-.ui-row {
-  position: fixed;
-  top: 0; left: 0; right: 0;
-  padding: 12px 16px;
-  display: flex;
-  justify-content: flex-start;
-  align-items: center;
-  pointer-events: auto;
-  z-index: 20;
-}
-.btn-icon {
-  background: rgba(20,20,30,0.6);
-  border: 1px solid rgba(255,255,255,0.2);
-  color: white; width: 44px; height: 44px;
-  display: inline-flex; align-items: center; justify-content: center;
-  font-size: 20px; border-radius: 50%;
-  cursor: pointer;
-}
-
-#ar-capture-controls {
-  position: fixed;
-  bottom: 32px;
-  right: 28px;
-  z-index: 1000;
-  display: flex;
-  flex-direction: column;
-}
-.btn-capture {
-  position: relative;
-  background: rgba(230,240,255,0.60);
-  color: #2b4790;
-  border: 1px solid rgba(43,71,144,0.18);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.32), 0 1.5px 0 rgba(255,255,255,0.15) inset;
-  border-radius: 50%;
-  font-size: 2.2rem;
-  font-weight: bold;
-  width: 76px;
-  height: 76px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  cursor: pointer;
-  backdrop-filter: blur(8px);
-  overflow: hidden;
-  transition: box-shadow .28s, background .28s;
-}
-.btn-capture:active {
-  transform: scale(0.92);
-  transition: transform 0.1s;
-}
-.btn-capture.recording-active {
-  background: rgba(239, 35, 60, 0.8) !important;
-  color: #fff;
-  box-shadow: 0 0 32px #ef233c49;
-}
-#progress-ring {
-  position: absolute;
-  top: 0; left: 0;
-  width: 76px; height: 76px;
-  pointer-events: none;
-  transform: rotate(-90deg);
-  transform-origin: center;
-}
-#progress-circle {
-  transition: stroke-dashoffset 0.1s linear;
-  stroke: #ef233c;
-}
-.btn-capture:not(.recording-active) #progress-circle {
-  stroke: rgba(43, 71, 144, 0.3);
-}
-#capture-icon {
-  position: relative;
-  z-index: 1;
-  font-size: 2.2rem;
-}
-
-#msg-container {
-  position: fixed; left: 0; right: 0; bottom: 16px;
-  text-align: center; pointer-events: none; z-index: 20;
-}
-#msg {
-  background: rgba(0,0,0,0.55); padding: 8px 16px;
-  border-radius: 20px; display: inline-block; font-size: 14px;
-}
-#err {
-  position: fixed; top: 10px; left: 10px; right: 10px;
-  background: #b00020; color: white; padding: 10px;
-  border-radius: 8px; font-size: 12px; display: none; z-index: 120;
-}
-
-#gesture-layer {
-  position: absolute;
-  inset: 0;
-  z-index: 100;
-  touch-action: none;
-  pointer-events: auto;
-}
-
-/* Querformat */
-@media (orientation: landscape) {
-
-  html, body {
-    overflow: auto;
-    height: 100vh;
-  }
-
-  #start-screen {
-    position: absolute;
-    overflow-y: auto;
-    height: 100vh;
-    width: 100vw;
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-  }
-
-  #start-content {
-    align-items: center;
-    justify-content: flex-start;
-    min-height: 100vh;
-    margin-top: 0;
-    padding-top: 0px;
-  }
-
-  #start-card {
-    margin-top: 0;
-    width: 60vw;
-    max-width: 600px;
-    min-width: 220px;
-    transform: translate(0px, 45px) scale(0.50);
-    transform-origin: top center;
-  }
-
-  #tannengruen-frame {
-    --frame-scale: 1.20;
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    z-index: 3;
-    width: calc(100% + var(--frame-overhang) * 2);
-    height: calc(100% + var(--frame-overhang) * 2);
-    transform: translate(-50%, -54%) scale(var(--frame-scale));
-    object-fit: contain;
-    pointer-events: none;
-    border-radius: 0 !important;
-    background: none !important;
-    box-shadow: none !important;
-  }
-}
-
-/* --- Screen Capture Button (Weg A) --- */
-#btn-screenrec {
-  margin-top: 18px;
-  background: rgba(245, 245, 255, 0.70);
-  color: #b82f16;
-  font-size: 2rem;
-  width: 76px;
-  height: 76px;
-  border-radius: 50%;
-  border: none;
-  cursor: pointer;
-  box-shadow: 0 8px 20px rgba(0,0,0,.14);
-}
-#btn-screenrec.recording {
-  background: #b82f16;
-  color: #fff;
-  animation: blink-record 1s infinite alternate;
-}
-@keyframes blink-record {
-  0% { box-shadow: 0 8px 20px #b82f1640; }
-  100% { box-shadow: 0 0 36px #b82f16a0; }
-}
-```
-
-```html
 <!doctype html>
 <html lang="de">
 <head>
@@ -471,25 +141,33 @@ mainBtn.addEventListener('touchend', handleEnd, { passive: false });
 mainBtn.addEventListener('mousedown', handleStart);
 mainBtn.addEventListener('mouseup', handleEnd);
 
-// Foto-Blitz Effekt beim Foto
+// Foto (AR: Screen-Foto, sonst Canvas-Foto)
 async function takePhoto() {
-  // Visuelles Feedback: Weißer Blitz
+  // Blitz als visuelles Feedback
   const flash = document.createElement('div');
-  flash.style.cssText = "position:fixed; inset:0; background:white; z-index:9999; opacity:0.85;";
+  flash.style.cssText = "position:fixed; inset:0; background:white; z-index:9999; opacity:0.85; pointer-events:none;";
   document.body.appendChild(flash);
-
   setTimeout(() => {
     flash.style.transition = "opacity 0.25s";
     flash.style.opacity = "0";
     setTimeout(() => flash.remove(), 260);
   }, 40);
 
+  const session = renderer?.xr?.getSession?.();
+
+  // In AR? → echtes AR-Foto via Screen Capture (Weg A)
+  if (session) {
+    setUiState('share_prompt', 'Wähle im Dialog: Browser/Tab (wenn verfügbar). Dann wartet das Foto kurz…');
+    await takeScreenPhoto({ includeOverlay: true });
+    return;
+  }
+
+  // Fallback außerhalb AR: klassisches Canvas-Foto
   if (!renderer || !renderer.domElement) {
     showErr('Renderer noch nicht bereit.');
     return;
   }
 
-  // Renderer rendern
   renderer.render(scene, camera);
 
   const blob = await new Promise(resolve => renderer.domElement.toBlob(resolve, 'image/png'));
@@ -498,18 +176,112 @@ async function takePhoto() {
     return;
   }
 
-  const filename = `area-ar-snapshot-${Date.now()}.png`;
+  downloadOrShareBlob(blob, `area-canvas-snapshot-${Date.now()}.png`, 'image/png');
+}
 
-  // Web Share (Android) – wenn verfügbar
+function waitRAF(n = 1) {
+  return new Promise(resolve => {
+    const step = () => (n-- <= 1) ? resolve() : requestAnimationFrame(step);
+    requestAnimationFrame(step);
+  });
+}
+
+async function takeScreenPhoto({ includeOverlay = true } = {}) {
+  if (!navigator.mediaDevices?.getDisplayMedia) {
+    showErr('Screen-Foto wird von diesem Browser nicht unterstützt.');
+    return;
+  }
+
+  let stream, video;
+
+  const overlayEl = document.getElementById('overlay');
+  const prevOverlay = overlayEl?.style.display;
+
+  // Anti-Doubleclick / Prompt läuft
+  const prevPE = mainBtn.style.pointerEvents;
+  mainBtn.style.pointerEvents = "none";
+
   try {
-    const file = new File([blob], filename, { type: 'image/png' });
+    stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+
+    video = document.createElement('video');
+    video.playsInline = true;
+    video.muted = true;
+    video.srcObject = stream;
+
+    await video.play();
+
+    // Android/Chrome-Fix: echten Frame abwarten
+    await new Promise(resolve => {
+      if (video.requestVideoFrameCallback) {
+        video.requestVideoFrameCallback(() => resolve());
+      } else {
+        const tick = () => {
+          if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) resolve();
+          else requestAnimationFrame(tick);
+        };
+        tick();
+      }
+    });
+
+    // SUPER wichtig: nach dem Prompt noch 2 Frames warten (sonst oft Prompt/black captured)
+    await waitRAF(2);
+
+    // Guard: kein gültiges Signal
+    if (!video.videoWidth || !video.videoHeight) {
+      showErr('Kein Bildsignal. Bitte im Dialog den Browser/Tab wählen (wenn verfügbar).');
+      return;
+    }
+
+    // Optional Overlay ausblenden
+    if (!includeOverlay && overlayEl) {
+      overlayEl.style.display = "none";
+      await waitRAF(1);
+    }
+
+    const w = video.videoWidth || window.innerWidth;
+    const h = video.videoHeight || window.innerHeight;
+
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+
+    const ctx = c.getContext('2d', { alpha: false });
+    ctx.drawImage(video, 0, 0, w, h);
+
+    if (overlayEl && !includeOverlay) {
+      overlayEl.style.display = prevOverlay ?? '';
+    }
+
+    const blob = await new Promise(resolve => c.toBlob(resolve, 'image/png'));
+    if (!blob) {
+      showErr('Screen-Foto konnte nicht erstellt werden.');
+      return;
+    }
+
+    downloadOrShareBlob(blob, `area-ar-photo-${Date.now()}.png`, 'image/png');
+    setUiState('ready', 'Foto gespeichert!');
+
+  } catch (err) {
+    console.error(err);
+    showErr('Screen-Foto Fehler: ' + (err?.message || err));
+  } finally {
+    try { if (video) { video.pause(); video.srcObject = null; } } catch {}
+    try { if (stream) stream.getTracks().forEach(t => t.stop()); } catch {}
+
+    if (overlayEl && !includeOverlay) overlayEl.style.display = prevOverlay ?? '';
+    mainBtn.style.pointerEvents = prevPE || "auto";
+  }
+}
+
+async function downloadOrShareBlob(blob, filename, mime) {
+  try {
+    const file = new File([blob], filename, { type: mime });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({ files: [file], title: 'ARea Snapshot' });
+      await navigator.share({ files: [file], title: filename });
       return;
     }
   } catch (_) {}
 
-  // Fallback: Download
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -1478,4 +1250,3 @@ boot();
 
 </body>
 </html>
-```
