@@ -1,10 +1,9 @@
 // js/core.js
-// Vollständige Datei mit Animation-Handling (autoplay + animation-name + Fallback)
-// Nichts entfernt, nur gezielt ergänzt.
+// Vollständige Datei – keine Kürzung, nur ergänzt um eine noch robustere iOS-Hybrid-Logik und sichtbare Fehlerausgabe
 
 export function initCore() {
-  const mvEl = document.getElementById('ar-scene-element');
-  if (!mvEl || mvEl.tagName !== 'MODEL-VIEWER') {
+  const mvEl = document.getElementById('ar-scene-element') || document.querySelector('model-viewer');
+  if (!mvEl || mvEl.tagName.toUpperCase() !== 'MODEL-VIEWER') {
     throw new Error('model-viewer Element fehlt oder ist ungültig.');
   }
   return mvEl;
@@ -36,7 +35,7 @@ export function configureModel(cfg, sceneId, workerBase) {
   mvEl.setAttribute('src', modelUrl);
   mvEl.setAttribute('alt', cfg.meta?.title || '3D Modell');
   mvEl.setAttribute('shadow-intensity', '1');
-  mvEl.setAttribute('auto-rotate', '');          // wird nach load entfernt
+  mvEl.setAttribute('auto-rotate', ''); // wird nach load entfernt
   mvEl.setAttribute('interaction-prompt', 'none');
   mvEl.setAttribute('auto-rotate-delay', '1000');
   mvEl.setAttribute('disable-tap', '');
@@ -49,26 +48,26 @@ export function configureModel(cfg, sceneId, workerBase) {
   mvEl.setAttribute('ar', '');
 
   if (isIOS) {
-    // iOS → Quick Look
     mvEl.setAttribute('ar-modes', 'quick-look');
-
-    // Optional: USDZ aus Config verwenden, falls vorhanden
     if (cfg.model.usdzUrl) {
       const usdzUrl = cfg.model.usdzUrl.startsWith('http')
         ? cfg.model.usdzUrl
         : `${workerBase}/scenes/${sceneId}/${cfg.model.usdzUrl}`;
       mvEl.setAttribute('ios-src', usdzUrl);
     } else {
-      // Kein USDZ → Quick Look kann nichts anzeigen
       mvEl.removeAttribute('ios-src');
+      // Sichtbares iOS-AR-Feedback für User
+      const err = document.getElementById('err');
+      if (err) {
+        err.textContent = '[ARea Viewer] iOS erkannt, aber keine .usdz-Datei in der Szene – Quick Look kann nicht genutzt werden!';
+        err.style.display = "block";
+      }
       console.warn('[ARea Viewer] iOS erkannt, aber keine model.usdzUrl in scene.json – Quick Look ohne Asset.');
     }
   } else if (isAndroid) {
-    // Android → WebXR ERZWINGEN (kein scene-viewer!)
     mvEl.setAttribute('ar-modes', 'webxr');
     mvEl.removeAttribute('ios-src');
   } else {
-    // Desktop / sonstige Plattformen → WebXR für Tests
     mvEl.setAttribute('ar-modes', 'webxr');
     mvEl.removeAttribute('ios-src');
   }
@@ -82,7 +81,6 @@ export function configureModel(cfg, sceneId, workerBase) {
   // 🔹 Animation automatisch starten
   mvEl.setAttribute('autoplay', '');
   if (Array.isArray(cfg.animations) && cfg.animations.length > 0) {
-    // Ersten Clip aus Szene-Config setzen
     mvEl.setAttribute('animation-name', cfg.animations[0]);
   }
 
