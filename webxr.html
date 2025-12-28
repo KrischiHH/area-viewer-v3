@@ -45,17 +45,16 @@
     <button class="btn-icon" id="btn-mute" style="display:none" aria-label="Audio umschalten">🔊</button>
   </div>
 
-  <div id="ar-capture-controls">
-    <button id="btn-main-capture" class="btn-capture" aria-label="Foto (tippen) oder Video (halten)">
-      <svg id="progress-ring" width="76" height="76">
-        <circle id="progress-circle" cx="38" cy="38" r="33" stroke="#ef233c" stroke-width="6" fill="none"/>
-      </svg>
-      <span id="capture-icon">📸</span>
-    </button>
+ <div id="ar-capture-controls">
+  <!-- später: kleine Galerie-Preview kommt hier hin -->
+  <button id="btn-main-capture" class="btn-capture" aria-label="Foto (tippen) oder Video (halten)">
+    <svg id="progress-ring" width="76" height="76">
+      <circle id="progress-circle" cx="38" cy="38" r="33" stroke="#ef233c" stroke-width="6" fill="none"/>
+    </svg>
+    <span id="capture-icon">📸</span>
+  </button>
+</div>
 
-    <!-- Screen Capture (Weg A) – nimmt den Bildschirm inkl. Kamera-Compositing + DOM-Overlay auf -->
-    <button class="btn-capture" id="btn-screenrec" title="Bildschirm als Video aufnehmen">🖥️🔴</button>
-  </div>
 
   <div id="msg-container">
     <div id="msg" role="status" aria-live="polite">Bewege dein Gerät um Fläche zu finden...</div>
