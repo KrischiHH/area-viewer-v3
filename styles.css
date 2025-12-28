@@ -174,11 +174,15 @@ html, body {
 #ar-capture-controls {
   position: fixed;
   bottom: 32px;
-  right: 28px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 1000;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
+  gap: 16px;
 }
+
 .btn-capture {
   position: relative;
   background: rgba(230,240,255,0.60);
