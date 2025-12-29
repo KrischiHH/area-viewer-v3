@@ -5,20 +5,50 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover"/>
   <title>ARea Native AR Viewer</title>
 
-  <!-- Fonts + Styles (Bangers + dein Stylesheet mit Tannengrün usw.) -->
+  <!-- Fonts & Styles (dein bestehendes styles.css mit Startscreen & Tannengrün) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bangers&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 
-  <!-- model-viewer (nur für nativen AR-Start) -->
-  <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.0.0/model-viewer.min.js"></script>
+  <!-- model-viewer (für Native AR: Scene Viewer / Quick Look) -->
+  <script type="module"
+          src="https://unpkg.com/@google/model-viewer@4.1.0/dist/model-viewer.min.js">
+  </script>
+
+  <style>
+    /* model-viewer vollständig unsichtbar halten – wir nutzen nur die AR-Funktion */
+    #native-ar-model {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      visibility: hidden;
+      pointer-events: none;
+      background: #000;
+    }
+
+    /* Fehlermeldungen oben – wie gehabt */
+    #err {
+      position: fixed;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.8);
+      color: #fff;
+      padding: 8px 14px;
+      border-radius: 999px;
+      font-size: 13px;
+      z-index: 2000;
+      display: none;
+    }
+  </style>
 </head>
 <body>
 
-<div id="err" style="display:none;"></div>
+<div id="err"></div>
 
-<!-- 1) Dein Welcome-Screen bleibt wie er ist (inkl. Tannengrün-Rahmen) -->
+<!-- Dein bestehender Startscreen mit Tannengrün-Rahmen -->
 <div id="start-screen">
   <div id="start-content">
     <div id="start-card">
@@ -29,42 +59,27 @@
       <p id="start-text"></p>
       <button class="btn-start" id="btn-enter-ar">STARTE AR✨</button>
     </div>
-    <!-- WICHTIG: Dateiname wie in deinem Projekt (ohne Umlaut) -->
-    <img id="tannengruen-frame"
-         src="./assets/Tannengruen.png"
-         alt="Dekorativer Tannengrün-Rahmen"
-         aria-hidden="true"/>
+    <img id="tannengruen-frame" src="./assets/Tannengruen.png"
+         alt="Dekorativer Tannengrün-Rahmen" aria-hidden="true"/>
   </div>
 </div>
 
-<!-- 2) Versteckter model-viewer: nur zum Öffnen des nativen AR-Viewers -->
-<model-viewer id="native-ar"
-  style="display:none; width:100%; height:100%; background-color:#000;"
-  ar
-  ar-modes="scene-viewer quick-look webxr"
-  camera-controls
-  autoplay
-  shadow-intensity="1"
-  environment-image="neutral"
-  exposure="1"
-  xr-environment
->
+<!-- Verstecktes model-viewer – nur als „Brücke“ zum nativen Viewer -->
+<model-viewer id="native-ar-model"
+              ar
+              ar-modes="scene-viewer quick-look"
+              ar-scale="fixed"
+              ar-placement="floor"
+              camera-controls="false"
+              autoplay
+              shadow-intensity="1"
+              exposure="1">
 </model-viewer>
 
-<!-- 3) Audio (ohne eigenes UI) -->
-<audio id="ar-audio" loop playsinline preload="auto" crossorigin="anonymous"></audio>
+<!-- Audio, das parallel zur AR-Szene spielt -->
+<audio id="ar-audio" loop preload="auto" crossorigin="anonymous"></audio>
 
 <script type="module">
-  // --- Basis-Helfer --------------------------------------------------------
-  const errEl = document.getElementById('err');
-  function showErr(msg) {
-    console.error('[ARea native]', msg);
-    errEl.textContent = msg;
-    errEl.style.display = 'block';
-    setTimeout(() => { errEl.style.display = 'none'; }, 6000);
-  }
-
-  // URL-Parameter wie im WebXR-Viewer
   const qs = new URLSearchParams(location.search);
   const workerBase = (qs.get('base') || 'https://area-publish-proxy.area-webar.workers.dev').replace(/\/$/, '');
   const sceneParam = qs.get('scene') || qs.get('src');
@@ -74,270 +89,196 @@
   let IOS_URL = '';
   let AUDIO_URL = '';
 
-  // DOM-Referenzen
-  const startScreen   = document.getElementById('start-screen');
-  const startTitle    = document.getElementById('start-title');
-  const startSubline  = document.getElementById('start-subline');
-  const startText     = document.getElementById('start-text');
-  const startImage    = document.getElementById('start-image');
-  const btnEnterAR    = document.getElementById('btn-enter-ar');
-  const mv            = document.getElementById('native-ar');
-  const audioEl       = document.getElementById('ar-audio');
+  const startScreen  = document.getElementById('start-screen');
+  const btnEnterAR   = document.getElementById('btn-enter-ar');
+  const startTitle   = document.getElementById('start-title');
+  const startSubline = document.getElementById('start-subline');
+  const startText    = document.getElementById('start-text');
+  const startImage   = document.getElementById('start-image');
 
-  let audioCfg = null;
-  let audioCtx = null;
+  const mv      = document.getElementById('native-ar-model');
+  const audioEl = document.getElementById('ar-audio');
+  let isAudioReady = false;
 
-  function ensureAudioUnlocked() {
-    try {
-      if (!audioCtx) {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      }
-      if (audioCtx.state === 'suspended') {
-        audioCtx.resume().catch(() => {});
-      }
-    } catch (e) {
-      console.warn('AudioContext konnte nicht initialisiert werden:', e);
+  function showErr(msg) {
+    const box = document.getElementById('err');
+    box.textContent = msg;
+    box.style.display = 'block';
+    clearTimeout(box._timer);
+    box._timer = setTimeout(() => box.style.display = 'none', 5000);
+  }
+
+  function setStartTexts({title, subline, body, posterUrl}) {
+    startTitle.innerHTML   = title || '';
+    startSubline.innerHTML = subline || '';
+    startText.innerHTML    = body || '';
+
+    if (posterUrl) {
+      startImage.src = posterUrl;
+      startImage.style.display = 'block';
+      startImage.alt = title ? `${title} Vorschau` : 'Vorschau';
+    } else {
+      startImage.style.display = 'none';
     }
   }
 
-  function setupAudio(cfg) {
-    if (!cfg || !AUDIO_URL) return;
-    audioCfg = cfg;
-    audioEl.crossOrigin = 'anonymous';
-    audioEl.src = AUDIO_URL;
-    audioEl.loop = !!cfg.loop;
-
-    const sceneVolume =
-      (typeof cfg.volume === 'number') ? cfg.volume : 0.8;
-
-    const masterVolume = 0.3;
-    audioEl.volume = sceneVolume * masterVolume;
-
-    try { audioEl.load(); } catch (e) {}
-  }
-
-  async function tryPlayAudio() {
-    if (!AUDIO_URL) return;
-    try {
-      ensureAudioUnlocked();
-      if (audioEl.paused) {
-        await audioEl.play();
-      }
-    } catch (e) {
-      console.warn('Audio konnte nicht automatisch gestartet werden:', e);
-    }
-  }
-
-  // --- Szene-Config laden (wie im WebXR-Viewer) ---------------------------
-  async function loadSceneConfig() {
-    // Szenen-URL bestimmen
-    if (sceneParam) {
-      if (sceneParam.endsWith('.glb') || sceneParam.endsWith('.gltf') || sceneParam.endsWith('.usdz')) {
-        // direkter Modell-Link
-        MODEL_URL = sceneParam;
-      } else {
-        // Standard: Worker-Szene
-        SCENE_JSON_URL = `${workerBase}/scenes/${sceneParam}/scene.json`;
-      }
-    }
-
-    if (SCENE_JSON_URL) {
-      try {
-        const res = await fetch(SCENE_JSON_URL);
-        if (!res.ok) {
-          throw new Error(`Scene JSON Error: ${res.status} ${res.statusText}`);
-        }
-        const json = await res.json();
-
-        const meta    = json.meta || {};
-        const welcome = (json.ui && json.ui.welcome) || {};
-
-        const title =
-          (meta.title && meta.title.trim()) ||
-          (welcome.title && welcome.title.trim()) ||
-          '';
-
-        const subline =
-          (meta.subtitle && meta.subtitle.trim()) ||
-          (welcome.eyebrow && welcome.eyebrow.trim()) ||
-          '';
-
-        const body =
-          (meta.body && meta.body.trim()) ||
-          (meta.description && meta.description.trim()) ||
-          (welcome.desc && welcome.desc.trim()) ||
-          '';
-
-        const posterFile =
-          (meta.posterImage && String(meta.posterImage).trim()) ||
-          (welcome.poster && String(welcome.poster).trim()) ||
-          '';
-
-        // Welcome-Texte/Bild setzen
-        startTitle.innerHTML   = title;
-        startSubline.innerHTML = subline;
-        startText.innerHTML    = body;
-
-        if (posterFile) {
-          const imageUrl = `${workerBase}/scenes/${sceneParam}/${encodeURIComponent(posterFile)}`;
-          startImage.src = imageUrl;
-          startImage.style.display = 'block';
-          startImage.alt = title ? `${title} Vorschau` : 'Vorschau';
-        } else {
-          startImage.style.display = 'none';
-        }
-
-        // Modell-URLs
-        if (json.model?.url) {
-          MODEL_URL = `${workerBase}/scenes/${sceneParam}/${json.model.url}`;
-        }
-        // Optional iOS-/USDZ-Pfad, falls du ihn irgendwann ins JSON einträgst
-        if (json.model?.iosUrl || json.model?.ios_src || json.model?.usdz) {
-          const iosFile = json.model.iosUrl || json.model.ios_src || json.model.usdz;
-          IOS_URL = `${workerBase}/scenes/${sceneParam}/${iosFile}`;
-        }
-
-        // Audio
-        if (json.audio?.url) {
-          AUDIO_URL = `${workerBase}/scenes/${sceneParam}/${json.audio.url}`;
-          setupAudio(json.audio);
-        }
-      } catch (e) {
-        console.error(e);
-        showErr('Fehler beim Laden der Szene-Konfiguration: ' + e.message);
-      }
-    }
-
-    // Fallback-Modell, falls nichts gesetzt wurde
-    if (!MODEL_URL) {
+  async function loadSceneConfigIfNeeded() {
+    if (!sceneParam) {
+      // Fallback-Dummy
       MODEL_URL = 'https://modelviewer.dev/shared-assets/models/Astronaut.glb';
-    }
-  }
-
-  // --- Native AR starten --------------------------------------------------
-  async function startNativeAR() {
-    if (!MODEL_URL) {
-      showErr('Für diese Szene ist kein 3D-Modell konfiguriert.');
+      setStartTexts({
+        title: 'Demo Astronaut',
+        subline: 'Beispielszene',
+        body: 'Kein Szene-Parameter – Demo-Modell wird angezeigt.'
+      });
       return;
     }
 
-    // Modell-Quellen in model-viewer setzen
-    mv.src = MODEL_URL;
-    if (IOS_URL) {
-      mv.setAttribute('ios-src', IOS_URL);
+    if (sceneParam.endsWith('.glb') || sceneParam.endsWith('.gltf')) {
+      MODEL_URL = sceneParam;
+      return;
     }
 
-    // model-viewer sichtbar machen (wird aber direkt in AR wechseln)
-    mv.style.display = 'block';
+    SCENE_JSON_URL = `${workerBase}/scenes/${sceneParam}/scene.json`;
 
-    // Audio vor AR versuchen
-    if (AUDIO_URL) {
-      await tryPlayAudio();
-    }
-
-    // AR-Fähigkeit prüfen (falls API vorhanden)
     try {
-      if (typeof mv.canActivateAR === 'function') {
-        const can = await mv.canActivateAR();
-        if (!can) {
-          showErr('Dein Gerät/Browser unterstützt keinen nativen AR-Viewer. Das Modell wird nur in 3D angezeigt.');
-          return;
-        }
+      const res = await fetch(SCENE_JSON_URL);
+      if (!res.ok) {
+        throw new Error(`Scene JSON Error: ${res.status} ${res.statusText}`);
       }
-    } catch (e) {
-      // canActivateAR ist optional – nicht schlimm, wenn es fehlt
-      console.warn('canActivateAR() nicht verfügbar oder fehlgeschlagen:', e);
-    }
+      const json = await res.json();
 
-    // Versuche zuerst showAR() (neue API), dann activateAR() (ältere)
-    let started = false;
+      const meta    = json.meta || {};
+      const welcome = (json.ui && json.ui.welcome) || {};
 
-    if (typeof mv.showAR === 'function') {
-      try {
-        await mv.showAR();
-        started = true;
-      } catch (e) {
-        console.warn('showAR() fehlgeschlagen:', e);
+      const title =
+        (meta.title && meta.title.trim()) ||
+        (welcome.title && welcome.title.trim()) || '';
+
+      const subline =
+        (meta.subtitle && meta.subtitle.trim()) ||
+        (welcome.eyebrow && welcome.eyebrow.trim()) || '';
+
+      const body =
+        (meta.body && meta.body.trim()) ||
+        (meta.description && meta.description.trim()) ||
+        (welcome.desc && welcome.desc.trim()) || '';
+
+      const posterFile =
+        (meta.posterImage && String(meta.posterImage).trim()) ||
+        (welcome.poster && String(welcome.poster).trim()) || '';
+
+      const posterUrl = posterFile
+        ? `${workerBase}/scenes/${sceneParam}/${encodeURIComponent(posterFile)}`
+        : '';
+
+      setStartTexts({ title, subline, body, posterUrl });
+
+      if (json.model?.url) {
+        MODEL_URL = `${workerBase}/scenes/${sceneParam}/${json.model.url}`;
+      } else {
+        MODEL_URL = 'https://modelviewer.dev/shared-assets/models/Astronaut.glb';
+        showErr('Hinweis: Szene-JSON enthält keine Modell-URL. Fallback-Modell wird verwendet.');
       }
-    }
 
-    if (!started && typeof mv.activateAR === 'function') {
-      try {
-        mv.activateAR();
-        started = true;
-      } catch (e) {
-        console.warn('activateAR() fehlgeschlagen:', e);
+      // Optional: eigener iOS-Quick-Look-URL aus der Szene
+      if (json.model?.iosUrl) {
+        IOS_URL = `${workerBase}/scenes/${sceneParam}/${json.model.iosUrl}`;
       }
-    }
 
-    if (!started) {
-      showErr('AR konnte nicht gestartet werden. Eventuell unterstützt dein Gerät keine nativen AR-Viewer.');
-      // Inline-3D bleibt dann als Fallback sichtbar
+      if (json.audio?.url) {
+        AUDIO_URL = `${workerBase}/scenes/${sceneParam}/${json.audio.url}`;
+      }
+    } catch (err) {
+      console.error(err);
+      showErr('Fehler beim Laden der Szene-Konfiguration: ' + err.message);
     }
   }
 
-  // --- Events von model-viewer (optional) ---------------------------------
-  mv.addEventListener('ar-status', (event) => {
-    const status = event.detail.status;
-    // 'session-started' / 'presenting' / 'not-presenting' / 'failed'
-    if (status === 'failed') {
-      showErr('AR konnte nicht gestartet werden: ' + (event.detail.reason || 'Unbekannter Fehler.'));
+  function configureModelViewer() {
+    if (!MODEL_URL) return;
+
+    mv.src = MODEL_URL;
+
+    if (IOS_URL) {
+      mv.setAttribute('ios-src', IOS_URL);
+    } else {
+      mv.removeAttribute('ios-src');
     }
 
-    // Wenn der User AR wieder verlässt → Welcome-Screen optional erneut zeigen
-    if (status === 'not-presenting') {
-      // Wenn du nach AR-Ende wieder den Startscreen zeigen willst:
-      startScreen.style.display = 'flex';
-      mv.style.display = 'none';
-      // Audio stoppen
-      try { audioEl.pause(); } catch (_) {}
-    }
-  });
+    // Immer Bodenplatzierung – „schwebt“ minimieren
+    mv.setAttribute('ar-placement', 'floor');
+    mv.setAttribute('ar-scale', 'fixed');
+    mv.setAttribute('shadow-intensity', '1');
+    mv.setAttribute('reveal', 'manual'); // wir zeigen das 3D-Canvas nie
+  }
 
-  // --- Boot ---------------------------------------------------------------
+  function prepareAudio() {
+    if (!AUDIO_URL) {
+      isAudioReady = false;
+      return;
+    }
+    audioEl.src = AUDIO_URL;
+    audioEl.loop = true;
+    isAudioReady = true;
+  }
+
+  async function startAudioIfPossible() {
+    if (!isAudioReady) return;
+    try {
+      await audioEl.play();
+    } catch (err) {
+      console.warn('Audio konnte nicht automatisch gestartet werden:', err);
+      showErr('Audio konnte nicht automatisch gestartet werden (Autoplay-Block).');
+    }
+  }
+
   async function boot() {
-    // Welcome-Screen initial sichtbar, Button erstmal deaktivieren
-    startScreen.style.display = 'flex';
     btnEnterAR.disabled = true;
 
-    // Texte leeren (bis JSON da ist)
-    startTitle.textContent   = '';
-    startSubline.textContent = '';
-    startText.textContent    = '';
-    startImage.style.display = 'none';
+    await loadSceneConfigIfNeeded();
+    configureModelViewer();
+    prepareAudio();
 
-    await loadSceneConfig();
+    // Sobald model-viewer geladen hat, kannst du AR starten
+    mv.addEventListener('load', () => {
+      btnEnterAR.disabled = false;
+    });
 
-    // Jetzt darf gestartet werden
-    btnEnterAR.disabled = false;
+    mv.addEventListener('error', (ev) => {
+      console.error('model-viewer Fehler', ev);
+      showErr('Fehler beim Laden des 3D-Modells.');
+    });
 
-    // Klick-Handler: direkt nativen AR-Viewer starten
     btnEnterAR.addEventListener('click', async () => {
-      btnEnterAR.disabled = true;
+      if (!MODEL_URL) {
+        showErr('Kein 3D-Modell konfiguriert.');
+        return;
+      }
 
-      // Welcome-Screen ausblenden
+      // Willkommensscreen weg
       startScreen.style.display = 'none';
 
+      // Audio im gleichen User-Gesture starten
+      await startAudioIfPossible();
+
+      // Direkt AR starten (Scene Viewer / Quick Look)
       try {
-        await startNativeAR();
-      } catch (e) {
-        console.error(e);
-        showErr('AR konnte nicht gestartet werden: ' + (e.message || e));
-        // Falls AR gar nicht geht, zeigst du zumindest das inline-3D
-        mv.style.display = 'block';
-      } finally {
-        // Wenn AR gar nicht startet, Button wieder aktivieren,
-        // damit man es nochmal probieren kann.
-        btnEnterAR.disabled = false;
+        await mv.activateAR();
+        // Wenn der Nutzer AR wieder schließt, kehrt er auf diese Seite zurück
+        // Audio kannst du dann optional stoppen:
+        audioEl.pause();
+      } catch (err) {
+        console.error('activateAR() fehlgeschlagen', err);
+        showErr('AR konnte nicht gestartet werden: ' + (err.message || 'Unbekannter Fehler'));
+
+        // Fallback: Startscreen wieder anzeigen
+        startScreen.style.display = 'flex';
       }
     });
   }
 
-  // Starten sobald DOM bereit
-  boot().catch((e) => {
-    console.error(e);
-    showErr('Fehler beim Initialisieren des Viewers: ' + e.message);
-  });
+  boot();
 </script>
 
 </body>
