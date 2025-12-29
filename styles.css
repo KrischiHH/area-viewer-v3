@@ -200,8 +200,7 @@ canvas {
   position: fixed;
   left: 50%;
   transform: translateX(-50%);
-  /* deutlich über der Infobox */
-  bottom: 96px;
+  bottom: 96px; /* deutlich über der Infobox */
   z-index: 1100;
   display: flex;
   align-items: center;
@@ -423,8 +422,7 @@ canvas {
   position: fixed;
   left: 0;
   right: 0;
-  /* höher als die Capture-Buttons */
-  bottom: 176px;
+  bottom: 176px; /* höher als die Capture-Buttons */
   text-align: center;
   pointer-events: none;
   z-index: 20;
