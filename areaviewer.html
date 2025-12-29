@@ -104,7 +104,8 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import { DeviceOrientationControls } from 'three/addons/controls/DeviceOrientationControls.js';
+import { DeviceOrientationControls } from './js/DeviceOrientationControls.js';
+
 
 // --- Grund-Variablen (analog webxr.html) ---
 let camera, scene, renderer;
@@ -963,6 +964,9 @@ function resetARState() {
   const overlay = document.getElementById('overlay');
   const btnEnterAR = document.getElementById('btn-enter-ar');
 
+  if (controls) {
+    controls.disconnect(); // Events abräumen
+  }
   stopRenderLoop();
   stopCameraStream();
   audioEl.pause();
@@ -1108,9 +1112,14 @@ async function boot() {
     overlay.style.pointerEvents = 'auto';
 
     try {
-      await initCameraStream();
-      startRenderLoop();
-    } catch (err) {
+    await initCameraStream();
+
+    if (controls) {
+      controls.connect();   // DeviceOrientation-Events aktivieren
+    }
+
+    startRenderLoop();
+  } catch (err) {
       console.error(err);
       showErr('Kamera konnte nicht gestartet werden: ' + (err.message || err));
       resetARState();
