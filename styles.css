@@ -151,7 +151,7 @@ html, body {
   max-width: 680px;
 }
 
-/* AR UI */
+/* AR UI – Top Buttons */
 .ui-row {
   position: fixed;
   top: 0; left: 0; right: 0;
@@ -163,7 +163,7 @@ html, body {
   z-index: 20;
 }
 .btn-icon {
-  background: rgba(20,20,30,0.7);
+  background: rgba(20,20,30,0.6);
   border: 1px solid rgba(255,255,255,0.2);
   color: white;
   width: 44px;
@@ -174,52 +174,59 @@ html, body {
   font-size: 20px;
   border-radius: 50%;
   cursor: pointer;
-  box-shadow: 0 10px 26px rgba(0,0,0,0.5);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.45);
 }
 
-/* Aufnahme-Controls (an Mute-Button angelehnt) */
+/* Aufnahme-Kontrollen unten */
 #ar-capture-controls {
   position: fixed;
   left: 50%;
   transform: translateX(-50%);
-  bottom: 18px;
+  /* Deutlich über der Infobox */
+  bottom: 96px;
   z-index: 1100;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 16px;
   pointer-events: auto;
+}
+
+@supports (padding: max(0px)) {
+  #ar-capture-controls {
+    bottom: max(96px, env(safe-area-inset-bottom) + 72px);
+  }
 }
 
 .btn-capture {
   border: 1px solid rgba(255,255,255,0.18);
   padding: 0;
   border-radius: 999px;
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  background: rgba(20,20,30,0.8);
-  color: #f9fafb;
-  box-shadow: 0 12px 30px rgba(0,0,0,0.65);
+  background: rgba(20,20,30,0.75);
+  color: #fff;
+  box-shadow: 0 10px 26px rgba(0,0,0,0.6);
 }
 
 /* Hauptaufnahme-Button */
 #btn-main-capture {
-  width: 72px;
-  height: 72px;
+  width: 76px;
+  height: 76px;
   position: relative;
 }
 
 #btn-main-capture svg {
   position: absolute;
-  inset: 8px;
+  inset: 0;
   transform: rotate(-90deg);
 }
 
 #progress-circle {
   fill: none;
-  stroke: rgba(248,250,252,0.92);
-  stroke-width: 4;
+  stroke: rgba(239, 35, 60, 0.9);
+  stroke-width: 6;
   stroke-linecap: round;
 }
 
@@ -230,20 +237,15 @@ html, body {
 }
 
 #btn-main-capture.is-recording {
-  background: rgba(220,38,38,0.9);
+  background: rgba(220, 38, 38, 0.9);
 }
 
 /* Kleiner Galerie-Button */
 #btn-gallery-small {
-  width: 48px;
-  height: 48px;
-  font-size: 20px;
-  opacity: 0.95;
-}
-
-/* Screenrec-Button komplett verstecken */
-#btn-screenrec {
-  display: none;
+  width: 52px;
+  height: 52px;
+  font-size: 22px;
+  border-radius: 999px;
 }
 
 /* === Galerie-Overlay === */
@@ -398,16 +400,23 @@ html, body {
   }
 }
 
-/* Message-Box jetzt ÜBER den Buttons */
+/* Status-/Fehlermeldungen */
 #msg-container {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 96px; /* sitzt jetzt über den Capture-Buttons */
+  bottom: 16px;
   text-align: center;
   pointer-events: none;
   z-index: 20;
 }
+
+@supports (padding: max(0px)) {
+  #msg-container {
+    bottom: max(16px, env(safe-area-inset-bottom) + 8px);
+  }
+}
+
 #msg {
   background: rgba(0,0,0,0.55);
   padding: 8px 16px;
