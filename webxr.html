@@ -68,7 +68,6 @@
   </div>
 </div>
 
-<audio id="ar-audio" preload="auto" crossorigin="anonymous"></audio>
 
 <!-- Aufnahme + Galerie -->
 <div id="ar-capture-controls">
@@ -87,11 +86,6 @@
     🖼️
   </button>
 
-  <!-- Debug-Screenrec-Button technisch behalten, aber versteckt -->
-  <button class="btn-capture btn-screenrec" id="btn-screenrec" type="button"
-          aria-label="Screen Recording (Debug)">
-    🖥️🔴
-  </button>
 </div>
 
 
@@ -108,502 +102,6 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
-// --- Aufnahme-Button Smart-UX Logic ---
-let pressTimer;
-let isLongPress = false;
-let progressInterval;
-const LONG_PRESS_THRESHOLD = 500; // ms
-const RECORD_MAX = 10000; // Max-Dauer Video: 10 Sek.
-
-const mainBtn = document.getElementById('btn-main-capture');
-const icon = document.getElementById('capture-icon');
-const ring = document.getElementById('progress-ring');
-const circle = document.getElementById('progress-circle');
-const circleLength = 2 * Math.PI * circle.r.baseVal.value;
-
-// Fortschritts-Ring anzeigen/füllen
-function setProgress(percent) {
-  const offset = circleLength * (1 - percent);
-  circle.style.strokeDasharray = `${circleLength}`;
-  circle.style.strokeDashoffset = offset;
-}
-
-function handleStart(e) {
-  e.preventDefault();
-  e.stopPropagation();
-  isLongPress = false;
-  setProgress(0);
-
-  let startTime = Date.now();
-  pressTimer = setTimeout(() => {
-    isLongPress = true;
-    startVideo();
-    icon.textContent = "🔴";
-    mainBtn.classList.add('recording-active');
-    let elapsed = 0;
-
-    progressInterval = setInterval(() => {
-      elapsed = Date.now() - startTime - LONG_PRESS_THRESHOLD;
-      let percent = Math.min(elapsed / RECORD_MAX, 1);
-      setProgress(percent);
-      if (percent >= 1) {
-        clearInterval(progressInterval);
-        stopVideo();
-        icon.textContent = "📸";
-        mainBtn.classList.remove('recording-active');
-      }
-    }, 30);
-
-  }, LONG_PRESS_THRESHOLD);
-}
-
-function handleEnd(e) {
-  e.preventDefault();
-  e.stopPropagation();
-  clearTimeout(pressTimer);
-  clearInterval(progressInterval);
-  setProgress(0);
-
-  if (!isLongPress) {
-    takePhoto();
-  } else {
-    stopVideo();
-    icon.textContent = "📸";
-    mainBtn.classList.remove('recording-active');
-  }
-}
-
-// Bind Events
-mainBtn.addEventListener('touchstart', handleStart, { passive: false });
-mainBtn.addEventListener('touchend', handleEnd, { passive: false });
-mainBtn.addEventListener('mousedown', handleStart);
-mainBtn.addEventListener('mouseup', handleEnd);
-
-// Foto (AR: Screen-Foto, sonst Canvas-Foto)
-async function takePhoto() {
-  // Blitz als visuelles Feedback
-  const flash = document.createElement('div');
-  flash.style.cssText = "position:fixed; inset:0; background:white; z-index:9999; opacity:0.85; pointer-events:none;";
-  document.body.appendChild(flash);
-  setTimeout(() => {
-    flash.style.transition = "opacity 0.25s";
-    flash.style.opacity = "0";
-    setTimeout(() => flash.remove(), 260);
-  }, 40);
-
-  const session = renderer?.xr?.getSession?.();
-
-  // In AR? → echtes AR-Foto via Screen Capture (Weg A)
-  if (session) {
-    setUiState('share_prompt', 'Wähle im Dialog: Browser/Tab (wenn verfügbar). Dann wartet das Foto kurz…');
-    await takeScreenPhoto({ includeOverlay: true });
-    return;
-  }
-
-  // Fallback außerhalb AR: klassisches Canvas-Foto
-  if (!renderer || !renderer.domElement) {
-    showErr('Renderer noch nicht bereit.');
-    return;
-  }
-
-  renderer.render(scene, camera);
-
-  const blob = await new Promise(resolve => renderer.domElement.toBlob(resolve, 'image/png'));
-  if (!blob) {
-    showErr('Foto konnte nicht erstellt werden.');
-    return;
-  }
-
-  downloadOrShareBlob(blob, `area-canvas-snapshot-${Date.now()}.png`, 'image/png');
-}
-
-function waitRAF(n = 1) {
-  return new Promise(resolve => {
-    const step = () => (n-- <= 1) ? resolve() : requestAnimationFrame(step);
-    requestAnimationFrame(step);
-  });
-}
-
-async function takeScreenPhoto({ includeOverlay = true } = {}) {
-  if (!navigator.mediaDevices?.getDisplayMedia) {
-    showErr('Screen-Foto wird von diesem Browser nicht unterstützt.');
-    return;
-  }
-
-  let stream, video;
-
-  const overlayEl = document.getElementById('overlay');
-  const prevOverlay = overlayEl?.style.display;
-
-  // Anti-Doubleclick / Prompt läuft
-  const prevPE = mainBtn.style.pointerEvents;
-  mainBtn.style.pointerEvents = "none";
-
-  try {
-    stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
-
-    video = document.createElement('video');
-    video.playsInline = true;
-    video.muted = true;
-    video.srcObject = stream;
-
-    await video.play();
-
-    // Android/Chrome-Fix: echten Frame abwarten
-    await new Promise(resolve => {
-      if (video.requestVideoFrameCallback) {
-        video.requestVideoFrameCallback(() => resolve());
-      } else {
-        const tick = () => {
-          if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) resolve();
-          else requestAnimationFrame(tick);
-        };
-        tick();
-      }
-    });
-
-    // SUPER wichtig: nach dem Prompt noch 2 Frames warten (sonst oft Prompt/black captured)
-    await waitRAF(2);
-
-    // Guard: kein gültiges Signal
-    if (!video.videoWidth || !video.videoHeight) {
-      showErr('Kein Bildsignal. Bitte im Dialog den Browser/Tab wählen (wenn verfügbar).');
-      return;
-    }
-
-    // Optional Overlay ausblenden
-    if (!includeOverlay && overlayEl) {
-      overlayEl.style.display = "none";
-      await waitRAF(1);
-    }
-
-    const w = video.videoWidth || window.innerWidth;
-    const h = video.videoHeight || window.innerHeight;
-
-    const c = document.createElement('canvas');
-    c.width = w; c.height = h;
-
-    const ctx = c.getContext('2d', { alpha: false });
-    ctx.drawImage(video, 0, 0, w, h);
-
-    if (overlayEl && !includeOverlay) {
-      overlayEl.style.display = prevOverlay ?? '';
-    }
-
-    const blob = await new Promise(resolve => c.toBlob(resolve, 'image/png'));
-    if (!blob) {
-      showErr('Screen-Foto konnte nicht erstellt werden.');
-      return;
-    }
-
-    downloadOrShareBlob(blob, `area-ar-photo-${Date.now()}.png`, 'image/png');
-    setUiState('ready', 'Foto gespeichert!');
-
-  } catch (err) {
-    console.error(err);
-    showErr('Screen-Foto Fehler: ' + (err?.message || err));
-  } finally {
-    try { if (video) { video.pause(); video.srcObject = null; } } catch {}
-    try { if (stream) stream.getTracks().forEach(t => t.stop()); } catch {}
-
-    if (overlayEl && !includeOverlay) overlayEl.style.display = prevOverlay ?? '';
-    mainBtn.style.pointerEvents = prevPE || "auto";
-  }
-}
-
-async function downloadOrShareBlob(blob, filename, mime) {
-  try {
-    const file = new File([blob], filename, { type: mime });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({ files: [file], title: filename });
-      return;
-    }
-  } catch (_) {}
-
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1500);
-}
-
-// --- Video (Canvas + Audio) ---
-let mediaRecorder = null;
-let recordedChunks = [];
-let recordStopTimer = null;
-
-// Audio-Mix-Graph
-let recordAudioCtx = null;
-let recordDest = null;
-let recordSource = null;
-
-function pickBestMimeType() {
-  const candidates = [
-    'video/webm;codecs=vp9,opus',
-    'video/webm;codecs=vp8,opus',
-    'video/webm;codecs=vp9',
-    'video/webm;codecs=vp8',
-    'video/webm'
-  ];
-  if (!window.MediaRecorder) return '';
-  for (const t of candidates) {
-    if (MediaRecorder.isTypeSupported(t)) return t;
-  }
-  return '';
-}
-
-function canRecordVideo() {
-  return !!(window.MediaRecorder && renderer?.domElement?.captureStream);
-}
-
-async function ensureRecordingAudioGraph() {
-  // Wir zapfen das <audio> Element an und schicken es:
-  // - an Lautsprecher (ctx.destination)
-  // - parallel an MediaStreamDestination (recordDest)
-  if (recordAudioCtx && recordDest) return;
-
-  const AC = window.AudioContext || window.webkitAudioContext;
-  if (!AC) throw new Error('AudioContext nicht verfügbar.');
-
-  recordAudioCtx = new AC();
-  try { await recordAudioCtx.resume(); } catch {}
-
-  recordDest = recordAudioCtx.createMediaStreamDestination();
-
-  // MediaElementSource darf pro <audio> nur einmal erzeugt werden
-  recordSource = recordAudioCtx.createMediaElementSource(audioEl);
-
-  // zu Lautsprecher + in Recording-Stream
-  recordSource.connect(recordAudioCtx.destination);
-  recordSource.connect(recordDest);
-}
-
-async function startVideo() {
-  if (!canRecordVideo()) {
-    showErr('Videoaufnahme wird von diesem Browser nicht unterstützt.');
-    return;
-  }
-
-  // Stelle sicher, dass Audio wirklich läuft, sonst ist die Spur "leer"
-  if (AUDIO_URL && !isMuted) {
-    ensureAudioUnlocked();
-    try {
-      if (audioEl.paused) await audioEl.play();
-    } catch (e) {
-      showErr('Audio ist blockiert – Video mit Audio nicht möglich. Tippe einmal auf 🔊 und starte erneut.');
-      return;
-    }
-  } else {
-    showErr('Kein Audio aktiv (oder gemutet) – Video mit Audio ist so nicht möglich.');
-    return;
-  }
-
-  // Audio-Graph aufbauen
-  try {
-    await ensureRecordingAudioGraph();
-  } catch (e) {
-    console.warn(e);
-    showErr('Audio-Mix konnte nicht initialisiert werden: ' + (e?.message || e));
-    return;
-  }
-
-  recordedChunks = [];
-
-  // 1) Canvas Stream (AR Bild)
-  const canvasStream = renderer.domElement.captureStream(30);
-  const videoTracks = canvasStream.getVideoTracks();
-
-  // 2) Audio Stream (aus MediaStreamDestination)
-  const audioTracks = recordDest.stream.getAudioTracks();
-
-  if (!videoTracks.length) {
-    showErr('Kein Video-Track aus Canvas verfügbar.');
-    return;
-  }
-  if (!audioTracks.length) {
-    showErr('Kein Audio-Track verfügbar (Audio läuft evtl. nicht).');
-    return;
-  }
-
-  // 3) Kombinierter Stream
-  const mixedStream = new MediaStream([
-    ...videoTracks,
-    ...audioTracks
-  ]);
-
-  const mimeType = pickBestMimeType();
-  const options = {
-    ...(mimeType ? { mimeType } : {}),
-    videoBitsPerSecond: 6_000_000,
-    audioBitsPerSecond: 192_000
-  };
-
-  try {
-    mediaRecorder = new MediaRecorder(mixedStream, options);
-  } catch (e) {
-    console.warn('MediaRecorder init failed:', e);
-    showErr('MediaRecorder konnte nicht gestartet werden.');
-    return;
-  }
-
-  mediaRecorder.ondataavailable = (e) => {
-    if (e.data && e.data.size > 0) recordedChunks.push(e.data);
-  };
-
-  mediaRecorder.onstop = async () => {
-    const type = mediaRecorder?.mimeType || 'video/webm';
-    const blob = new Blob(recordedChunks, { type });
-
-    const filename = `area-ar-video-${Date.now()}.webm`;
-
-    try {
-      const file = new File([blob], filename, { type });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: 'ARea AR Video' });
-      } else {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(url), 1500);
-      }
-    } catch {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1500);
-    }
-
-    icon.textContent = "📸";
-    mainBtn.style.pointerEvents = "auto";
-    mainBtn.classList.remove('recording-active');
-    setUiState('ready', 'Video gespeichert.');
-  };
-
-  mediaRecorder.start(200);
-  setUiState('recording', 'Video (mit Audio) läuft…');
-
-  clearTimeout(recordStopTimer);
-  recordStopTimer = setTimeout(() => stopVideo(), RECORD_MAX + 250);
-}
-
-function stopVideo() {
-  if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
-
-  mainBtn.style.pointerEvents = "none";
-  icon.textContent = "⏳";
-  setUiState('processing', 'Video wird verarbeitet …');
-
-  try { mediaRecorder.stop(); } catch {}
-}
-
-// --- Screen Capture (Weg A) ---
-const screenrecBtn = document.getElementById('btn-screenrec');
-let screenrecRecorder = null;
-let screenrecActive = false;
-let screenrecStream = null;
-
-screenrecBtn.addEventListener('click', async () => {
-  if (!screenrecActive) {
-    await startScreenRecord();
-  } else {
-    stopScreenRecord();
-  }
-});
-
-async function startScreenRecord() {
-  try {
-    if (!navigator.mediaDevices?.getDisplayMedia) {
-      showErr('Screen Recording wird von diesem Browser nicht unterstützt.');
-      return;
-    }
-
-    // Hinweis: Audio-Aufnahme via getDisplayMedia ist plattform-/policy-abhängig.
-    // Auf Android/Chrome klappt es oft gut, auf iOS i.d.R. nicht verfügbar.
-    screenrecStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-
-    let chunks = [];
-    const mimeType = pickBestMimeType();
-    const opts = mimeType ? { mimeType } : {};
-
-    screenrecRecorder = new MediaRecorder(screenrecStream, opts);
-
-    screenrecRecorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
-
-    screenrecRecorder.onstop = async () => {
-      const type = screenrecRecorder?.mimeType || 'video/webm';
-      const blob = new Blob(chunks, { type });
-      const filename = `area_screencap_${Date.now()}.webm`;
-
-      try {
-        const file = new File([blob], filename, { type });
-        if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          await navigator.share({ files: [file], title: 'ARea Screen Capture' });
-        } else {
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = filename;
-          a.click();
-          setTimeout(() => URL.revokeObjectURL(url), 1500);
-        }
-      } catch {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(url), 1500);
-      }
-
-      screenrecBtn.classList.remove('recording');
-      screenrecBtn.textContent = "🖥️🔴";
-      screenrecActive = false;
-      chunks = [];
-    };
-
-    screenrecRecorder.start(200);
-
-    screenrecBtn.classList.add('recording');
-    screenrecBtn.textContent = "⏹️";
-    screenrecActive = true;
-
-    // Wenn User die Freigabe im OS beendet -> sauber stop
-    const vTrack = screenrecStream.getVideoTracks()[0];
-    if (vTrack) {
-      vTrack.addEventListener('ended', () => {
-        try {
-          if (screenrecRecorder && screenrecRecorder.state !== "inactive") screenrecRecorder.stop();
-        } catch {}
-      });
-    }
-  } catch (err) {
-    console.error('ScreenRecord Error:', err);
-    showErr("ScreenRecord Error: " + (err?.message || err));
-    screenrecBtn.classList.remove('recording');
-    screenrecBtn.textContent = "🖥️🔴";
-    screenrecActive = false;
-  }
-}
-
-function stopScreenRecord() {
-  try {
-    if (screenrecRecorder && screenrecRecorder.state !== "inactive") {
-      screenrecRecorder.stop();
-    }
-  } catch {}
-
-  try {
-    if (screenrecStream) {
-      screenrecStream.getTracks().forEach(track => track.stop());
-      screenrecStream = null;
-    }
-  } catch {}
-}
 
 // --- AR Logik ---
 let camera, scene, renderer;
@@ -790,6 +288,455 @@ function isTouchOnModel(clientX, clientY) {
   return hits.length > 0;
 }
 
+function initCaptureAndGallery({ renderer, audioEl }) {
+  const captureBtn = document.getElementById('btn-main-capture');
+  const captureIcon = document.getElementById('capture-icon');
+  const progressCircle = document.getElementById('progress-circle');
+
+  const galleryBtn = document.getElementById('btn-gallery-small');
+  const galleryPanel = document.getElementById('gallery-panel');
+  const galleryGrid = document.getElementById('gallery-grid');
+  const galleryPreview = document.getElementById('gallery-preview-media');
+  const galleryFilenameEl = document.getElementById('gallery-filename');
+  const galleryDownloadBtn = document.getElementById('gallery-download');
+  const galleryCloseBtn = document.getElementById('gallery-close');
+
+  if (!captureBtn) {
+    console.warn('[ARea] Capture-Button nicht gefunden.');
+    return;
+  }
+
+  // --- State ---
+
+  const LONG_PRESS_MS = 550;
+  let pressTimer = null;
+  let longPressActive = false;
+  let isRecording = false;
+
+  let screenStream = null;
+  let screenRecorder = null;
+  let screenChunks = [];
+
+  const galleryItems = [];
+  let currentPreviewIndex = -1;
+
+  // --- Progress-Ring ---
+
+  let circleCirc = 0;
+  if (progressCircle) {
+    const r = progressCircle.r.baseVal.value || 34;
+    circleCirc = 2 * Math.PI * r;
+    progressCircle.style.strokeDasharray = `${circleCirc}`;
+    progressCircle.style.strokeDashoffset = `${circleCirc}`;
+  }
+
+  function setProgress(p) {
+    if (!progressCircle || !circleCirc) return;
+    const clamped = Math.min(Math.max(p, 0), 1);
+    progressCircle.style.strokeDashoffset = `${circleCirc * (1 - clamped)}`;
+  }
+
+  function resetProgress() {
+    setProgress(0);
+  }
+
+  function setCaptureIcon(mode) {
+    if (!captureIcon) return;
+    if (mode === 'video') {
+      captureIcon.textContent = '⏹️';
+      captureBtn.classList.add('is-recording');
+    } else {
+      captureIcon.textContent = '📸';
+      captureBtn.classList.remove('is-recording');
+      resetProgress();
+    }
+  }
+
+  // --- Dateinamen & Download/Share ---
+
+  function makeFilename(kind, ext) {
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+    const base = kind === 'image' ? 'area-ar-photo' : 'area-ar-video';
+    return `${base}-${stamp}.${ext || (kind === 'image' ? 'png' : 'webm')}`;
+  }
+
+  async function tryShareOrDownload(blob, filename) {
+    try {
+      const file = new File([blob], filename, { type: blob.type });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: filename
+        });
+        return;
+      }
+    } catch (err) {
+      console.warn('[ARea] Native Share nicht möglich oder abgebrochen', err);
+    }
+
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  // --- Galerie-Logik ---
+
+  function addToGallery(kind, blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const item = {
+      kind,
+      blob,
+      url,
+      filename,
+      createdAt: new Date()
+    };
+    galleryItems.push(item);
+    updateGalleryGrid();
+    updateGalleryButtonThumb(item);
+  }
+
+  function updateGalleryButtonThumb(item) {
+    if (!galleryBtn) return;
+    if (item.kind === 'image') {
+      galleryBtn.style.backgroundImage = `url(${item.url})`;
+      galleryBtn.style.backgroundSize = 'cover';
+      galleryBtn.style.backgroundPosition = 'center';
+      galleryBtn.textContent = '';
+    } else {
+      galleryBtn.style.backgroundImage = '';
+      galleryBtn.textContent = '🖼️';
+    }
+  }
+
+  function updateGalleryGrid() {
+    if (!galleryGrid) return;
+    galleryGrid.innerHTML = '';
+    galleryItems.forEach((item, index) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'gallery-thumb';
+      if (item.kind === 'image') {
+        btn.style.backgroundImage = `url(${item.url})`;
+      } else {
+        btn.classList.add('is-video');
+      }
+      btn.addEventListener('click', () => openPreview(index));
+      galleryGrid.appendChild(btn);
+    });
+  }
+
+  function openPreview(index) {
+    if (!galleryPanel || !galleryPreview || !galleryFilenameEl || !galleryDownloadBtn) return;
+    const item = galleryItems[index];
+    if (!item) return;
+
+    galleryPreview.innerHTML = '';
+    let node;
+    if (item.kind === 'image') {
+      const img = document.createElement('img');
+      img.src = item.url;
+      img.alt = item.filename;
+      img.style.maxWidth = '100%';
+      img.style.maxHeight = '100%';
+      node = img;
+    } else {
+      const video = document.createElement('video');
+      video.src = item.url;
+      video.controls = true;
+      video.autoplay = true;
+      video.style.maxWidth = '100%';
+      video.style.maxHeight = '100%';
+      node = video;
+    }
+    galleryPreview.appendChild(node);
+    galleryFilenameEl.textContent = item.filename;
+    galleryDownloadBtn.onclick = () => tryShareOrDownload(item.blob, item.filename);
+    currentPreviewIndex = index;
+    galleryPanel.dataset.open = 'true';
+  }
+
+  function closeGallery() {
+    if (!galleryPanel) return;
+    galleryPanel.dataset.open = 'false';
+  }
+
+  function wireGallery() {
+    if (galleryBtn) {
+      galleryBtn.addEventListener('click', () => {
+        if (!galleryItems.length) return;
+        openPreview(galleryItems.length - 1);
+      });
+    }
+    if (galleryCloseBtn) {
+      galleryCloseBtn.addEventListener('click', () => closeGallery());
+    }
+    if (galleryPanel) {
+      galleryPanel.addEventListener('click', (ev) => {
+        if (ev.target === galleryPanel) {
+          closeGallery();
+        }
+      });
+    }
+  }
+
+  // --- Foto: AR-Screen bevorzugt, sonst Canvas ---
+
+  function captureCanvasFrame() {
+    return new Promise((resolve, reject) => {
+      try {
+        renderer.domElement.toBlob(
+          (blob) => {
+            if (blob) resolve(blob);
+            else reject(new Error('Canvas Screenshot fehlgeschlagen'));
+          },
+          'image/png'
+        );
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
+
+  async function captureScreenFrameOnce() {
+    const media = navigator.mediaDevices;
+    if (!media || !media.getDisplayMedia) {
+      throw new Error('Screen Capture wird nicht unterstützt');
+    }
+
+    let stream;
+    try {
+      stream = await media.getDisplayMedia({
+        video: { frameRate: 30 },
+        audio: false
+      });
+
+      const track = stream.getVideoTracks()[0];
+      const settings = track.getSettings();
+      const width = settings.width || window.innerWidth;
+      const height = settings.height || window.innerHeight;
+
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      video.muted = true;
+      await video.play();
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, width, height);
+
+      const blob = await new Promise((resolve, reject) => {
+        canvas.toBlob(
+          (b) => (b ? resolve(b) : reject(new Error('Canvas.toBlob() failed'))),
+          'image/png'
+        );
+      });
+
+      return blob;
+    } finally {
+      if (stream) {
+        stream.getTracks().forEach((t) => t.stop());
+      }
+    }
+  }
+
+  async function makePhotoBlob() {
+    const hasGetDisplay =
+      !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+    const isARActive =
+      !!(renderer && renderer.xr && renderer.xr.getSession && renderer.xr.getSession());
+
+    if (hasGetDisplay && isARActive) {
+      // AR → ganze Szene inkl. Kamera & UI
+      return await captureScreenFrameOnce();
+    }
+    // Fallback → nur WebGL-Canvas
+    return await captureCanvasFrame();
+  }
+
+  // --- Videoaufnahme (Screen Recording, ideal für Android WebXR) ---
+
+  async function startVideoCapture() {
+    const media = navigator.mediaDevices;
+    if (!media || !media.getDisplayMedia) {
+      console.warn('[ARea] getDisplayMedia nicht verfügbar, breche Videoaufnahme ab.');
+      return false;
+    }
+    try {
+      screenStream = await media.getDisplayMedia({
+        video: { frameRate: 30 },
+        audio: true
+      });
+
+      const candidates = [
+        'video/webm;codecs=vp9',
+        'video/webm;codecs=vp8',
+        'video/webm'
+      ];
+      let mimeType = '';
+      for (const cand of candidates) {
+        if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(cand)) {
+          mimeType = cand;
+          break;
+        }
+      }
+
+      screenChunks = [];
+      screenRecorder = new MediaRecorder(
+        screenStream,
+        mimeType ? { mimeType } : {}
+      );
+      screenRecorder.ondataavailable = (ev) => {
+        if (ev.data && ev.data.size > 0) {
+          screenChunks.push(ev.data);
+        }
+      };
+      screenRecorder.onstop = () => {
+        try {
+          const blob = new Blob(screenChunks, {
+            type: mimeType || 'video/webm'
+          });
+          const filename = makeFilename(
+            'video',
+            mimeType && mimeType.startsWith('video/webm') ? 'webm' : 'webm'
+          );
+          onCaptureReady('video', blob, filename);
+        } catch (err) {
+          console.error('[ARea] Fehler beim Erzeugen der Videodatei', err);
+        } finally {
+          if (screenStream) {
+            screenStream.getTracks().forEach((t) => t.stop());
+          }
+          screenStream = null;
+          screenRecorder = null;
+          screenChunks = [];
+        }
+      };
+
+      screenRecorder.start();
+      return true;
+    } catch (err) {
+      console.error('[ARea] Videoaufnahme konnte nicht gestartet werden', err);
+      return false;
+    }
+  }
+
+  function stopVideoCapture() {
+    if (screenRecorder && screenRecorder.state !== 'inactive') {
+      screenRecorder.stop();
+    }
+  }
+
+  async function onCaptureReady(kind, blob, filename) {
+    if (!blob) return;
+    const finalFilename = filename || makeFilename(kind);
+    addToGallery(kind, blob, finalFilename);
+    await tryShareOrDownload(blob, finalFilename);
+  }
+
+  async function handleTapCapture() {
+    if (isRecording) return;
+    captureBtn.disabled = true;
+    try {
+      const blob = await makePhotoBlob();
+      await onCaptureReady('image', blob);
+    } catch (err) {
+      console.error('[ARea] Screenshot fehlgeschlagen', err);
+    } finally {
+      captureBtn.disabled = false;
+      setCaptureIcon('photo');
+    }
+  }
+
+  async function handleStart(ev) {
+    if (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+    }
+    if (isRecording) return;
+
+    longPressActive = false;
+    let startTime = performance.now();
+
+    pressTimer = window.setTimeout(async () => {
+      longPressActive = true;
+      isRecording = true;
+      setCaptureIcon('video');
+      setProgress(0);
+
+      const ok = await startVideoCapture();
+      if (!ok) {
+        isRecording = false;
+        longPressActive = false;
+        setCaptureIcon('photo');
+      }
+    }, LONG_PRESS_MS);
+
+    const animate = () => {
+      if (!pressTimer || longPressActive || isRecording) {
+        setProgress(0);
+        return;
+      }
+      const elapsed = performance.now() - startTime;
+      const p = Math.min(elapsed / LONG_PRESS_MS, 1);
+      setProgress(p);
+      if (p < 1 && pressTimer) {
+        requestAnimationFrame(animate);
+      }
+    };
+    requestAnimationFrame(animate);
+  }
+
+  async function handleEnd(ev) {
+    if (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+    }
+
+    if (pressTimer) {
+      clearTimeout(pressTimer);
+      pressTimer = null;
+    }
+
+    const wasLong = longPressActive;
+    const wasRecording = isRecording;
+    longPressActive = false;
+
+    if (wasRecording) {
+      stopVideoCapture();
+      isRecording = false;
+      setCaptureIcon('photo');
+      resetProgress();
+      return;
+    }
+
+    if (!wasLong) {
+      await handleTapCapture();
+    }
+  }
+
+  // --- Events verdrahten ---
+
+  captureBtn.addEventListener('touchstart', handleStart, { passive: false });
+  captureBtn.addEventListener('touchend', handleEnd, { passive: false });
+  captureBtn.addEventListener('mousedown', handleStart);
+  captureBtn.addEventListener('mouseup', handleEnd);
+  captureBtn.addEventListener('mouseleave', handleEnd);
+
+  setCaptureIcon('photo');
+  wireGallery();
+
+  console.log('[ARea] WebXR Capture + Gallery initialisiert');
+}
+
+
+  
 // --- Boot & Three init ---
 async function boot() {
   const startScreen = document.getElementById('start-screen');
@@ -913,6 +860,11 @@ async function boot() {
     btnEnterAR.disabled = true;
     return;
   }
+
+    initCaptureAndGallery({
+    renderer,
+    audioEl: document.getElementById('ar-audio')
+  });
 
   btnEnterAR.disabled = false;
   setUiState('loaded', 'Modell geladen. Tippe auf AR Starten.');
