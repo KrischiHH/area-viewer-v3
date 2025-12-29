@@ -46,54 +46,53 @@
   </div>
 
   <div id="gallery-panel" aria-hidden="true">
-  <div id="gallery-inner">
-    <header id="gallery-header">
-      <span>Aufnahmen</span>
-      <button id="gallery-close" type="button" aria-label="Galerie schließen">✕</button>
-    </header>
+    <div id="gallery-inner">
+      <header id="gallery-header">
+        <span>Aufnahmen</span>
+        <button id="gallery-close" type="button" aria-label="Galerie schließen">✕</button>
+      </header>
 
-    <div id="gallery-body">
-      <section id="gallery-preview">
-        <div id="gallery-preview-media"></div>
-        <div id="gallery-meta">
-          <div id="gallery-filename"></div>
-          <button id="gallery-download" type="button">
-            Download / Teilen
-          </button>
-        </div>
-      </section>
+      <div id="gallery-body">
+        <section id="gallery-preview">
+          <div id="gallery-preview-media"></div>
+          <div id="gallery-meta">
+            <div id="gallery-filename"></div>
+            <button id="gallery-download" type="button">
+              Download / Teilen
+            </button>
+          </div>
+        </section>
 
-      <section id="gallery-grid"></section>
+        <section id="gallery-grid"></section>
+      </div>
     </div>
   </div>
-</div>
 
+  <!-- Aufnahme + Galerie -->
+  <div id="ar-capture-controls">
+    <button id="btn-main-capture" class="btn-capture" type="button"
+            aria-label="Foto (tippen) oder Video (halten)">
+      <svg id="progress-ring" viewBox="0 0 80 80" width="80" height="80">
+        <circle id="progress-circle" cx="40" cy="40" r="34"></circle>
+      </svg>
+      <span id="capture-icon">📸</span>
+    </button>
 
-<!-- Aufnahme + Galerie -->
-<div id="ar-capture-controls">
-  <!-- EIN Haupt-Button: kurz = Foto, lang = Video -->
-  <button id="btn-main-capture" class="btn-capture" type="button"
-          aria-label="Foto (tippen) oder Video (halten)">
-    <svg id="progress-ring" viewBox="0 0 80 80" width="80" height="80">
-      <circle id="progress-circle" cx="40" cy="40" r="34"></circle>
-    </svg>
-    <span id="capture-icon">📸</span>
-  </button>
-
-  <!-- Kleiner Galerie-Button -->
-  <button id="btn-gallery-small" class="btn-capture btn-gallery" type="button"
-          aria-label="Aufnahmen anzeigen">
-    🖼️
-  </button>
-
-</div>
-
+    <button id="btn-gallery-small" class="btn-capture btn-gallery" type="button"
+            aria-label="Aufnahmen anzeigen">
+      🖼️
+    </button>
+  </div>
 
   <div id="msg-container">
-    <div id="msg" role="status" aria-live="polite">Bewege dein Gerät um Fläche zu finden...</div>
+    <div id="msg" role="status" aria-live="polite">
+      Bewege dein Gerät um Fläche zu finden...
+    </div>
   </div>
+
   <div id="gesture-layer"></div>
 </div>
+
 
 <audio id="ar-audio" loop playsinline preload="auto" crossorigin="anonymous"></audio>
 
