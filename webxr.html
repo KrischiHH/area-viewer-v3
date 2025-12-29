@@ -45,13 +45,52 @@
     <button class="btn-icon" id="btn-mute" style="display:none" aria-label="Audio umschalten">🔊</button>
   </div>
 
- <div id="ar-capture-controls">
-  <!-- später: kleine Galerie-Preview kommt hier hin -->
-  <button id="btn-main-capture" class="btn-capture" aria-label="Foto (tippen) oder Video (halten)">
-    <svg id="progress-ring" width="76" height="76">
-      <circle id="progress-circle" cx="38" cy="38" r="33" stroke="#ef233c" stroke-width="6" fill="none"/>
+  <div id="gallery-panel" aria-hidden="true">
+  <div id="gallery-inner">
+    <header id="gallery-header">
+      <span>Aufnahmen</span>
+      <button id="gallery-close" type="button" aria-label="Galerie schließen">✕</button>
+    </header>
+
+    <div id="gallery-body">
+      <section id="gallery-preview">
+        <div id="gallery-preview-media"></div>
+        <div id="gallery-meta">
+          <div id="gallery-filename"></div>
+          <button id="gallery-download" type="button">
+            Download / Teilen
+          </button>
+        </div>
+      </section>
+
+      <section id="gallery-grid"></section>
+    </div>
+  </div>
+</div>
+
+<audio id="ar-audio" preload="auto" crossorigin="anonymous"></audio>
+
+<!-- Aufnahme + Galerie -->
+<div id="ar-capture-controls">
+  <!-- EIN Haupt-Button: kurz = Foto, lang = Video -->
+  <button id="btn-main-capture" class="btn-capture" type="button"
+          aria-label="Foto (tippen) oder Video (halten)">
+    <svg id="progress-ring" viewBox="0 0 80 80" width="80" height="80">
+      <circle id="progress-circle" cx="40" cy="40" r="34"></circle>
     </svg>
     <span id="capture-icon">📸</span>
+  </button>
+
+  <!-- Kleiner Galerie-Button -->
+  <button id="btn-gallery-small" class="btn-capture btn-gallery" type="button"
+          aria-label="Aufnahmen anzeigen">
+    🖼️
+  </button>
+
+  <!-- Debug-Screenrec-Button technisch behalten, aber versteckt -->
+  <button class="btn-capture btn-screenrec" id="btn-screenrec" type="button"
+          aria-label="Screen Recording (Debug)">
+    🖥️🔴
   </button>
 </div>
 
