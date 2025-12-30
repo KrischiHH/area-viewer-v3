@@ -973,7 +973,8 @@ function resetARState() {
   audioEl.pause();
 
   startScreen.style.display = 'flex';
-  overlay.style.pointerEvents = 'none';
+overlay.style.pointerEvents = 'none';
+btnEnterAR.disabled = true;
 
   isModelPlaced = false;
   isEditing = false;
