@@ -5,20 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <title>ARea Native AR Viewer</title>
 
-  <!-- Fonts & Styles (wie beim WebXR-Viewer) -->
+  <!-- Fonts & Styles wie im WebXR-Viewer -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bangers&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 
-  <!-- Model-Viewer (nur Native AR: Scene Viewer / Quick Look) -->
+  <!-- Model-Viewer: nur native AR (Scene Viewer / Quick Look) -->
   <script type="module" src="https://unpkg.com/@google/model-viewer@3.5.0/dist/model-viewer.min.js"></script>
 </head>
 <body>
 
 <div id="err"></div>
 
-<!-- Welcome-Screen mit Ranke (unverändert zum WebXR-Viewer) -->
+<!-- Welcome-Screen mit Tannengrün-Ranke -->
 <div id="start-screen">
   <div id="start-content">
     <div id="start-card">
@@ -29,23 +29,24 @@
       <p id="start-text"></p>
       <button class="btn-start" id="btn-enter-ar">STARTE AR✨</button>
     </div>
-    <img id="tannengruen-frame" src="./assets/Tannengruen.png"
-         alt="Dekorativer Tannengrün-Rahmen" aria-hidden="true"/>
+    <img id="tannengruen-frame"
+         src="./assets/Tannengruen.png"
+         alt="Dekorativer Tannengrün-Rahmen"
+         aria-hidden="true"/>
   </div>
 </div>
 
-<!-- Versteckter Native-Viewer: nutzt NUR Scene Viewer / Quick Look -->
+<!-- Versteckter Model-Viewer: triggert nur native AR -->
 <model-viewer
   id="area-native-viewer"
-  style="width: 1px; height: 1px; opacity: 0; position: absolute; pointer-events: none;"
+  style="width:1px;height:1px;opacity:0;position:absolute;pointer-events:none;"
   ar
   ar-modes="scene-viewer quick-look"
   camera-controls
   autoplay
   shadow-intensity="1"
   exposure="1"
-  environment-image="neutral"
->
+  environment-image="neutral">
 </model-viewer>
 
 <script type="module">
@@ -58,7 +59,7 @@
     setTimeout(() => { errEl.style.display = 'none'; }, 7000);
   }
 
-  // Query-Parameter: ?scene=...&base=...
+  // URL-Parameter: ?scene=...&base=...
   const qs = new URLSearchParams(location.search);
   const workerBase = (qs.get('base') || 'https://area-publish-proxy.area-webar.workers.dev').replace(/\/$/, '');
   const sceneParam = qs.get('scene') || qs.get('src') || '';
@@ -67,7 +68,7 @@
   let MODEL_URL = '';
   let IOS_URL = '';
   let POSTER_URL = '';
-  let AUDIO_URL = '';
+  let AUDIO_URL = ''; // aktuell nur informativ, kein eigenes UI
 
   const mv           = document.getElementById('area-native-viewer');
   const btnEnterAR   = document.getElementById('btn-enter-ar');
@@ -78,24 +79,24 @@
   const startText    = document.getElementById('start-text');
 
   async function loadSceneConfig() {
-    // Fall 1: direkte GLB-URL über ?scene=...glb oder ?src=...
+    // 1) Direkte GLB-URL via ?scene=...glb oder ?src=...
     if (sceneParam && sceneParam.endsWith('.glb')) {
       MODEL_URL = sceneParam;
       return;
     }
 
-    // Fall 2: kein sceneParam -> Demo
+    // 2) Kein Parameter -> Demo
     if (!sceneParam) {
       MODEL_URL  = 'https://modelviewer.dev/shared-assets/models/Astronaut.glb';
       POSTER_URL = 'https://modelviewer.dev/assets/poster-astronaut.png';
 
       startTitle.textContent   = 'Demo-Szene';
       startSubline.textContent = 'ARea Native Viewer';
-      startText.textContent    = 'Kein "scene"-Parameter gefunden – Demo-Modell wird geladen.';
+      startText.textContent    = 'Kein „scene“-Parameter gefunden – Demo-Modell wird geladen.';
       return;
     }
 
-    // Fall 3: ARea-Szene JSON
+    // 3) ARea-Szene aus Worker
     SCENE_JSON_URL = `${workerBase}/scenes/${sceneParam}/scene.json`;
 
     const res = await fetch(SCENE_JSON_URL, { cache: 'no-store' });
@@ -139,7 +140,7 @@
       startImage.style.display = 'none';
     }
 
-    // Modell-URL
+    // Modell (GLB)
     if (json.model?.url) {
       MODEL_URL = `${workerBase}/scenes/${sceneParam}/${json.model.url}`;
     } else if (json.model?.src) {
@@ -149,13 +150,13 @@
       showErr('Hinweis: Szene-JSON enthält keine Modell-URL. Fallback-Modell wird verwendet.');
     }
 
-    // iOS-URL (USDZ)
+    // iOS USDZ
     if (json.model?.iosUrl || json.model?.iosSrc) {
       const iosFile = json.model.iosUrl || json.model.iosSrc;
       IOS_URL = `${workerBase}/scenes/${sceneParam}/${iosFile}`;
     }
 
-    // Audio (für später, falls du nochmal UI willst)
+    // Audio (derzeit noch kein eigenes UI)
     if (json.audio?.url) {
       AUDIO_URL = `${workerBase}/scenes/${sceneParam}/${json.audio.url}`;
     }
@@ -174,9 +175,9 @@
       mv.setAttribute('poster', POSTER_URL);
     }
 
-    // Animationen im GLB laufen automatisch
+    // Animationen im GLB automatisch laufen lassen
     mv.setAttribute('reveal', 'auto');
-    mv.setAttribute('autoplay', 'true');
+    // autoplay ist bereits als Boolean-Attribut im Markup gesetzt
   }
 
   async function boot() {
@@ -193,16 +194,18 @@
     btnEnterAR.disabled = false;
   }
 
-  // Klick auf "Starte AR✨" -> direkt native AR (Scene Viewer / Quick Look)
+  // Klick auf "STARTE AR✨" -> direkt native AR, kein WebXR, kein Zwischenschritt
   btnEnterAR.addEventListener('click', async () => {
     if (!mv) return;
 
+    btnEnterAR.disabled = true;
     try {
       await mv.activateAR();
-      // Hinweis: ab hier übernimmt Scene Viewer / Quick Look die UI,
-      // inkl. systemeigener Aufnahmefunktionen.
+      // Bei Erfolg übernimmt Scene Viewer / Quick Look – nach Rückkehr bleibt
+      // der Button disabled (optional könnte man hier wieder aktivieren).
     } catch (err) {
       showErr('AR konnte nicht gestartet werden: ' + (err.message || err));
+      btnEnterAR.disabled = false;
     }
   });
 
