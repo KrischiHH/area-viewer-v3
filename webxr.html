@@ -68,7 +68,6 @@
     </div>
   </div>
 
-  <!-- Aufnahme + Galerie -->
   <div id="ar-capture-controls">
     <button id="btn-main-capture" class="btn-capture" type="button"
             aria-label="Foto (tippen) oder Video (halten)">
@@ -199,15 +198,11 @@ function setupAudio(audioCfg) {
   audioEl.crossOrigin = 'anonymous';
   audioEl.src = AUDIO_URL;
   audioEl.loop = !!audioCfg.loop;
-
   // Ursprüngliche Szene-Lautstärke aus scene.json lesen (falls vorhanden)
-  const sceneVolume =
-    (audioCfg && typeof audioCfg.volume === 'number')
-      ? audioCfg.volume
-      : 0.8;
+  const sceneVolume = (audioCfg && typeof audioCfg.volume === 'number') ? audioCfg.volume : 0.8;
 
   // GLOBALER DÄMPFUNGSFAKTOR für webxr.html
-  const masterVolume = 0.3;   
+  const masterVolume = 0.3;
   audioEl.volume = sceneVolume * masterVolume;
 
   try { audioEl.load(); } catch(e) {}
@@ -483,145 +478,81 @@ function initCaptureAndGallery({ renderer, audioEl }) {
     }
   }
 
-  // --- Foto: AR-Screen bevorzugt, sonst Canvas ---
-
-  function captureCanvasFrame() {
+  // --- KORRIGIERTE FOTO-FUNKTION (Canvas direkt nutzen) ---
+  
+  function makePhotoBlob() {
     return new Promise((resolve, reject) => {
+      // WICHTIG: renderer muss mit preserveDrawingBuffer: true initialisiert sein (ist er!)
+      if (!renderer || !renderer.domElement) {
+        reject(new Error('Renderer nicht verfügbar'));
+        return;
+      }
+      
       try {
-        renderer.domElement.toBlob(
-          (blob) => {
-            if (blob) resolve(blob);
-            else reject(new Error('Canvas Screenshot fehlgeschlagen'));
-          },
-          'image/png'
-        );
+        // Direktes Auslesen des WebGL-Canvas
+        renderer.domElement.toBlob((blob) => {
+          if (blob) resolve(blob);
+          else reject(new Error('Canvas Screenshot leer'));
+        }, 'image/png');
       } catch (err) {
         reject(err);
       }
     });
   }
 
-  async function captureScreenFrameOnce() {
-    const media = navigator.mediaDevices;
-    if (!media || !media.getDisplayMedia) {
-      throw new Error('Screen Capture wird nicht unterstützt');
-    }
-
-    let stream;
-    try {
-      stream = await media.getDisplayMedia({
-        video: { frameRate: 30 },
-        audio: false
-      });
-
-      const track = stream.getVideoTracks()[0];
-      const settings = track.getSettings();
-      const width = settings.width || window.innerWidth;
-      const height = settings.height || window.innerHeight;
-
-      const video = document.createElement('video');
-      video.srcObject = stream;
-      video.muted = true;
-      await video.play();
-
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(video, 0, 0, width, height);
-
-      const blob = await new Promise((resolve, reject) => {
-        canvas.toBlob(
-          (b) => (b ? resolve(b) : reject(new Error('Canvas.toBlob() failed'))),
-          'image/png'
-        );
-      });
-
-      return blob;
-    } finally {
-      if (stream) {
-        stream.getTracks().forEach((t) => t.stop());
-      }
-    }
-  }
-
-  async function makePhotoBlob() {
-    const hasGetDisplay =
-      !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
-    const isARActive =
-      !!(renderer && renderer.xr && renderer.xr.getSession && renderer.xr.getSession());
-
-    if (hasGetDisplay && isARActive) {
-      // AR → ganze Szene inkl. Kamera & UI
-      return await captureScreenFrameOnce();
-    }
-    // Fallback → nur WebGL-Canvas
-    return await captureCanvasFrame();
-  }
-
-  // --- Videoaufnahme (Screen Recording, ideal für Android WebXR) ---
-
+  // --- KORRIGIERTE VIDEO-FUNKTION (Canvas Stream nutzen) ---
+  
   async function startVideoCapture() {
-    const media = navigator.mediaDevices;
-    if (!media || !media.getDisplayMedia) {
-      console.warn('[ARea] getDisplayMedia nicht verfügbar, breche Videoaufnahme ab.');
+    // 1. Check: Kann der Browser das Canvas streamen?
+    if (!renderer || !renderer.domElement || typeof renderer.domElement.captureStream !== 'function') {
+      console.warn('[ARea] captureStream nicht unterstützt.');
       return false;
     }
-    try {
-      screenStream = await media.getDisplayMedia({
-        video: { frameRate: 30 },
-        audio: true
-      });
 
-      const candidates = [
+    try {
+      // 2. Stream direkt vom WebGL Canvas abgreifen (30 FPS)
+      screenStream = renderer.domElement.captureStream(30);
+      
+      // (Optional Audio hinzufügen: Hier erstmal ausgelassen für Stabilität)
+
+      // 3. Codec-Wahl (Android mag WebM/VP8 oder VP9)
+      const mimeTypes = [
         'video/webm;codecs=vp9',
         'video/webm;codecs=vp8',
         'video/webm'
       ];
-      let mimeType = '';
-      for (const cand of candidates) {
-        if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(cand)) {
-          mimeType = cand;
-          break;
-        }
+      let selectedMime = mimeTypes.find(m => MediaRecorder.isTypeSupported(m)) || '';
+
+      if (!selectedMime) {
+        console.warn('[ARea] Kein passender Video-Codec gefunden. Browser-Default wird genutzt.');
+        // Fallback ohne MimeType (Browser entscheidet)
       }
 
       screenChunks = [];
-      screenRecorder = new MediaRecorder(
-        screenStream,
-        mimeType ? { mimeType } : {}
-      );
+      screenRecorder = new MediaRecorder(screenStream, selectedMime ? { mimeType: selectedMime } : undefined);
+
       screenRecorder.ondataavailable = (ev) => {
         if (ev.data && ev.data.size > 0) {
           screenChunks.push(ev.data);
         }
       };
+
       screenRecorder.onstop = () => {
-        try {
-          const blob = new Blob(screenChunks, {
-            type: mimeType || 'video/webm'
-          });
-          const filename = makeFilename(
-            'video',
-            mimeType && mimeType.startsWith('video/webm') ? 'webm' : 'webm'
-          );
-          onCaptureReady('video', blob, filename);
-        } catch (err) {
-          console.error('[ARea] Fehler beim Erzeugen der Videodatei', err);
-        } finally {
-          if (screenStream) {
-            screenStream.getTracks().forEach((t) => t.stop());
-          }
-          screenStream = null;
-          screenRecorder = null;
-          screenChunks = [];
-        }
+        const blob = new Blob(screenChunks, { type: selectedMime || 'video/webm' });
+        const filename = makeFilename('video', 'webm');
+        onCaptureReady('video', blob, filename);
+        
+        // Aufräumen
+        screenChunks = [];
+        screenRecorder = null;
+        screenStream = null;
       };
 
       screenRecorder.start();
       return true;
+
     } catch (err) {
-      console.error('[ARea] Videoaufnahme konnte nicht gestartet werden', err);
+      console.error('[ARea] Video-Start fehlgeschlagen:', err);
       return false;
     }
   }
@@ -636,7 +567,8 @@ function initCaptureAndGallery({ renderer, audioEl }) {
     if (!blob) return;
     const finalFilename = filename || makeFilename(kind);
     addToGallery(kind, blob, finalFilename);
-    await tryShareOrDownload(blob, finalFilename);
+    // Automatischer Download/Share Versuch nur bei Erfolg
+    // await tryShareOrDownload(blob, finalFilename); 
   }
 
   async function handleTapCapture() {
@@ -645,6 +577,11 @@ function initCaptureAndGallery({ renderer, audioEl }) {
     try {
       const blob = await makePhotoBlob();
       await onCaptureReady('image', blob);
+      
+      // Visuelles Feedback
+      captureBtn.classList.add('snap');
+      setTimeout(() => captureBtn.classList.remove('snap'), 200);
+
     } catch (err) {
       console.error('[ARea] Screenshot fehlgeschlagen', err);
     } finally {
@@ -662,7 +599,6 @@ function initCaptureAndGallery({ renderer, audioEl }) {
 
     longPressActive = false;
     let startTime = performance.now();
-
     pressTimer = window.setTimeout(async () => {
       longPressActive = true;
       isRecording = true;
@@ -751,7 +687,8 @@ async function boot() {
   overlay.style.pointerEvents = 'none';
   btnEnterAR.disabled = true;
 
-  // KEINE Fallback-Texte mehr! Alles leer als Default.
+  // KEINE Fallback-Texte mehr!
+  // Alles leer als Default.
   startTitle.textContent = '';
   startSubline.textContent = '';
   startText.textContent = '';
@@ -797,6 +734,7 @@ async function boot() {
 
       const meta    = json.meta || {};
       const welcome = (json.ui && json.ui.welcome) || {};
+
       const title =
         (meta.title && meta.title.trim()) ||
         (welcome.title && welcome.title.trim()) ||
@@ -935,7 +873,6 @@ function resetARState() {
 function initThree() {
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.01, 20);
-
   const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1.2);
   scene.add(light);
 
@@ -983,6 +920,7 @@ function initThree() {
   rectShape.quadraticCurveTo(0, 0, 0, radius);
   const outlineGeo = new THREE.ShapeGeometry(rectShape);
   outlineGeo.translate(-RECT_SIZE / 2, -RECT_SIZE / 2, 0);
+
   const edges = new THREE.EdgesGeometry(outlineGeo);
   const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, opacity: 0.8, transparent: true });
   placementRect = new THREE.LineSegments(edges, lineMat);
@@ -998,17 +936,18 @@ async function loadModel() {
   const draco = new DRACOLoader();
   draco.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
   loader.setDRACOLoader(draco);
-
   try {
     const gltf = await loader.loadAsync(MODEL_URL);
     model = gltf.scene;
     model.traverse((node) => { if (node.isMesh) { node.castShadow = true; node.receiveShadow = false; } });
     model.scale.setScalar(0.5);
+
     if(gltf.animations?.length) {
       mixer = new THREE.AnimationMixer(model);
       gltf.animations.forEach(clip => mixer.clipAction(clip).play());
     }
     placementGroup.add(model);
+
     modelLoaded = true;
     setUiState('loaded', 'Modell geladen. Tippe auf AR Starten.');
   } catch(e) {
@@ -1067,7 +1006,6 @@ function render(timestamp, frame) {
   if (hitTestSource && !isModelPlaced) {
     const refSpace = renderer.xr.getReferenceSpace();
     const results = frame.getHitTestResults(hitTestSource);
-
     if (results.length > 0) {
       const hit = results[0];
       const pose = hit.getPose(refSpace);
@@ -1130,7 +1068,6 @@ function onTouchStart(event) {
     initialModelScale = placementGroup.scale.x;
     placementRect.visible = true;
     setUiState('scale', "Skalieren (Pinch)");
-
   } else if (currentTouches.length === 1) {
     if (isTouchOnModel(tapStartX, tapStartY)) {
       isEditing = true;
@@ -1175,7 +1112,6 @@ function onTouchMove(event) {
     const newScale = initialModelScale + scaleDelta * SCALE_FACTOR;
     const clamped = Math.max(0.25, Math.min(3.0, newScale));
     placementGroup.scale.setScalar(clamped);
-
   } else if (isScalingModel && isOneFinger) {
     isScalingModel = false;
     const t = currentTouches[0];
