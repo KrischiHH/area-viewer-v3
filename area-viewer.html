@@ -2,29 +2,23 @@
 <html lang="de">
 <head>
   <meta charset="utf-8"/>
-  <meta name="viewport"
-        content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <title>ARea Native AR Viewer</title>
 
-  <!-- Fonts & Styles -->
+  <!-- Fonts & Styles (wie beim WebXR-Viewer) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bangers&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css"/>
+  <link rel="stylesheet" href="styles.css">
 
-  <!-- model-viewer (als nativer AR-Launcher) -->
-  <script type="module"
-          src="https://unpkg.com/@google/model-viewer@3.3.0/dist/model-viewer.min.js">
-  </script>
-
-  <!-- Basis-Meta (dynamisches OG per JS klappt für WhatsApp nicht, das wäre Worker-Thema) -->
-  <meta name="description" content="ARea AR Experience – native AR-Ansicht auf deinem Smartphone.">
+  <!-- Model-Viewer (nur Native AR: Scene Viewer / Quick Look) -->
+  <script type="module" src="https://unpkg.com/@google/model-viewer@3.5.0/dist/model-viewer.min.js"></script>
 </head>
 <body>
 
 <div id="err"></div>
 
-<!-- Startscreen wie beim WebXR-Viewer, inkl. Girlande -->
+<!-- Welcome-Screen mit Ranke (unverändert zum WebXR-Viewer) -->
 <div id="start-screen">
   <div id="start-content">
     <div id="start-card">
@@ -33,242 +27,186 @@
       <p id="start-subline"></p>
       <img id="start-image" style="display:none;" alt="Vorschau"/>
       <p id="start-text"></p>
-      <button class="btn-start" id="btn-enter-ar" disabled>STARTE AR✨</button>
+      <button class="btn-start" id="btn-enter-ar">STARTE AR✨</button>
     </div>
-    <img id="tannengruen-frame"
-         src="./assets/Tannengruen.png"
-         alt="Dekorativer Tannengrün-Rahmen"
-         aria-hidden="true"/>
+    <img id="tannengruen-frame" src="./assets/Tannengruen.png"
+         alt="Dekorativer Tannengrün-Rahmen" aria-hidden="true"/>
   </div>
 </div>
 
-<!-- Einfache Statuszeile (optional) -->
-<div id="msg-container">
-  <div id="msg" role="status" aria-live="polite">
-    Lade Szene…
-  </div>
-</div>
-
-<!-- Unsichtbarer model-viewer als nativer AR-Launcher -->
-<model-viewer id="native-ar-viewer"
-              src=""
-              ios-src=""
-              ar
-              ar-modes="scene-viewer quick-look webxr"
-              camera-controls
-              autoplay
-              style="
-                position: fixed;
-                width: 1px;
-                height: 1px;
-                top: -9999px;
-                left: -9999px;
-                opacity: 0;
-                pointer-events: none;
-              ">
+<!-- Versteckter Native-Viewer: nutzt NUR Scene Viewer / Quick Look -->
+<model-viewer
+  id="area-native-viewer"
+  style="width: 1px; height: 1px; opacity: 0; position: absolute; pointer-events: none;"
+  ar
+  ar-modes="scene-viewer quick-look"
+  camera-controls
+  autoplay
+  shadow-intensity="1"
+  exposure="1"
+  environment-image="neutral"
+>
 </model-viewer>
 
-<!-- Optionales Audio (läuft parallel über die Seite, Lautstärke per Gerätetasten) -->
-<audio id="ar-audio" loop preload="auto" crossorigin="anonymous"></audio>
-
 <script type="module">
-  // --- Kleine Helfer ---
-  function showErr(txt) {
-    const e = document.getElementById('err');
-    e.textContent = txt;
-    e.style.display = 'block';
-    setTimeout(() => { e.style.display = 'none'; }, 7000);
+  const errEl = document.getElementById('err');
+  function showErr(msg) {
+    console.error('[ARea Native Viewer]', msg);
+    if (!errEl) return;
+    errEl.textContent = msg;
+    errEl.style.display = 'block';
+    setTimeout(() => { errEl.style.display = 'none'; }, 7000);
   }
 
-  function updateMsg(txt) {
-    const m = document.getElementById('msg');
-    if (m) m.textContent = txt;
-  }
-
-  // --- URL-Parameter / Szene-Setup ---
+  // Query-Parameter: ?scene=...&base=...
   const qs = new URLSearchParams(location.search);
-  const DEFAULT_WORKER_BASE = 'https://area-publish-proxy.area-webar.workers.dev';
-  const workerBase = (qs.get('base') || DEFAULT_WORKER_BASE).replace(/\/$/, '');
+  const workerBase = (qs.get('base') || 'https://area-publish-proxy.area-webar.workers.dev').replace(/\/$/, '');
   const sceneParam = qs.get('scene') || qs.get('src') || '';
 
   let SCENE_JSON_URL = '';
   let MODEL_URL = '';
   let IOS_URL = '';
+  let POSTER_URL = '';
   let AUDIO_URL = '';
 
-  if (sceneParam) {
-    if (sceneParam.endsWith('.glb') || sceneParam.endsWith('.gltf') || sceneParam.startsWith('http')) {
-      // Direkter Modell-Link
+  const mv           = document.getElementById('area-native-viewer');
+  const btnEnterAR   = document.getElementById('btn-enter-ar');
+  const startScreen  = document.getElementById('start-screen');
+  const startImage   = document.getElementById('start-image');
+  const startTitle   = document.getElementById('start-title');
+  const startSubline = document.getElementById('start-subline');
+  const startText    = document.getElementById('start-text');
+
+  async function loadSceneConfig() {
+    // Fall 1: direkte GLB-URL über ?scene=...glb oder ?src=...
+    if (sceneParam && sceneParam.endsWith('.glb')) {
       MODEL_URL = sceneParam;
-    } else if (sceneParam.endsWith('.usdz')) {
-      IOS_URL = sceneParam;
+      return;
+    }
+
+    // Fall 2: kein sceneParam -> Demo
+    if (!sceneParam) {
+      MODEL_URL  = 'https://modelviewer.dev/shared-assets/models/Astronaut.glb';
+      POSTER_URL = 'https://modelviewer.dev/assets/poster-astronaut.png';
+
+      startTitle.textContent   = 'Demo-Szene';
+      startSubline.textContent = 'ARea Native Viewer';
+      startText.textContent    = 'Kein "scene"-Parameter gefunden – Demo-Modell wird geladen.';
+      return;
+    }
+
+    // Fall 3: ARea-Szene JSON
+    SCENE_JSON_URL = `${workerBase}/scenes/${sceneParam}/scene.json`;
+
+    const res = await fetch(SCENE_JSON_URL, { cache: 'no-store' });
+    if (!res.ok) {
+      throw new Error(`Scene JSON Error: ${res.status} ${res.statusText}`);
+    }
+    const json = await res.json();
+
+    const meta    = json.meta || {};
+    const welcome = (json.ui && json.ui.welcome) || {};
+
+    const title =
+      (meta.title && meta.title.trim()) ||
+      (welcome.title && welcome.title.trim()) ||
+      '';
+    const subline =
+      (meta.subtitle && meta.subtitle.trim()) ||
+      (welcome.eyebrow && welcome.eyebrow.trim()) ||
+      '';
+    const body =
+      (meta.body && meta.body.trim()) ||
+      (meta.description && meta.description.trim()) ||
+      (welcome.desc && welcome.desc.trim()) ||
+      '';
+
+    const posterFile =
+      (meta.posterImage && String(meta.posterImage).trim()) ||
+      (welcome.poster && String(welcome.poster).trim()) ||
+      '';
+
+    startTitle.innerHTML   = title;
+    startSubline.innerHTML = subline;
+    startText.innerHTML    = body;
+
+    if (posterFile) {
+      POSTER_URL = `${workerBase}/scenes/${sceneParam}/${encodeURIComponent(posterFile)}`;
+      startImage.src = POSTER_URL;
+      startImage.style.display = 'block';
+      startImage.alt = title ? `${title} Vorschau` : 'Vorschau';
     } else {
-      // Standard-Fall: Scene-ID → scene.json beim Worker
-      SCENE_JSON_URL = `${workerBase}/scenes/${encodeURIComponent(sceneParam)}/scene.json`;
+      startImage.style.display = 'none';
+    }
+
+    // Modell-URL
+    if (json.model?.url) {
+      MODEL_URL = `${workerBase}/scenes/${sceneParam}/${json.model.url}`;
+    } else if (json.model?.src) {
+      MODEL_URL = `${workerBase}/scenes/${sceneParam}/${json.model.src}`;
+    } else {
+      MODEL_URL = 'https://modelviewer.dev/shared-assets/models/Astronaut.glb';
+      showErr('Hinweis: Szene-JSON enthält keine Modell-URL. Fallback-Modell wird verwendet.');
+    }
+
+    // iOS-URL (USDZ)
+    if (json.model?.iosUrl || json.model?.iosSrc) {
+      const iosFile = json.model.iosUrl || json.model.iosSrc;
+      IOS_URL = `${workerBase}/scenes/${sceneParam}/${iosFile}`;
+    }
+
+    // Audio (für später, falls du nochmal UI willst)
+    if (json.audio?.url) {
+      AUDIO_URL = `${workerBase}/scenes/${sceneParam}/${json.audio.url}`;
     }
   }
 
-  const audioEl = document.getElementById('ar-audio');
+  function setupModelViewer() {
+    if (!mv) return;
 
-  async function boot() {
-    const startScreen = document.getElementById('start-screen');
-    const btnEnterAR = document.getElementById('btn-enter-ar');
-    const startImage = document.getElementById('start-image');
-    const startTitle = document.getElementById('start-title');
-    const startSubline = document.getElementById('start-subline');
-    const startText = document.getElementById('start-text');
-    const mv = document.getElementById('native-ar-viewer');
-
-    startScreen.style.display = 'flex';
-    btnEnterAR.disabled = true;
-    updateMsg('Lade Szene…');
-
-    // Defaults
-    startTitle.textContent = '';
-    startSubline.textContent = '';
-    startText.textContent = '';
-    startImage.style.display = 'none';
-
-    // Szene aus JSON laden (falls vorhanden)
-    if (SCENE_JSON_URL) {
-      try {
-        const res = await fetch(SCENE_JSON_URL, { cache: 'no-store' });
-        if (!res.ok) throw new Error(`Scene JSON Error: ${res.status} ${res.statusText}`);
-        const json = await res.json();
-
-        const meta    = json.meta || {};
-        const welcome = (json.ui && json.ui.welcome) || {};
-        const model   = json.model || {};
-        const audio   = json.audio || {};
-
-        const title =
-          (meta.title && meta.title.trim()) ||
-          (welcome.title && welcome.title.trim()) ||
-          '';
-
-        const subline =
-          (meta.subtitle && meta.subtitle.trim()) ||
-          (welcome.eyebrow && welcome.eyebrow.trim()) ||
-          '';
-
-        const body =
-          (meta.body && meta.body.trim()) ||
-          (meta.description && meta.description.trim()) ||
-          (welcome.desc && welcome.desc.trim()) ||
-          '';
-
-        const posterFile =
-          (meta.posterImage && String(meta.posterImage).trim()) ||
-          (welcome.poster && String(welcome.poster).trim()) ||
-          '';
-
-        // Welcome-Screen befüllen
-        if (title)   startTitle.innerHTML   = title;
-        if (subline) startSubline.innerHTML = subline;
-        if (body)    startText.innerHTML    = body;
-
-        if (posterFile) {
-          const imageUrl = `${workerBase}/scenes/${encodeURIComponent(sceneParam)}/${encodeURIComponent(posterFile)}`;
-          startImage.src = imageUrl;
-          startImage.alt = title ? `${title} Vorschau` : 'Vorschau';
-          startImage.style.display = 'block';
-        }
-
-        // Modell-URLs
-        if (model.url) {
-          MODEL_URL = `${workerBase}/scenes/${encodeURIComponent(sceneParam)}/${model.url}`;
-        }
-        if (model.iosUrl) {
-          IOS_URL = `${workerBase}/scenes/${encodeURIComponent(sceneParam)}/${model.iosUrl}`;
-        }
-
-        // Audio-URL (läuft parallel über Seite)
-        if (audio.url) {
-          AUDIO_URL = `${workerBase}/scenes/${encodeURIComponent(sceneParam)}/${audio.url}`;
-          audioEl.src = AUDIO_URL;
-          try { audioEl.load(); } catch (_) {}
-        }
-
-      } catch (e) {
-        console.error(e);
-        showErr('Fehler beim Laden der Szene-Konfiguration: ' + e.message);
-      }
+    if (MODEL_URL) {
+      mv.src = MODEL_URL;
     }
-
-    // Fallback, falls kein Modell gesetzt
-    if (!MODEL_URL) {
-      MODEL_URL = 'https://modelviewer.dev/shared-assets/models/Astronaut.glb';
-      showErr('Hinweis: Szene enthält keine Modell-URL. Fallback-Modell wird verwendet.');
-    }
-
-    // model-viewer konfigurieren
-    mv.src = MODEL_URL;
     if (IOS_URL) {
       mv.setAttribute('ios-src', IOS_URL);
-    } else {
-      mv.removeAttribute('ios-src');
+    }
+    if (POSTER_URL) {
+      mv.setAttribute('poster', POSTER_URL);
     }
 
-    // AR-Button im model-viewer selbst verstecken (Safety)
-    const style = document.createElement('style');
-    style.textContent = `
-      model-viewer::part(default-ar-button) {
-        display: none !important;
-      }
-    `;
-    document.head.appendChild(style);
-
-    btnEnterAR.disabled = false;
-    updateMsg('Tippe auf „Starte AR“, um die AR-Szene zu öffnen.');
-
-    // Klick-Handler: direkt AR starten
-    btnEnterAR.addEventListener('click', async () => {
-      // Startscreen kann weg, während AR läuft
-      startScreen.style.display = 'none';
-      updateMsg('Starte AR…');
-
-      // Audio versuchen zu starten (läuft parallel, Lautstärke per Gerätetasten)
-      if (AUDIO_URL) {
-        try { await audioEl.play(); } catch (_) { /* Ignorieren, falls blockiert */ }
-      }
-
-      try {
-        if (typeof mv.activateAR === 'function') {
-          const r = mv.activateAR();
-          // r kann ein Promise sein – Fehler in catch
-          if (r && typeof r.then === 'function') {
-            await r.catch(err => { throw err; });
-          }
-        } else {
-          throw new Error('activateAR() wird von model-viewer nicht unterstützt.');
-        }
-
-        // Nach AR-Ende kehrt der User auf diese Seite zurück.
-        // Wir zeigen wieder den Startscreen zum „Nochmal ansehen“.
-        window.addEventListener('focus', () => {
-          startScreen.style.display = 'flex';
-          updateMsg('Tippe erneut auf „Starte AR“, um die Szene noch einmal zu öffnen.');
-        }, { once: true });
-
-      } catch (err) {
-        console.error('AR konnte nicht gestartet werden:', err);
-        showErr('AR konnte nicht gestartet werden. Dein Gerät / Browser unterstützt evtl. keinen nativen AR-Modus.');
-
-        // Fallback: 3D-Modell normal im Browser zeigen
-        mv.style.position = 'relative';
-        mv.style.width = '100%';
-        mv.style.height = '70vh';
-        mv.style.top = '0';
-        mv.style.left = '0';
-        mv.style.opacity = '1';
-        mv.style.pointerEvents = 'auto';
-
-        updateMsg('Dein Gerät unterstützt keinen nativen AR-Modus. Du kannst das Modell hier in 3D betrachten.');
-      }
-    });
+    // Animationen im GLB laufen automatisch
+    mv.setAttribute('reveal', 'auto');
+    mv.setAttribute('autoplay', 'true');
   }
 
-  document.addEventListener('DOMContentLoaded', boot);
+  async function boot() {
+    btnEnterAR.disabled = true;
+    startScreen.style.display = 'flex';
+
+    try {
+      await loadSceneConfig();
+    } catch (err) {
+      showErr('Fehler beim Laden der Szene-Konfiguration: ' + (err.message || err));
+    }
+
+    setupModelViewer();
+    btnEnterAR.disabled = false;
+  }
+
+  // Klick auf "Starte AR✨" -> direkt native AR (Scene Viewer / Quick Look)
+  btnEnterAR.addEventListener('click', async () => {
+    if (!mv) return;
+
+    try {
+      await mv.activateAR();
+      // Hinweis: ab hier übernimmt Scene Viewer / Quick Look die UI,
+      // inkl. systemeigener Aufnahmefunktionen.
+    } catch (err) {
+      showErr('AR konnte nicht gestartet werden: ' + (err.message || err));
+    }
+  });
+
+  boot();
 </script>
 
 </body>
