@@ -105,11 +105,13 @@
 
 <audio id="ar-audio" loop playsinline preload="auto" crossorigin="anonymous"></audio>
 
-<script type="module">
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import { DeviceOrientationControls } from 'three/addons/controls/DeviceOrientationControls.js';
+
+// WICHTIG: lokale Datei statt unpkg
+import { DeviceOrientationControls } from './js/DeviceOrientationControls.js';
+
 
 // --- Grund-Variablen (analog webxr.html) ---
 let camera, scene, renderer;
