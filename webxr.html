@@ -116,6 +116,9 @@ let recCtx = null;
 let recRAF = 0;
 
 function ensureRecorderCanvas() {
+  if (!renderer || !renderer.domElement) {
+    throw new Error("Renderer noch nicht initialisiert.");
+  }
   if (!recCanvas) {
     recCanvas = document.createElement('canvas');
     recCtx = recCanvas.getContext('2d', { alpha: false });
@@ -541,9 +544,15 @@ function makePhotoBlob() {
   // --- KORRIGIERTE VIDEO-FUNKTION (Canvas Stream nutzen) ---
   
   async function startVideoCapture() {
-    // 1. Check: Kann der Browser das Canvas streamen?
-    if (!renderer || !renderer.domElement || typeof renderer.domElement.captureStream !== 'function') {
-      console.warn('[ARea] captureStream nicht unterstützt.');
+    // 1. Check: Kann der Browser das Recorder-Canvas streamen?
+    try {
+      ensureRecorderCanvas();
+    } catch (e) {
+      console.warn('[ARea] Recorder-Canvas nicht bereit:', e);
+      return false;
+    }
+    if (!recCanvas || typeof recCanvas.captureStream !== 'function') {
+      console.warn('[ARea] captureStream auf Recorder-Canvas nicht unterstützt.');
       return false;
     }
 
@@ -556,7 +565,7 @@ function makePhotoBlob() {
     try {
       // 2. Stream direkt vom WebGL Canvas abgreifen (30 FPS)
       startRecorderCompositing();
-screenStream = recCanvas.captureStream(30);
+      screenStream = recCanvas.captureStream(30);
 
       
       // (Optional Audio hinzufügen: Hier erstmal ausgelassen für Stabilität)
@@ -913,8 +922,8 @@ function resetARState() {
   audioEl.pause();
   isModelPlaced = false;
   isEditing = false;
-  placementGroup.visible = false;
-  placementRect.visible = false;
+  if (placementGroup) placementGroup.visible = false;
+  if (placementRect) placementRect.visible = false;
   btnEnterAR.disabled = !modelLoaded;
   setUiState('initial', 'Bewege dein Gerät um Fläche zu finden...');
 }
