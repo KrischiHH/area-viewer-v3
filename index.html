@@ -9,18 +9,15 @@
 <script>
 (async () => {
   const qs = new URLSearchParams(location.search);
-
-  // Parameter unverändert weiterreichen
   const targetQS = new URLSearchParams(qs);
 
-  // iOS Detection
   const ua = navigator.userAgent || "";
-  const isIOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
+  const isIOS =
+    (/iPad|iPhone|iPod/.test(ua) && !window.MSStream) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-  // Optional: erzwinge WebXR (debug)
   const forceWebXR = qs.get('forceWebXR') === '1';
 
-  // Ziel-Dateien
   const WEBXR = 'webxr.html';
   const NATIVE = 'area-viewer.html';
 
@@ -29,7 +26,6 @@
     return;
   }
 
-  // WebXR Support Check
   let xrOK = false;
   try {
     xrOK = !!navigator.xr && !!(await navigator.xr.isSessionSupported?.('immersive-ar'));
@@ -38,6 +34,7 @@
   if (xrOK) {
     location.replace(`${WEBXR}?${targetQS.toString()}`);
   } else {
+    console.log('[ARea] WebXR nicht verfügbar → Fallback Viewer');
     location.replace(`${NATIVE}?${targetQS.toString()}`);
   }
 })();
