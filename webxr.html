@@ -110,44 +110,66 @@ let model;
 let mixer;
 const clock = new THREE.Clock();
 
-  // Recorder Canvas (2D Compositing, stabiler als captureStream direkt vom WebGL Canvas)
+  // Recorder-Renderer (separater WebGL-Canvas, damit Capture in WebXR nicht schwarz wird)
+// Hintergrund (Kamera) kann WebXR-seitig trotzdem NICHT garantiert mit aufgenommen werden – aber 3D wird sauber erfasst.
 let recCanvas = null;
-let recCtx = null;
-let recRAF = 0;
+let recRenderer = null;
+let recCamera = null;
 
 function ensureRecorderCanvas() {
   if (!renderer || !renderer.domElement) {
-    throw new Error("Renderer noch nicht initialisiert.");
+    throw new Error('Renderer noch nicht initialisiert.');
   }
   if (!recCanvas) {
     recCanvas = document.createElement('canvas');
-    recCtx = recCanvas.getContext('2d', { alpha: false });
+    recRenderer = new THREE.WebGLRenderer({
+      canvas: recCanvas,
+      antialias: true,
+      alpha: true,
+      preserveDrawingBuffer: true
+    });
+    recRenderer.outputColorSpace = THREE.SRGBColorSpace;
+    recRenderer.setPixelRatio(1); // stabiler & kleiner für Recording
+    if (!recCamera) {
+      recCamera = new THREE.PerspectiveCamera();
+      recCamera.matrixAutoUpdate = false;
+    }
   }
+
+  // Größe vom Haupt-Renderer übernehmen
   const w = renderer.domElement.width;
   const h = renderer.domElement.height;
-  if (recCanvas.width !== w || recCanvas.height !== h) {
-    recCanvas.width = w;
-    recCanvas.height = h;
-  }
+  recRenderer.setSize(w, h, false);
 }
 
+// Im aktuellen Build brauchen wir kein 2D-Compositing-RAF mehr.
+// Wir rendern pro XR-Frame einen "Capture-Pass" in recCanvas.
 function startRecorderCompositing() {
   ensureRecorderCanvas();
-  cancelAnimationFrame(recRAF);
-  const draw = () => {
-    // Hintergrund füllen (damit Transparenz nicht "leer" wird)
-    recCtx.fillStyle = '#000';
-    recCtx.fillRect(0, 0, recCanvas.width, recCanvas.height);
-    // WebGL Canvas drauf zeichnen
-    recCtx.drawImage(renderer.domElement, 0, 0);
-    recRAF = requestAnimationFrame(draw);
-  };
-  recRAF = requestAnimationFrame(draw);
+}
+function stopRecorderCompositing() {
+  // no-op (Render passiert im XR render()-Loop)
 }
 
-function stopRecorderCompositing() {
-  cancelAnimationFrame(recRAF);
-  recRAF = 0;
+function renderRecorderFrameFromXR(frame) {
+  if (!frame) return;
+  if (!recRenderer || !recCamera) return;
+
+  const refSpace = renderer.xr.getReferenceSpace();
+  const pose = frame.getViewerPose(refSpace);
+  if (!pose || !pose.views || !pose.views.length) return;
+
+  const view = pose.views[0];
+
+  // Projection
+  recCamera.projectionMatrix.fromArray(view.projectionMatrix);
+  recCamera.projectionMatrixInverse.copy(recCamera.projectionMatrix).invert();
+
+  // View transform (world matrix der Kamera)
+  recCamera.matrixWorld.fromArray(view.transform.matrix);
+  recCamera.matrixWorldInverse.copy(recCamera.matrixWorld).invert();
+
+  recRenderer.render(scene, recCamera);
 }
 
 
@@ -525,11 +547,7 @@ function makePhotoBlob() {
   return new Promise((resolve, reject) => {
     try {
       ensureRecorderCanvas();
-      // einmal sicher "reinzeichnen"
-      recCtx.fillStyle = '#000';
-      recCtx.fillRect(0, 0, recCanvas.width, recCanvas.height);
-      recCtx.drawImage(renderer.domElement, 0, 0);
-
+      // recCanvas enthält den letzten Capture-Render-Pass (aus dem XR render()-Loop)
       recCanvas.toBlob((blob) => {
         if (blob) resolve(blob);
         else reject(new Error('Recorder-Canvas Screenshot leer'));
@@ -540,10 +558,10 @@ function makePhotoBlob() {
   });
 }
 
-
   // --- KORRIGIERTE VIDEO-FUNKTION (Canvas Stream nutzen) ---
   
   async function startVideoCapture() {
+    try { ensureRecorderCanvas(); } catch(e) { console.warn('[ARea] Recorder-Canvas nicht bereit:', e); return false; }
     // 1. Check: Kann der Browser das Recorder-Canvas streamen?
     try {
       ensureRecorderCanvas();
@@ -1097,6 +1115,9 @@ function render(timestamp, frame) {
   if (isModelPlaced) {
     placementRect.visible = isEditing;
   }
+
+  // Capture-Pass (für Foto/Video) – rendert 3D in recCanvas
+  try { renderRecorderFrameFromXR(frame); } catch(e) {}
 
   renderer.render(scene, camera);
 }
