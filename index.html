@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>ARea – Redirect</title>
+</head>
+<body>
+<script>
+(async () => {
+  const qs = new URLSearchParams(location.search);
+
+  // Parameter unverändert weiterreichen
+  const targetQS = new URLSearchParams(qs);
+
+  // iOS Detection
+  const ua = navigator.userAgent || "";
+  const isIOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
+
+  // Optional: erzwinge WebXR (debug)
+  const forceWebXR = qs.get('forceWebXR') === '1';
+
+  // Ziel-Dateien
+  const WEBXR = 'webxr.html';
+  const NATIVE = 'area-viewer.html';
+
+  if (isIOS && !forceWebXR) {
+    location.replace(`${NATIVE}?${targetQS.toString()}`);
+    return;
+  }
+
+  // WebXR Support Check
+  let xrOK = false;
+  try {
+    xrOK = !!navigator.xr && !!(await navigator.xr.isSessionSupported?.('immersive-ar'));
+  } catch (_) {}
+
+  if (xrOK) {
+    location.replace(`${WEBXR}?${targetQS.toString()}`);
+  } else {
+    location.replace(`${NATIVE}?${targetQS.toString()}`);
+  }
+})();
+</script>
+</body>
+</html>
