@@ -110,6 +110,43 @@ let model;
 let mixer;
 const clock = new THREE.Clock();
 
+  // Recorder Canvas (2D Compositing, stabiler als captureStream direkt vom WebGL Canvas)
+let recCanvas = null;
+let recCtx = null;
+let recRAF = 0;
+
+function ensureRecorderCanvas() {
+  if (!recCanvas) {
+    recCanvas = document.createElement('canvas');
+    recCtx = recCanvas.getContext('2d', { alpha: false });
+  }
+  const w = renderer.domElement.width;
+  const h = renderer.domElement.height;
+  if (recCanvas.width !== w || recCanvas.height !== h) {
+    recCanvas.width = w;
+    recCanvas.height = h;
+  }
+}
+
+function startRecorderCompositing() {
+  ensureRecorderCanvas();
+  cancelAnimationFrame(recRAF);
+  const draw = () => {
+    // Hintergrund füllen (damit Transparenz nicht "leer" wird)
+    recCtx.fillRect(0, 0, recCanvas.width, recCanvas.height);
+    // WebGL Canvas drauf zeichnen
+    recCtx.drawImage(renderer.domElement, 0, 0);
+    recRAF = requestAnimationFrame(draw);
+  };
+  recRAF = requestAnimationFrame(draw);
+}
+
+function stopRecorderCompositing() {
+  cancelAnimationFrame(recRAF);
+  recRAF = 0;
+}
+
+
 // State & Config
 let isModelPlaced = false;
 let modelLoaded = false;
@@ -480,25 +517,24 @@ function initCaptureAndGallery({ renderer, audioEl }) {
 
   // --- KORRIGIERTE FOTO-FUNKTION (Canvas direkt nutzen) ---
   
-  function makePhotoBlob() {
-    return new Promise((resolve, reject) => {
-      // WICHTIG: renderer muss mit preserveDrawingBuffer: true initialisiert sein (ist er!)
-      if (!renderer || !renderer.domElement) {
-        reject(new Error('Renderer nicht verfügbar'));
-        return;
-      }
-      
-      try {
-        // Direktes Auslesen des WebGL-Canvas
-        renderer.domElement.toBlob((blob) => {
-          if (blob) resolve(blob);
-          else reject(new Error('Canvas Screenshot leer'));
-        }, 'image/png');
-      } catch (err) {
-        reject(err);
-      }
-    });
-  }
+function makePhotoBlob() {
+  return new Promise((resolve, reject) => {
+    try {
+      ensureRecorderCanvas();
+      // einmal sicher "reinzeichnen"
+      recCtx.fillRect(0, 0, recCanvas.width, recCanvas.height);
+      recCtx.drawImage(renderer.domElement, 0, 0);
+
+      recCanvas.toBlob((blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error('Recorder-Canvas Screenshot leer'));
+      }, 'image/png');
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
 
   // --- KORRIGIERTE VIDEO-FUNKTION (Canvas Stream nutzen) ---
   
@@ -509,9 +545,16 @@ function initCaptureAndGallery({ renderer, audioEl }) {
       return false;
     }
 
+    if (!window.MediaRecorder) {
+  setUiState('rec_no_mediarecorder', 'Videoaufnahme nicht verfügbar (MediaRecorder fehlt).');
+  return false;
+}
+
     try {
       // 2. Stream direkt vom WebGL Canvas abgreifen (30 FPS)
-      screenStream = renderer.domElement.captureStream(30);
+      startRecorderCompositing();
+screenStream = recCanvas.captureStream(30);
+
       
       // (Optional Audio hinzufügen: Hier erstmal ausgelassen für Stabilität)
 
@@ -541,11 +584,13 @@ function initCaptureAndGallery({ renderer, audioEl }) {
         const blob = new Blob(screenChunks, { type: selectedMime || 'video/webm' });
         const filename = makeFilename('video', 'webm');
         onCaptureReady('video', blob, filename);
+        stopRecorderCompositing();
         
         // Aufräumen
         screenChunks = [];
         screenRecorder = null;
         screenStream = null;
+        stopRecorderCompositing();
       };
 
       screenRecorder.start();
@@ -895,6 +940,9 @@ function initThree() {
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   document.body.appendChild(renderer.domElement);
 
+  // Recorder Canvas initial anlegen
+ensureRecorderCanvas();
+
   placementGroup = new THREE.Group();
   placementGroup.visible = false;
   scene.add(placementGroup);
@@ -995,6 +1043,7 @@ function onResize() {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  ensureRecorderCanvas();
 }
 
 function render(timestamp, frame) {
