@@ -133,6 +133,7 @@ function startRecorderCompositing() {
   cancelAnimationFrame(recRAF);
   const draw = () => {
     // Hintergrund füllen (damit Transparenz nicht "leer" wird)
+    recCtx.fillStyle = '#000';
     recCtx.fillRect(0, 0, recCanvas.width, recCanvas.height);
     // WebGL Canvas drauf zeichnen
     recCtx.drawImage(renderer.domElement, 0, 0);
@@ -522,6 +523,7 @@ function makePhotoBlob() {
     try {
       ensureRecorderCanvas();
       // einmal sicher "reinzeichnen"
+      recCtx.fillStyle = '#000';
       recCtx.fillRect(0, 0, recCanvas.width, recCanvas.height);
       recCtx.drawImage(renderer.domElement, 0, 0);
 
@@ -546,8 +548,9 @@ function makePhotoBlob() {
     }
 
     if (!window.MediaRecorder) {
-  setUiState('rec_no_mediarecorder', 'Videoaufnahme nicht verfügbar (MediaRecorder fehlt).');
-  return false;
+      stopRecorderCompositing();
+      setUiState('rec_no_mediarecorder', 'Videoaufnahme nicht verfügbar (MediaRecorder fehlt).');
+      return false;
 }
 
     try {
@@ -584,8 +587,8 @@ screenStream = recCanvas.captureStream(30);
         const blob = new Blob(screenChunks, { type: selectedMime || 'video/webm' });
         const filename = makeFilename('video', 'webm');
         onCaptureReady('video', blob, filename);
-        stopRecorderCompositing();
         
+
         // Aufräumen
         screenChunks = [];
         screenRecorder = null;
@@ -598,6 +601,7 @@ screenStream = recCanvas.captureStream(30);
 
     } catch (err) {
       console.error('[ARea] Video-Start fehlgeschlagen:', err);
+      stopRecorderCompositing();
       return false;
     }
   }
