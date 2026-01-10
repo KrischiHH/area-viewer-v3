@@ -43,6 +43,7 @@
   <div class="ui-row">
     <button class="btn-icon" id="btn-close" aria-label="AR-Session beenden">×</button>
     <button class="btn-icon" id="btn-mute" style="display:none" aria-label="Audio umschalten">🔊</button>
+    <button class="btn-icon" id="btn-bgmode" aria-label="Aufnahme mit Hintergrund starten">🎥BG</button>
   </div>
 
   <div id="gallery-panel" aria-hidden="true">
@@ -93,12 +94,15 @@
 </div>
 
 
+<video id="camera-video" playsinline autoplay muted style="display:none"></video>
+
 <audio id="ar-audio" loop playsinline preload="auto" crossorigin="anonymous"></audio>
 
 <script type="module">
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { DeviceOrientationControls } from 'three/addons/controls/DeviceOrientationControls.js';
 
 
 // --- AR Logik ---
@@ -109,6 +113,122 @@ let placementRect;
 let model;
 let mixer;
 const clock = new THREE.Clock();
+
+
+// --- Hybrid: Camera-Background Mode (für Aufnahmen mit echtem Hintergrund) ---
+let mode = 'webxr'; // 'webxr' | 'camera'
+let camVideoEl = document.getElementById('camera-video');
+let camStream = null;
+let videoTexture = null;
+let camControls = null;
+let camRAF = 0;
+
+async function startCameraStream() {
+  if (!navigator.mediaDevices?.getUserMedia) throw new Error('Kamera-Zugriff nicht unterstützt.');
+  camStream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: { ideal: 'environment' } },
+    audio: false
+  });
+  camVideoEl.srcObject = camStream;
+  await camVideoEl.play();
+
+  videoTexture = new THREE.VideoTexture(camVideoEl);
+  videoTexture.colorSpace = THREE.SRGBColorSpace;
+  videoTexture.minFilter = THREE.LinearFilter;
+  videoTexture.magFilter = THREE.LinearFilter;
+  scene.background = videoTexture;
+}
+
+function stopCameraStream() {
+  try {
+    if (videoTexture) {
+      videoTexture.dispose?.();
+      videoTexture = null;
+    }
+  } catch(_) {}
+  if (camVideoEl) {
+    try { camVideoEl.pause(); } catch(_) {}
+    camVideoEl.srcObject = null;
+  }
+  if (camStream) {
+    camStream.getTracks().forEach(t => t.stop());
+    camStream = null;
+  }
+}
+
+function startCameraModeLoop() {
+  cancelAnimationFrame(camRAF);
+  const loop = () => {
+    if (mode !== 'camera') return;
+    const dt = clock.getDelta();
+    if (mixer) mixer.update(dt);
+    if (camControls) camControls.update();
+
+    // Reticle im Zentrum (Boden-Schnitt)
+    if (!isModelPlaced) {
+      ndc.set(0, 0);
+      raycaster.setFromCamera(ndc, camera);
+      const hit = new THREE.Vector3();
+      if (raycaster.ray.intersectPlane(floorPlane, hit)) {
+        placementGroup.position.set(hit.x, 0, hit.z);
+        placementGroup.visible = true;
+        placementRect.visible = true;
+        isHovering = true;
+        setUiState('hover', 'Tippe auf die Zielmarkierung, um das Modell zu platzieren.');
+      } else {
+        placementGroup.visible = false;
+        placementRect.visible = false;
+        isHovering = false;
+        setUiState('search', 'Suche Boden...');
+      }
+    } else {
+      placementRect.visible = isEditing;
+    }
+
+    renderer.render(scene, camera);
+    camRAF = requestAnimationFrame(loop);
+  };
+  camRAF = requestAnimationFrame(loop);
+}
+
+async function enterCameraMode() {
+  // XR ggf. beenden
+  try {
+    const s = renderer?.xr?.getSession?.();
+    if (s) await s.end();
+  } catch(_) {}
+
+  // AnimationLoop stoppen (WebXR)
+  try { renderer.setAnimationLoop(null); } catch(_) {}
+
+  mode = 'camera';
+  renderer.xr.enabled = false;
+
+  // Kamera/Controls vorbereiten
+  camera.position.set(0, 1.6, 0);
+  camera.lookAt(0, 1.6, -1);
+  camControls = new DeviceOrientationControls(camera);
+
+  await startCameraStream();
+  startCameraModeLoop();
+
+  setUiState('camera_mode', 'Camera-Mode aktiv: Aufnahmen haben Hintergrund.');
+}
+
+function exitCameraMode() {
+  mode = 'webxr';
+  cancelAnimationFrame(camRAF);
+  camRAF = 0;
+  if (camControls) {
+    camControls.dispose?.();
+    camControls = null;
+  }
+  stopCameraStream();
+  // Hintergrund zurück (transparent)
+  scene.background = null;
+  setUiState('loaded', 'Modell geladen. Tippe auf AR Starten.');
+}
+
 
   // Recorder-Renderer (separater WebGL-Canvas, damit Capture in WebXR nicht schwarz wird)
 // Hintergrund (Kamera) kann WebXR-seitig trotzdem NICHT garantiert mit aufgenommen werden – aber 3D wird sauber erfasst.
@@ -541,77 +661,9 @@ function initCaptureAndGallery({ renderer, audioEl }) {
     }
   }
 
-// --- Capture: Hintergrund+3D (DisplayMedia) + Fallback (3D-only) ---
-
-// DisplayMedia-Recorder (nimmt das echte Bildschirmbild auf: Kamera-Hintergrund + 3D + UI)
-let dmStream = null;
-let dmRecorder = null;
-let dmChunks = [];
-let dmVideoEl = null;
-
-async function startDisplayMediaStream() {
-  if (!navigator.mediaDevices?.getDisplayMedia) {
-    throw new Error('Screen Capture nicht unterstützt (getDisplayMedia fehlt).');
-  }
-  // Hinweis: In Chrome/Android muss der User hier explizit "Bildschirm teilen" bestätigen.
-  dmStream = await navigator.mediaDevices.getDisplayMedia({
-    video: true,
-    audio: false
-  });
-  return dmStream;
-}
-
-function stopDisplayMediaStream() {
-  try {
-    if (dmStream) dmStream.getTracks().forEach(t => t.stop());
-  } catch (_) {}
-  dmStream = null;
-
-  if (dmVideoEl) {
-    try { dmVideoEl.pause(); } catch(_) {}
-    dmVideoEl.srcObject = null;
-    dmVideoEl.remove();
-    dmVideoEl = null;
-  }
-}
-
-async function takePhotoViaDisplayMedia() {
-  const stream = await startDisplayMediaStream();
-
-  // Frame aus dem Stream ziehen
-  dmVideoEl = document.createElement('video');
-  dmVideoEl.style.position = 'fixed';
-  dmVideoEl.style.left = '-9999px';
-  dmVideoEl.style.top = '-9999px';
-  dmVideoEl.muted = true;
-  dmVideoEl.playsInline = true;
-  dmVideoEl.srcObject = stream;
-  document.body.appendChild(dmVideoEl);
-
-  await dmVideoEl.play();
-  // einen Frame warten
-  await new Promise(r => requestAnimationFrame(r));
-
-  const w = dmVideoEl.videoWidth || renderer.domElement.width;
-  const h = dmVideoEl.videoHeight || renderer.domElement.height;
-
-  const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
-  const ctx = c.getContext('2d', { alpha: false });
-  ctx.drawImage(dmVideoEl, 0, 0, w, h);
-
-  const blob = await new Promise((resolve, reject) => {
-    c.toBlob(b => (b ? resolve(b) : reject(new Error('Screenshot leer'))), 'image/png');
-  });
-
-  stopDisplayMediaStream();
-  return blob;
-}
-
-// --- Fallback: 3D-only (Recorder-Canvas) ---
-
-function makePhotoBlob3DOnly() {
+  // --- KORRIGIERTE FOTO-FUNKTION (Canvas direkt nutzen) ---
+  
+function makePhotoBlob() {
   return new Promise((resolve, reject) => {
     try {
       ensureRecorderCanvas();
@@ -626,168 +678,119 @@ function makePhotoBlob3DOnly() {
   });
 }
 
-// --- Video: bevorzugt DisplayMedia (mit Hintergrund), fallback 3D-only ---
+  // --- KORRIGIERTE VIDEO-FUNKTION (Canvas Stream nutzen) ---
+  
+  async function startVideoCapture() {
+    if (mode !== 'camera') { setUiState('capture_hint', 'Für Aufnahmen mit Hintergrund auf 🎥BG wechseln.'); return false; }
 
-async function startVideoCapture() {
-  if (!window.MediaRecorder) {
-    setUiState('rec_no_mediarecorder', 'Videoaufnahme nicht verfügbar (MediaRecorder fehlt).');
-    return false;
-  }
+    try { ensureRecorderCanvas(); } catch(e) { console.warn('[ARea] Recorder-Canvas nicht bereit:', e); return false; }
+    // 1. Check: Kann der Browser das Recorder-Canvas streamen?
+    try {
+      ensureRecorderCanvas();
+    } catch (e) {
+      console.warn('[ARea] Recorder-Canvas nicht bereit:', e);
+      return false;
+    }
+    if (!recCanvas || typeof recCanvas.captureStream !== 'function') {
+      console.warn('[ARea] captureStream auf Recorder-Canvas nicht unterstützt.');
+      return false;
+    }
 
-  // 1) Versuch: DisplayMedia (Hintergrund+3D+UI)
-  try {
-    const stream = await startDisplayMediaStream();
+    if (!window.MediaRecorder) {
+      stopRecorderCompositing();
+      setUiState('rec_no_mediarecorder', 'Videoaufnahme nicht verfügbar (MediaRecorder fehlt).');
+      return false;
+}
 
-    const mimeTypes = [
-      'video/webm;codecs=vp9',
-      'video/webm;codecs=vp8',
-      'video/webm'
-    ];
-    const selectedMime = mimeTypes.find(m => MediaRecorder.isTypeSupported(m)) || '';
+    try {
+      // 2. Stream direkt vom WebGL Canvas abgreifen (30 FPS)
+      startRecorderCompositing();
+      screenStream = recCanvas.captureStream(30);
 
-    dmChunks = [];
-    dmRecorder = new MediaRecorder(stream, selectedMime ? { mimeType: selectedMime } : undefined);
+      
+      // (Optional Audio hinzufügen: Hier erstmal ausgelassen für Stabilität)
 
-    dmRecorder.ondataavailable = (ev) => {
-      if (ev.data && ev.data.size > 0) dmChunks.push(ev.data);
-    };
+      // 3. Codec-Wahl (Android mag WebM/VP8 oder VP9)
+      const mimeTypes = [
+        'video/webm;codecs=vp9',
+        'video/webm;codecs=vp8',
+        'video/webm'
+      ];
+      let selectedMime = mimeTypes.find(m => MediaRecorder.isTypeSupported(m)) || '';
 
-    dmRecorder.onstop = () => {
-      try {
-        const blob = new Blob(dmChunks, { type: selectedMime || 'video/webm' });
-        const filename = makeFilename('video', 'webm');
-        onCaptureReady('video', blob, filename);
-      } catch (err) {
-        console.error('[ARea] Fehler beim Erzeugen der Video-Datei', err);
-      } finally {
-        dmChunks = [];
-        dmRecorder = null;
-        stopDisplayMediaStream();
+      if (!selectedMime) {
+        console.warn('[ARea] Kein passender Video-Codec gefunden. Browser-Default wird genutzt.');
+        // Fallback ohne MimeType (Browser entscheidet)
       }
-    };
 
-    dmRecorder.start();
-    setUiState('rec_dm', 'Aufnahme läuft (Bildschirm teilen aktiv)…');
-    return true;
+      screenChunks = [];
+      screenRecorder = new MediaRecorder(screenStream, selectedMime ? { mimeType: selectedMime } : undefined);
 
-  } catch (err) {
-    console.warn('[ARea] DisplayMedia abgelehnt/nicht möglich – fallback auf 3D-only:', err);
-    stopDisplayMediaStream();
-    // weiter mit Fallback
-  }
+      screenRecorder.ondataavailable = (ev) => {
+        if (ev.data && ev.data.size > 0) {
+          screenChunks.push(ev.data);
+        }
+      };
 
-  // 2) Fallback: 3D-only über Recorder-Canvas
-  try {
-    ensureRecorderCanvas();
-  } catch (e) {
-    console.warn('[ARea] Recorder-Canvas nicht bereit:', e);
-    setUiState('rec_failed', 'Aufnahme nicht möglich.');
-    return false;
-  }
-
-  if (!recCanvas || typeof recCanvas.captureStream !== 'function') {
-    console.warn('[ARea] captureStream auf Recorder-Canvas nicht unterstützt.');
-    setUiState('rec_failed', 'Aufnahme nicht möglich.');
-    return false;
-  }
-
-  try {
-    startRecorderCompositing();
-    screenStream = recCanvas.captureStream(30);
-
-    const mimeTypes = [
-      'video/webm;codecs=vp9',
-      'video/webm;codecs=vp8',
-      'video/webm'
-    ];
-    let selectedMime = mimeTypes.find(m => MediaRecorder.isTypeSupported(m)) || '';
-
-    screenChunks = [];
-    screenRecorder = new MediaRecorder(screenStream, selectedMime ? { mimeType: selectedMime } : undefined);
-
-    screenRecorder.ondataavailable = (ev) => {
-      if (ev.data && ev.data.size > 0) screenChunks.push(ev.data);
-    };
-
-    screenRecorder.onstop = () => {
-      try {
+      screenRecorder.onstop = () => {
         const blob = new Blob(screenChunks, { type: selectedMime || 'video/webm' });
         const filename = makeFilename('video', 'webm');
         onCaptureReady('video', blob, filename);
-      } finally {
+        
+
+        // Aufräumen
         screenChunks = [];
         screenRecorder = null;
         screenStream = null;
         stopRecorderCompositing();
-      }
-    };
+      };
 
-    screenRecorder.start();
-    setUiState('rec_3d', 'Aufnahme läuft (ohne Kamerahintergrund)…');
-    return true;
+      screenRecorder.start();
+      return true;
 
-  } catch (err) {
-    console.error('[ARea] Video-Start (3D-only) fehlgeschlagen:', err);
-    stopRecorderCompositing();
-    setUiState('rec_failed', 'Aufnahme fehlgeschlagen.');
-    return false;
+    } catch (err) {
+      console.error('[ARea] Video-Start fehlgeschlagen:', err);
+      stopRecorderCompositing();
+      return false;
+    }
   }
-}
 
-function stopVideoCapture() {
-  // DisplayMedia-Recorder
-  if (dmRecorder && dmRecorder.state !== 'inactive') {
-    dmRecorder.stop();
-    return;
+  function stopVideoCapture() {
+    if (screenRecorder && screenRecorder.state !== 'inactive') {
+      screenRecorder.stop();
+    }
   }
-  // 3D-only Recorder
-  if (screenRecorder && screenRecorder.state !== 'inactive') {
-    screenRecorder.stop();
-    return;
+
+  async function onCaptureReady(kind, blob, filename) {
+    if (!blob) return;
+    const finalFilename = filename || makeFilename(kind);
+    addToGallery(kind, blob, finalFilename);
+    // Automatischer Download/Share Versuch nur bei Erfolg
+    // await tryShareOrDownload(blob, finalFilename); 
   }
-  stopDisplayMediaStream();
-  stopRecorderCompositing();
-}
 
-async function onCaptureReady(kind, blob, filename) {
-  if (!blob) return;
-  const finalFilename = filename || makeFilename(kind);
-  addToGallery(kind, blob, finalFilename);
-  // optional: sofort Share/Download:
-  // await tryShareOrDownload(blob, finalFilename);
-}
+  async function handleTapCapture() {
+    if (mode !== 'camera') { setUiState('capture_hint', 'Für Aufnahmen mit Hintergrund auf 🎥BG wechseln.'); return; }
 
-async function handleTapCapture() {
-  if (isRecording) return;
-  captureBtn.disabled = true;
-  try {
-    // 1) Versuch: Screenshot mit Hintergrund (DisplayMedia)
-    const blob = await takePhotoViaDisplayMedia();
-    await onCaptureReady('image', blob);
-
-    captureBtn.classList.add('snap');
-    setTimeout(() => captureBtn.classList.remove('snap'), 200);
-
-  } catch (err) {
-    console.warn('[ARea] Foto mit Hintergrund nicht möglich – fallback 3D-only:', err);
-    // 2) Fallback: 3D-only
+    if (isRecording) return;
+    captureBtn.disabled = true;
     try {
-      const blob = await makePhotoBlob3DOnly();
+      const blob = await makePhotoBlob();
       await onCaptureReady('image', blob);
-
+      
+      // Visuelles Feedback
       captureBtn.classList.add('snap');
       setTimeout(() => captureBtn.classList.remove('snap'), 200);
-    } catch (e2) {
-      console.error('[ARea] Foto fehlgeschlagen', e2);
-      setUiState('photo_failed', 'Foto fehlgeschlagen. Nutze ggf. System-Screenshot.');
-    }
-  } finally {
-    captureBtn.disabled = false;
-    setCaptureIcon('photo');
-  }
-}
 
-    async function handleStart(ev) {
+    } catch (err) {
+      console.error('[ARea] Screenshot fehlgeschlagen', err);
+    } finally {
+      captureBtn.disabled = false;
+      setCaptureIcon('photo');
+    }
+  }
+
+  async function handleStart(ev) {
     if (ev) {
       ev.preventDefault();
       ev.stopPropagation();
@@ -1032,7 +1035,26 @@ async function boot() {
     });
   });
 
-  document.getElementById('btn-close').addEventListener('click', () => {
+  
+  // Hybrid Button: Aufnahme mit Hintergrund (Camera-Mode)
+  const btnBgMode = document.getElementById('btn-bgmode');
+  if (btnBgMode) {
+    btnBgMode.addEventListener('click', async () => {
+      try {
+        if (mode !== 'camera') {
+          await enterCameraMode();
+        } else {
+          // zurück zum WebXR-Flow: Camera-Mode stoppen und Startscreen anzeigen
+          exitCameraMode();
+          resetARState();
+        }
+      } catch (e) {
+        console.error(e);
+        showErr('Camera-Mode konnte nicht gestartet werden: ' + (e?.message || e));
+      }
+    });
+  }
+document.getElementById('btn-close').addEventListener('click', () => {
     const s = renderer.xr.getSession();
     if (s) {
       s.end();
@@ -1059,6 +1081,10 @@ function resetARState() {
   startScreen.style.display = 'flex';
   overlay.style.pointerEvents = 'none';
   audioEl.pause();
+  // Falls wir im Camera-Mode sind, zurücksetzen
+  if (mode === 'camera') {
+    exitCameraMode();
+  }
   isModelPlaced = false;
   isEditing = false;
   if (placementGroup) placementGroup.visible = false;
