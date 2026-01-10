@@ -1,24 +1,24 @@
 <!doctype html>
 <html lang="de">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover"/>
-<title>ARea WebXR Viewer</title>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <title>ARea WebXR Viewer</title>
 
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bangers&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bangers&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
 
-<script src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
-<script type="importmap">
-{
-  "imports": {
-    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  <script src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
   }
-}
-</script>
+  </script>
 </head>
 <body>
 
@@ -42,7 +42,7 @@
 <!-- Kamerabild (wird als Texture in Three genutzt) -->
 <video id="camera-video" playsinline autoplay muted></video>
 
-<!-- Overlay-UI (gleiche Struktur wie webxr.html) -->
+<!-- Overlay-UI -->
 <div id="overlay">
   <div class="ui-row">
     <button class="btn-icon" id="btn-close" aria-label="AR-Session beenden">×</button>
@@ -105,15 +105,16 @@
 
 <audio id="ar-audio" loop playsinline preload="auto" crossorigin="anonymous"></audio>
 
+<script type="module">
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-
-// WICHTIG: lokale Datei statt unpkg
+// Lokale DeviceOrientationControls (statt unpkg)
 import { DeviceOrientationControls } from './js/DeviceOrientationControls.js';
 
-
-// --- Grund-Variablen (analog webxr.html) ---
+// ---------------------------------------------------------
+// Globale Variablen (Three.js / AR-State)
+// ---------------------------------------------------------
 let camera, scene, renderer;
 let controls;
 let placementGroup;
@@ -164,6 +165,9 @@ const btnMute = document.getElementById('btn-mute');
 let isMuted = false;
 let audioCtx = null;
 
+// ---------------------------------------------------------
+// Audio-Helfer
+// ---------------------------------------------------------
 function ensureAudioUnlocked() {
   try {
     if (!audioCtx) {
@@ -201,1000 +205,304 @@ function setupAudio(audioCfg) {
   const masterVolume = 0.3;
   audioEl.volume = sceneVolume * masterVolume;
 
-  try { audioEl.load(); } catch(e) {}
-
-  audioEl.addEventListener('error', (e) => {
-    console.error('Audio load error:', e);
-    setUiState('audio_error', 'Audio konnte nicht geladen werden (CORS/Netzwerk).');
-  });
-
-  btnMute.onclick = async () => {
+  btnMute.onclick = () => {
     isMuted = !isMuted;
     audioEl.muted = isMuted;
     btnMute.textContent = isMuted ? '🔇' : '🔊';
     btnMute.setAttribute('aria-label', isMuted ? 'Audio einschalten' : 'Audio ausschalten');
     if (!isMuted) {
-      ensureAudioUnlocked();
-      try {
-        await audioEl.play();
-        setUiState('audio_playing', 'Audio läuft.');
-      } catch {
-        setUiState('audio_blocked', 'Audio blockiert. Versuche es ggf. erneut.');
-      }
-    } else {
-      audioEl.pause();
+      tryStartAudioIfPossible();
     }
   };
 }
 
-// --- UI Helpers ---
-function showErr(txt) {
-  const e = document.getElementById('err');
-  e.textContent = txt;
-  e.style.display = 'block';
-  setTimeout(() => e.style.display='none', 5000);
+// ---------------------------------------------------------
+// Scene-Config laden und Startscreen befüllen
+// ---------------------------------------------------------
+async function loadSceneConfig(sceneId, baseUrl) {
+  const url = `${baseUrl}/scenes/${encodeURIComponent(sceneId)}/scene.json`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Konfiguration nicht ladbar (${res.status})`);
+  return await res.json();
 }
 
-let uiState = '';
-function updateMsg(txt) {
-  document.getElementById('msg').textContent = txt;
-}
-function setUiState(nextState, msg) {
-  if (uiState !== nextState) {
-    uiState = nextState;
-    if (msg !== undefined && msg !== null && msg !== '') {
-      updateMsg(msg);
-    }
-  }
-}
+function applyWelcomeToStartScreen(cfg, sceneId, baseUrl) {
+  const meta    = cfg.meta || {};
+  const welcome = (cfg.ui && cfg.ui.welcome) || {};
 
-function toNDC(clientX, clientY) {
-  const w = renderer.domElement.clientWidth || window.innerWidth;
-  const h = renderer.domElement.clientHeight || window.innerHeight;
-  ndc.x = (clientX / w) * 2 - 1;
-  ndc.y = -(clientY / h) * 2 + 1;
-}
+  const titleEl   = document.getElementById('start-title');
+  const sublineEl = document.getElementById('start-subline');
+  const textEl    = document.getElementById('start-text');
+  const imgEl     = document.getElementById('start-image');
 
-function isTapInsidePlacementRect(clientX, clientY) {
-  if (!placementGroup || !placementRect || !placementRect.visible || !isHovering) return false;
-  toNDC(clientX, clientY);
-  raycaster.setFromCamera(ndc, camera);
-  const hit = new THREE.Vector3();
-  if (raycaster.ray.intersectPlane(floorPlane, hit) === null) return false;
-  const rectWorldPos = placementGroup.position;
-  const dx = hit.x - rectWorldPos.x;
-  const dz = hit.z - rectWorldPos.z;
-  const halfSize = (RECT_SIZE * placementGroup.scale.x * 1.05) / 2 + 0.05;
-  return (Math.abs(dx) <= halfSize) && (Math.abs(dz) <= halfSize);
-}
+  if (titleEl)   titleEl.textContent   = meta.title       || welcome.title   || '';
+  if (sublineEl) sublineEl.textContent = meta.subtitle    || welcome.eyebrow || '';
+  if (textEl)    textEl.textContent    = meta.description || welcome.desc    || '';
 
-function isTouchOnModel(clientX, clientY) {
-  if (!model || !isModelPlaced) return false;
-  toNDC(clientX, clientY);
-  raycaster.setFromCamera(ndc, camera);
-  const hits = raycaster.intersectObject(model, true);
-  return hits.length > 0;
-}
-
-// --- Kamera-Stream / VideoTexture ---
-let videoEl = null;
-let videoTexture = null;
-
-async function initCameraStream() {
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    throw new Error('Kamera-Zugriff wird nicht unterstützt.');
-  }
-
-  videoEl = document.getElementById('camera-video');
-
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: { ideal: 'environment' } },
-    audio: false
-  });
-
-  videoEl.srcObject = stream;
-  await videoEl.play();
-
-  videoTexture = new THREE.VideoTexture(videoEl);
-  videoTexture.colorSpace = THREE.SRGBColorSpace;
-  videoTexture.minFilter = THREE.LinearFilter;
-  videoTexture.magFilter = THREE.LinearFilter;
-  videoTexture.encoding = THREE.sRGBEncoding;
-
-  scene.background = videoTexture;
-}
-
-function stopCameraStream() {
-  if (videoEl && videoEl.srcObject) {
-    const tracks = videoEl.srcObject.getTracks();
-    tracks.forEach(t => t.stop());
-    videoEl.srcObject = null;
+  const posterFile = meta.posterImage || welcome.poster;
+  if (imgEl && posterFile) {
+    imgEl.src = `${baseUrl}/scenes/${encodeURIComponent(sceneId)}/${encodeURIComponent(posterFile)}`;
+    imgEl.style.display = 'block';
+  } else if (imgEl) {
+    imgEl.style.display = 'none';
   }
 }
 
-// --- Capture & Galerie (Canvas-basiert – kein getDisplayMedia mehr!) ---
-function initCaptureAndGallery({ renderer, audioEl }) {
-  const captureBtn = document.getElementById('btn-main-capture');
-  const captureIcon = document.getElementById('capture-icon');
-  const progressCircle = document.getElementById('progress-circle');
-
-  const galleryBtn = document.getElementById('btn-gallery-small');
-  const galleryPanel = document.getElementById('gallery-panel');
-  const galleryGrid = document.getElementById('gallery-grid');
-  const galleryPreview = document.getElementById('gallery-preview-media');
-  const galleryFilenameEl = document.getElementById('gallery-filename');
-  const galleryDownloadBtn = document.getElementById('gallery-download');
-  const galleryCloseBtn = document.getElementById('gallery-close');
-
-  if (!captureBtn) {
-    console.warn('[ARea] Capture-Button nicht gefunden.');
-    return;
-  }
-
-  const LONG_PRESS_MS = 550;
-  let pressTimer = null;
-  let longPressActive = false;
-  let isRecording = false;
-
-  let canvasStream = null;
-  let canvasRecorder = null;
-  let screenChunks = [];
-
-  const galleryItems = [];
-  let currentPreviewIndex = -1;
-
-  // Progress-Ring
-  let circleCirc = 0;
-  if (progressCircle) {
-    const r = progressCircle.r.baseVal.value || 34;
-    circleCirc = 2 * Math.PI * r;
-    progressCircle.style.strokeDasharray = `${circleCirc}`;
-    progressCircle.style.strokeDashoffset = `${circleCirc}`;
-  }
-
-  function setProgress(p) {
-    if (!progressCircle || !circleCirc) return;
-    const clamped = Math.min(Math.max(p, 0), 1);
-    progressCircle.style.strokeDashoffset = `${circleCirc * (1 - clamped)}`;
-  }
-
-  function resetProgress() {
-    setProgress(0);
-  }
-
-  function setCaptureIcon(mode) {
-    if (!captureIcon) return;
-    if (mode === 'video') {
-      captureIcon.textContent = '⏹️';
-      captureBtn.classList.add('is-recording');
-    } else {
-      captureIcon.textContent = '📸';
-      captureBtn.classList.remove('is-recording');
-      resetProgress();
-    }
-  }
-
-  function makeFilename(kind, ext) {
-    const now = new Date();
-    const pad = (n) => String(n).padStart(2, '0');
-    const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
-    const base = kind === 'image' ? 'area-ar-photo' : 'area-ar-video';
-    return `${base}-${stamp}.${ext || (kind === 'image' ? 'png' : 'webm')}`;
-  }
-
-  async function tryShareOrDownload(blob, filename) {
-    try {
-      const file = new File([blob], filename, { type: blob.type });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({
-          files: [file],
-          title: filename
-        });
-        return;
-      }
-    } catch (err) {
-      console.warn('[ARea] Native Share nicht möglich oder abgebrochen', err);
-    }
-
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  }
-
-  function addToGallery(kind, blob, filename) {
-    const url = URL.createObjectURL(blob);
-    const item = {
-      kind,
-      blob,
-      url,
-      filename,
-      createdAt: new Date()
-    };
-    galleryItems.push(item);
-    updateGalleryGrid();
-    updateGalleryButtonThumb(item);
-  }
-
-  function updateGalleryButtonThumb(item) {
-    if (!galleryBtn) return;
-    if (item.kind === 'image') {
-      galleryBtn.style.backgroundImage = `url(${item.url})`;
-      galleryBtn.style.backgroundSize = 'cover';
-      galleryBtn.style.backgroundPosition = 'center';
-      galleryBtn.textContent = '';
-    } else {
-      galleryBtn.style.backgroundImage = '';
-      galleryBtn.textContent = '🖼️';
-    }
-  }
-
-  function updateGalleryGrid() {
-    if (!galleryGrid) return;
-    galleryGrid.innerHTML = '';
-    galleryItems.forEach((item, index) => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'gallery-thumb';
-      if (item.kind === 'image') {
-        btn.style.backgroundImage = `url(${item.url})`;
-      } else {
-        btn.classList.add('is-video');
-      }
-      btn.addEventListener('click', () => openPreview(index));
-      galleryGrid.appendChild(btn);
-    });
-  }
-
-  function openPreview(index) {
-    if (!galleryPanel || !galleryPreview || !galleryFilenameEl || !galleryDownloadBtn) return;
-    const item = galleryItems[index];
-    if (!item) return;
-
-    galleryPreview.innerHTML = '';
-    let node;
-    if (item.kind === 'image') {
-      const img = document.createElement('img');
-      img.src = item.url;
-      img.alt = item.filename;
-      img.style.maxWidth = '100%';
-      img.style.maxHeight = '100%';
-      node = img;
-    } else {
-      const video = document.createElement('video');
-      video.src = item.url;
-      video.controls = true;
-      video.autoplay = true;
-      video.style.maxWidth = '100%';
-      video.style.maxHeight = '100%';
-      node = video;
-    }
-    galleryPreview.appendChild(node);
-    galleryFilenameEl.textContent = item.filename;
-    galleryDownloadBtn.onclick = () => tryShareOrDownload(item.blob, item.filename);
-    currentPreviewIndex = index;
-    galleryPanel.dataset.open = 'true';
-  }
-
-  function closeGallery() {
-    if (!galleryPanel) return;
-    galleryPanel.dataset.open = 'false';
-  }
-
-  function wireGallery() {
-    if (galleryBtn) {
-      galleryBtn.addEventListener('click', () => {
-        if (!galleryItems.length) return;
-        openPreview(galleryItems.length - 1);
-      });
-    }
-    if (galleryCloseBtn) {
-      galleryCloseBtn.addEventListener('click', () => closeGallery());
-    }
-    if (galleryPanel) {
-      galleryPanel.addEventListener('click', (ev) => {
-        if (ev.target === galleryPanel) {
-          closeGallery();
-        }
-      });
-    }
-  }
-
-  function captureCanvasFrame() {
-    return new Promise((resolve, reject) => {
-      try {
-        renderer.domElement.toBlob(
-          (blob) => {
-            if (blob) resolve(blob);
-            else reject(new Error('Canvas Screenshot fehlgeschlagen'));
-          },
-          'image/png'
-        );
-      } catch (err) {
-        reject(err);
-      }
-    });
-  }
-
-  async function makePhotoBlob() {
-    // IMMER Canvas (enthält Kamera + 3D)
-    return await captureCanvasFrame();
-  }
-
-  async function startVideoCapture() {
-    try {
-      canvasStream = renderer.domElement.captureStream(30);
-
-      const candidates = [
-        'video/webm;codecs=vp9',
-        'video/webm;codecs=vp8',
-        'video/webm'
-      ];
-      let mimeType = '';
-      for (const cand of candidates) {
-        if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(cand)) {
-          mimeType = cand;
-          break;
-        }
-      }
-
-      screenChunks = [];
-      canvasRecorder = new MediaRecorder(
-        canvasStream,
-        mimeType ? { mimeType } : {}
-      );
-      canvasRecorder.ondataavailable = (ev) => {
-        if (ev.data && ev.data.size > 0) {
-          screenChunks.push(ev.data);
-        }
-      };
-      canvasRecorder.onstop = () => {
-        try {
-          const blob = new Blob(screenChunks, {
-            type: mimeType || 'video/webm'
-          });
-          const filename = makeFilename('video', 'webm');
-          onCaptureReady('video', blob, filename);
-        } catch (err) {
-          console.error('[ARea] Fehler beim Erzeugen der Videodatei', err);
-        } finally {
-          if (canvasStream) {
-            canvasStream.getTracks().forEach((t) => t.stop());
-          }
-          canvasStream = null;
-          canvasRecorder = null;
-          screenChunks = [];
-        }
-      };
-
-      canvasRecorder.start();
-      return true;
-    } catch (err) {
-      console.error('[ARea] Videoaufnahme konnte nicht gestartet werden', err);
-      return false;
-    }
-  }
-
-  function stopVideoCapture() {
-    if (canvasRecorder && canvasRecorder.state !== 'inactive') {
-      canvasRecorder.stop();
-    }
-  }
-
-  async function onCaptureReady(kind, blob, filename) {
-    if (!blob) return;
-    const finalFilename = filename || makeFilename(kind);
-    addToGallery(kind, blob, finalFilename);
-    await tryShareOrDownload(blob, finalFilename);
-  }
-
-  async function handleTapCapture() {
-    if (isRecording) return;
-    captureBtn.disabled = true;
-    try {
-      const blob = await makePhotoBlob();
-      await onCaptureReady('image', blob);
-    } catch (err) {
-      console.error('[ARea] Screenshot fehlgeschlagen', err);
-    } finally {
-      captureBtn.disabled = false;
-      setCaptureIcon('photo');
-    }
-  }
-
-  async function handleStart(ev) {
-    if (ev) {
-      ev.preventDefault();
-      ev.stopPropagation();
-    }
-    if (isRecording) return;
-
-    longPressActive = false;
-    let startTime = performance.now();
-
-    pressTimer = window.setTimeout(async () => {
-      longPressActive = true;
-      isRecording = true;
-      setCaptureIcon('video');
-      setProgress(0);
-
-      const ok = await startVideoCapture();
-      if (!ok) {
-        isRecording = false;
-        longPressActive = false;
-        setCaptureIcon('photo');
-      }
-    }, LONG_PRESS_MS);
-
-    const animate = () => {
-      if (!pressTimer || longPressActive || isRecording) {
-        setProgress(0);
-        return;
-      }
-      const elapsed = performance.now() - startTime;
-      const p = Math.min(elapsed / LONG_PRESS_MS, 1);
-      setProgress(p);
-      if (p < 1 && pressTimer) {
-        requestAnimationFrame(animate);
-      }
-    };
-    requestAnimationFrame(animate);
-  }
-
-  async function handleEnd(ev) {
-    if (ev) {
-      ev.preventDefault();
-      ev.stopPropagation();
-    }
-
-    if (pressTimer) {
-      clearTimeout(pressTimer);
-      pressTimer = null;
-    }
-
-    const wasLong = longPressActive;
-    const wasRecording = isRecording;
-    longPressActive = false;
-
-    if (wasRecording) {
-      stopVideoCapture();
-      isRecording = false;
-      setCaptureIcon('photo');
-      resetProgress();
-      return;
-    }
-
-    if (!wasLong) {
-      await handleTapCapture();
-    }
-  }
-
-  captureBtn.addEventListener('touchstart', handleStart, { passive: false });
-  captureBtn.addEventListener('touchend', handleEnd, { passive: false });
-  captureBtn.addEventListener('mousedown', handleStart);
-  captureBtn.addEventListener('mouseup', handleEnd);
-  captureBtn.addEventListener('mouseleave', handleEnd);
-
-  setCaptureIcon('photo');
-  wireGallery();
-
-  console.log('[ARea] Kamera-AR Capture + Gallery initialisiert');
-}
-
-// --- Three.js Setup ---
+// ---------------------------------------------------------
+// Three.js Setup (Kamera, Szene, Renderer etc.)
+// ---------------------------------------------------------
 function initThree() {
+  const video = document.getElementById('camera-video');
+  if (!video) {
+    throw new Error('camera-video Element fehlt.');
+  }
+
   scene = new THREE.Scene();
-  camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 50);
-  camera.position.set(0, 1.5, 0);
-  camera.lookAt(0, 1.5, -1);
 
-  controls = new DeviceOrientationControls(camera);
+  camera = new THREE.PerspectiveCamera(
+    60,
+    window.innerWidth / window.innerHeight,
+    0.01,
+    100
+  );
+  scene.add(camera);
 
-  const hemi = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1.2);
-  scene.add(hemi);
+  const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0);
+  hemiLight.position.set(0, 1, 0);
+  scene.add(hemiLight);
 
-  const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
-  dirLight.position.set(2, 8, 4);
-  dirLight.castShadow = true;
-  dirLight.shadow.mapSize.set(1024, 1024);
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+  dirLight.position.set(1, 2, 1);
   scene.add(dirLight);
 
   renderer = new THREE.WebGLRenderer({
     antialias: true,
-    alpha: true,
-    preserveDrawingBuffer: true
+    alpha: true
   });
-  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setSize(window.innerWidth, window.innerHeight, false);
+  renderer.setClearColor(0x000000, 0);
+
   document.body.appendChild(renderer.domElement);
 
-  placementGroup = new THREE.Group();
-  placementGroup.visible = false;
-  scene.add(placementGroup);
+  // DeviceOrientationControls
+  controls = new DeviceOrientationControls(camera);
 
-  const shadowPlaneGeo = new THREE.PlaneGeometry(10, 10);
-  shadowPlaneGeo.rotateX(-Math.PI / 2);
-  const shadowPlaneMat = new THREE.ShadowMaterial({ opacity: 0.3 });
-  const shadowPlane = new THREE.Mesh(shadowPlaneGeo, shadowPlaneMat);
-  shadowPlane.position.y = 0;
-  shadowPlane.receiveShadow = true;
-  scene.add(shadowPlane);
-
-  const radius = 0.05;
-  const rectShape = new THREE.Shape();
-  rectShape.moveTo(0, radius);
-  rectShape.lineTo(0, RECT_SIZE - radius);
-  rectShape.quadraticCurveTo(0, RECT_SIZE, radius, RECT_SIZE);
-  rectShape.lineTo(RECT_SIZE - radius, RECT_SIZE);
-  rectShape.quadraticCurveTo(RECT_SIZE, RECT_SIZE, RECT_SIZE, RECT_SIZE - radius);
-  rectShape.lineTo(RECT_SIZE, radius);
-  rectShape.quadraticCurveTo(RECT_SIZE, 0, RECT_SIZE - radius, 0);
-  rectShape.lineTo(radius, 0);
-  rectShape.quadraticCurveTo(0, 0, 0, radius);
-  const outlineGeo = new THREE.ShapeGeometry(rectShape);
-  outlineGeo.translate(-RECT_SIZE / 2, -RECT_SIZE / 2, 0);
-  const edges = new THREE.EdgesGeometry(outlineGeo);
-  const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, opacity: 0.8, transparent: true });
-  placementRect = new THREE.LineSegments(edges, lineMat);
-  placementRect.rotation.x = -Math.PI / 2;
-  placementRect.position.y = 0.005;
-  placementRect.scale.set(1.05, 1.05, 1.05);
-  placementRect.visible = false;
-  placementGroup.add(placementRect);
+  window.addEventListener('resize', onWindowResize);
 }
 
-async function loadModel() {
+async function initCameraStream() {
+  const video = document.getElementById('camera-video');
+  if (!video) return;
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: 'environment'
+      },
+      audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
+  } catch (e) {
+    console.error('Kamera konnte nicht gestartet werden:', e);
+    showErr('Kamera konnte nicht gestartet werden: ' + (e.message || e));
+  }
+}
+
+function onWindowResize() {
+  if (!camera || !renderer) return;
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight, false);
+}
+
+// ---------------------------------------------------------
+// Modell laden
+// ---------------------------------------------------------
+async function loadModel(modelUrl, audioCfg) {
+  const loadingMsg = document.getElementById('msg');
+  if (loadingMsg) loadingMsg.textContent = 'Lade Modell …';
+
   const loader = new GLTFLoader();
   const draco = new DRACOLoader();
   draco.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
   loader.setDRACOLoader(draco);
 
-  try {
-    const gltf = await loader.loadAsync(MODEL_URL);
-    model = gltf.scene;
-    model.traverse((node) => {
-      if (node.isMesh) {
-        node.castShadow = true;
-        node.receiveShadow = false;
-      }
-    });
-    model.scale.setScalar(0.5);
-    if (gltf.animations?.length) {
-      mixer = new THREE.AnimationMixer(model);
-      gltf.animations.forEach(clip => mixer.clipAction(clip).play());
-    }
-    placementGroup.add(model);
-    modelLoaded = true;
-    setUiState('loaded', 'Modell geladen. Tippe auf AR Starten.');
-  } catch (e) {
-    throw new Error(e.message || 'Unbekannter Fehler beim Laden des 3D-Modells.');
+  const gltf = await loader.loadAsync(modelUrl);
+  model = gltf.scene;
+  if (!model) throw new Error('GLB enthält keine Scene.');
+
+  model.visible = false;
+  scene.add(model);
+
+  if (gltf.animations && gltf.animations.length > 0) {
+    mixer = new THREE.AnimationMixer(model);
+    const clip = gltf.animations[0];
+    const action = mixer.clipAction(clip);
+    action.play();
+  }
+
+  modelLoaded = true;
+  if (loadingMsg) loadingMsg.textContent = 'Tippe auf die Zielmarkierung, um das Modell zu platzieren.';
+
+  if (audioCfg) {
+    setupAudio(audioCfg);
   }
 }
 
-let renderRunning = false;
+// ---------------------------------------------------------
+// Render-Loop
+// ---------------------------------------------------------
+let _animId = null;
+
 function startRenderLoop() {
-  if (renderRunning) return;
-  renderRunning = true;
+  if (_animId) return;
 
-  function loop() {
-    if (!renderRunning) return;
+  const renderLoop = () => {
+    _animId = requestAnimationFrame(renderLoop);
 
-    const dt = clock.getDelta();
-    if (mixer) mixer.update(dt);
+    const delta = clock.getDelta();
     if (controls) controls.update();
-
-    if (videoTexture && videoEl && videoEl.readyState >= videoEl.HAVE_CURRENT_DATA) {
-      videoTexture.needsUpdate = true;
-    }
-
-    if (!isModelPlaced) {
-      // Reticle auf Boden in Blickrichtung im Zentrum
-      ndc.set(0, 0);
-      raycaster.setFromCamera(ndc, camera);
-      const hit = new THREE.Vector3();
-      if (raycaster.ray.intersectPlane(floorPlane, hit)) {
-        placementGroup.position.copy(hit);
-        placementGroup.position.y = 0;
-        placementGroup.visible = true;
-        placementRect.visible = true;
-        isHovering = true;
-        setUiState('hover', 'Tippe auf die Zielmarkierung, um das Modell zu platzieren.');
-      } else {
-        placementGroup.visible = false;
-        placementRect.visible = false;
-        isHovering = false;
-        setUiState('search', 'Suche Boden...');
-      }
-    } else {
-      placementRect.visible = isEditing;
-    }
+    if (mixer) mixer.update(delta);
 
     renderer.render(scene, camera);
-    requestAnimationFrame(loop);
-  }
+  };
 
-  requestAnimationFrame(loop);
+  renderLoop();
 }
 
 function stopRenderLoop() {
-  renderRunning = false;
-}
-
-function onResize() {
-  if (!renderer || !camera) return;
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-}
-
-// --- Gesten (wie im WebXR-Viewer) ---
-function getDistance(touch1, touch2) {
-  return Math.hypot(touch2.clientX - touch1.clientX, touch2.clientY - touch1.clientY);
-}
-
-function onTouchStart(event) {
-  currentTouches = event.touches ? Array.from(event.touches) : [event];
-  if (currentTouches.length === 0) return;
-
-  gestureStartTime = performance.now();
-  didMove = false;
-  isEditing = false;
-
-  tapStartX = currentTouches[0].clientX;
-  tapStartY = currentTouches[0].clientY;
-  lastMoveX = tapStartX;
-
-  isDraggingModel = false;
-  isRotatingModel = false;
-  isScalingModel = false;
-
-  if (!isModelPlaced) return;
-
-  if (currentTouches.length === 2) {
-    isEditing = true;
-    isScalingModel = true;
-    initialPinchDistance = getDistance(currentTouches[0], currentTouches[1]);
-    initialModelScale = placementGroup.scale.x;
-    placementRect.visible = true;
-    setUiState('scale', 'Skalieren (Pinch)');
-  } else if (currentTouches.length === 1) {
-    if (isTouchOnModel(tapStartX, tapStartY)) {
-      isEditing = true;
-      isDraggingModel = true;
-      placementRect.visible = true;
-      setUiState('drag', 'Modell verschieben (Drag)');
-    } else {
-      isEditing = true;
-      isRotatingModel = true;
-      placementRect.visible = true;
-      setUiState('rotate', 'Modell drehen (Swipe)');
-    }
-  }
-
-  if (isEditing) event.preventDefault();
-}
-
-function onTouchMove(event) {
-  currentTouches = event.touches ? Array.from(event.touches) : [event];
-  const touchCount = currentTouches.length;
-
-  if (isEditing || touchCount > 1) event.preventDefault();
-  if (!isEditing || !isModelPlaced) return;
-
-  const isTwoFinger = touchCount === 2;
-  const isOneFinger = touchCount === 1;
-
-  const dragDistanceTotal = Math.hypot(currentTouches[0].clientX - tapStartX, currentTouches[0].clientY - tapStartY);
-  if (dragDistanceTotal > DRAG_THRESHOLD_PIX) didMove = true;
-
-  if (isTwoFinger) {
-    if (!isScalingModel) {
-      isScalingModel = true;
-      isDraggingModel = false;
-      isRotatingModel = false;
-      initialPinchDistance = getDistance(currentTouches[0], currentTouches[1]);
-      initialModelScale = placementGroup.scale.x;
-      setUiState('scale', 'Skalieren (Pinch)');
-    }
-    const newDist = getDistance(currentTouches[0], currentTouches[1]);
-    const scaleDelta = newDist - initialPinchDistance;
-    const newScale = initialModelScale + scaleDelta * SCALE_FACTOR;
-    const clamped = Math.max(0.25, Math.min(3.0, newScale));
-    placementGroup.scale.setScalar(clamped);
-  } else if (isScalingModel && isOneFinger) {
-    isScalingModel = false;
-    const t = currentTouches[0];
-    if (isTouchOnModel(t.clientX, t.clientY)) {
-      isDraggingModel = true;
-      isRotatingModel = false;
-      setUiState('drag', 'Modell verschieben (Drag)');
-    } else {
-      isDraggingModel = false;
-      isRotatingModel = true;
-      setUiState('rotate', 'Modell drehen (Swipe)');
-    }
-  } else if (isOneFinger) {
-    const t = currentTouches[0];
-    const dx = t.clientX - lastMoveX;
-
-    if (isDraggingModel) {
-      toNDC(t.clientX, t.clientY);
-      raycaster.setFromCamera(ndc, camera);
-      const hit = new THREE.Vector3();
-      if (raycaster.ray.intersectPlane(floorPlane, hit)) {
-        placementGroup.position.set(hit.x, 0, hit.z);
-      }
-    }
-    if (isRotatingModel) {
-      placementGroup.rotation.y += dx * ROTATION_FACTOR;
-    }
-
-    lastMoveX = t.clientX;
+  if (_animId) {
+    cancelAnimationFrame(_animId);
+    _animId = null;
   }
 }
 
-function onTouchEnd(event) {
-  if (event.touches && event.touches.length > 0) return;
-
-  const gestureDuration = performance.now() - gestureStartTime;
-  const isTap = !didMove && gestureDuration < TAP_THRESHOLD_MS;
-  const endedTouch = event.changedTouches ? event.changedTouches[0] : event;
-
-  if (!isModelPlaced && isTap) {
-    if (isHovering && isTapInsidePlacementRect(endedTouch.clientX, endedTouch.clientY)) {
-      isModelPlaced = true;
-      placementRect.visible = false;
-      setUiState('placed', 'Modell platziert. Ziehen/Pinch zum Bearbeiten.');
-    }
-  }
-
-  if (isEditing) {
-    isEditing = false;
-    isDraggingModel = false;
-    isRotatingModel = false;
-    isScalingModel = false;
-    initialModelScale = placementGroup.scale.x;
-    placementRect.visible = false;
-    if (isModelPlaced) setUiState('placed', 'Bearbeitung beendet. Tippe auf Modell zum erneuten Draggen.');
-  }
+// ---------------------------------------------------------
+// Fehlermeldung
+// ---------------------------------------------------------
+function showErr(msg) {
+  const el = document.getElementById('err');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.display = 'block';
 }
 
-// --- Reset ---
+// ---------------------------------------------------------
+// Reset zurück zum Startscreen
+// ---------------------------------------------------------
 function resetARState() {
   const startScreen = document.getElementById('start-screen');
   const overlay = document.getElementById('overlay');
   const btnEnterAR = document.getElementById('btn-enter-ar');
 
   stopRenderLoop();
-  stopCameraStream();
+
+  // Kamera stoppen
+  const video = document.getElementById('camera-video');
+  if (video && video.srcObject) {
+    const tracks = video.srcObject.getTracks();
+    tracks.forEach(t => t.stop());
+    video.srcObject = null;
+  }
+
   audioEl.pause();
 
-  startScreen.style.display = 'flex';
-overlay.style.pointerEvents = 'none';
-btnEnterAR.disabled = true;
+  if (startScreen) startScreen.style.display = 'flex';
+  if (overlay) {
+    overlay.style.pointerEvents = 'none';
+    overlay.style.opacity = 0;
+  }
 
   isModelPlaced = false;
   isEditing = false;
-  placementGroup.visible = false;
-  placementRect.visible = false;
-  btnEnterAR.disabled = !modelLoaded;
-  setUiState('initial', 'Tippe auf die Zielmarkierung, um das Modell zu platzieren.');
+
+  if (btnEnterAR) btnEnterAR.disabled = !modelLoaded;
+
+  const msg = document.getElementById('msg');
+  if (msg) msg.textContent = 'Tippe auf die Zielmarkierung, um das Modell zu platzieren.';
 }
 
-// --- Einfache Screenshot-Funktion (Canvas = Kamera + 3D) ---
-function makeScreenshotFilename() {
-  const now = new Date();
-  const pad = (n) => String(n).padStart(2, '0');
-  const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
-  return `area-ar-screenshot-${stamp}.png`;
-}
-
-async function takeArScreenshot() {
-  const btn = document.getElementById('btn-screenshot');
-  try {
-    if (!renderer || !renderer.domElement) {
-      showErr('Screenshot nicht möglich (Renderer nicht initialisiert).');
-      return;
-    }
-
-    if (btn) {
-      btn.classList.add('flash');
-      setTimeout(() => btn.classList.remove('flash'), 180);
-    }
-
-    // Letztes Bild sicher rendern
-    renderer.render(scene, camera);
-
-    const blob = await new Promise((resolve, reject) => {
-      try {
-        renderer.domElement.toBlob((b) => {
-          if (b) resolve(b);
-          else reject(new Error('Canvas liefert keinen Bildinhalt.'));
-        }, 'image/png');
-      } catch (e) {
-        reject(e);
-      }
-    });
-
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = makeScreenshotFilename();
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
-  } catch (err) {
-    console.error('[ARea] Screenshot-Fehler:', err);
-    showErr('Screenshot fehlgeschlagen: ' + (err.message || err));
-  }
-}
-
-// Button-Listener direkt nach Laden der Seite setzen
-const screenshotBtn = document.getElementById('btn-screenshot');
-if (screenshotBtn) {
-  screenshotBtn.addEventListener('click', takeArScreenshot);
-}
-
-// --- Boot ---
-async function boot() {
+// ---------------------------------------------------------
+// DOMContentLoaded – Haupt-Init
+// ---------------------------------------------------------
+document.addEventListener('DOMContentLoaded', async () => {
   const startScreen = document.getElementById('start-screen');
-  const overlay = document.getElementById('overlay');
-  const btnEnterAR = document.getElementById('btn-enter-ar');
-  const startImage = document.getElementById('start-image');
+  const overlay     = document.getElementById('overlay');
+  const btnEnterAR  = document.getElementById('btn-enter-ar');
+  const btnClose    = document.getElementById('btn-close');
 
-  const startTitle = document.getElementById('start-title');
-  const startSubline = document.getElementById('start-subline');
-  const startText = document.getElementById('start-text');
-
-  startScreen.style.display = 'flex';
-  overlay.style.pointerEvents = 'none';
-  btnEnterAR.disabled = true;
-
-  startTitle.textContent = '';
-  startSubline.textContent = '';
-  startText.textContent = '';
-  startImage.style.display = 'none';
-
-  if (sceneParam) {
-    if (sceneParam.endsWith('.glb')) {
-      MODEL_URL = sceneParam;
-    } else {
-      SCENE_JSON_URL = `${workerBase}/scenes/${sceneParam}/scene.json`;
-    }
-  } else {
-    MODEL_URL = 'https://modelviewer.dev/shared-assets/models/Astronaut.glb';
+  // Initial: Startscreen sichtbar, Overlay blocken
+  if (startScreen) startScreen.style.display = 'flex';
+  if (overlay) {
+    overlay.style.pointerEvents = 'none';
+    overlay.style.opacity = 0;
   }
+  if (btnEnterAR) btnEnterAR.disabled = true;
 
-  if (SCENE_JSON_URL) {
-    try {
-      const res = await fetch(SCENE_JSON_URL);
-      if (!res.ok) throw new Error(`Scene JSON Error: ${res.status} ${res.statusText}`);
-      const json = await res.json();
-
-      const meta    = json.meta || {};
-      const welcome = (json.ui && json.ui.welcome) || {};
-      const title =
-        (meta.title && meta.title.trim()) ||
-        (welcome.title && welcome.title.trim()) ||
-        '';
-
-      const subline =
-        (meta.subtitle && meta.subtitle.trim()) ||
-        (welcome.eyebrow && welcome.eyebrow.trim()) ||
-        '';
-
-      const body =
-        (meta.body && meta.body.trim()) ||
-        (meta.description && meta.description.trim()) ||
-        (welcome.desc && welcome.desc.trim()) ||
-        '';
-
-      const posterFile =
-        (meta.posterImage && String(meta.posterImage).trim()) ||
-        (welcome.poster && String(welcome.poster).trim()) ||
-        '';
-
-      startTitle.innerHTML = title;
-      startSubline.innerHTML = subline;
-      startText.innerHTML = body;
-
-      if (posterFile) {
-        const imageUrl = `${workerBase}/scenes/${sceneParam}/${encodeURIComponent(posterFile)}`;
-        startImage.src = imageUrl;
-        startImage.style.display = 'block';
-        startImage.alt = title ? `${title} Vorschau` : 'Vorschau';
-      } else {
-        startImage.style.display = 'none';
-      }
-
-      if (json.model?.url) {
-        MODEL_URL = `${workerBase}/scenes/${sceneParam}/${json.model.url}`;
-      } else {
-        MODEL_URL = 'https://modelviewer.dev/shared-assets/models/Astronaut.glb';
-        showErr('Hinweis: Szene-JSON enthält keine Modell-URL. Fallback-Modell wird verwendet.');
-      }
-
-      if (json.audio?.url) {
-        AUDIO_URL = `${workerBase}/scenes/${sceneParam}/${json.audio.url}`;
-        setupAudio(json.audio);
-      }
-    } catch (e) {
-      console.error(e);
-      showErr('Fehler beim Laden der Szene-Konfiguration: ' + e.message);
-    }
-  }
-
-  initThree();
-
-  try {
-    await loadModel();
-  } catch (e) {
-    showErr('Modell-Ladefehler: ' + e.message);
-    console.error('Modell-Ladefehler:', e);
-    btnEnterAR.disabled = true;
+  if (!sceneParam) {
+    showErr('FEHLENDE URL PARAMETER (scene)');
     return;
   }
 
-  initCaptureAndGallery({
-    renderer,
-    audioEl: document.getElementById('ar-audio')
-  });
+  try {
+    // 1. Three + Kamera
+    initThree();
+    await initCameraStream();
 
-  btnEnterAR.disabled = false;
-  setUiState('loaded', 'Modell geladen. Tippe auf AR Starten.');
+    // 2. Scene-Config
+    const cfg = await loadSceneConfig(sceneParam, workerBase);
+    console.log('[WebXR] SceneConfig:', cfg);
 
-  window.addEventListener('resize', onResize);
-
-  btnEnterAR.addEventListener('click', async () => {
-    if (!modelLoaded) {
-      showErr('Modell noch nicht vollständig geladen. Bitte warten Sie kurz.');
-      return;
+    // URLs setzen
+    MODEL_URL = `${workerBase}/scenes/${encodeURIComponent(sceneParam)}/${encodeURIComponent(cfg.model.url)}`;
+    if (cfg.audio && cfg.audio.url) {
+      AUDIO_URL = `${workerBase}/scenes/${encodeURIComponent(sceneParam)}/${encodeURIComponent(cfg.audio.url)}`;
     }
 
-    if (AUDIO_URL && !isMuted) {
-      ensureAudioUnlocked();
+    // Startscreen befüllen
+    applyWelcomeToStartScreen(cfg, sceneParam, workerBase);
+
+    // 3. Modell + Audio laden
+    await loadModel(MODEL_URL, cfg.audio || null);
+
+    if (btnEnterAR) btnEnterAR.disabled = false;
+
+  } catch (e) {
+    console.error('[WebXR] Init-Fehler:', e);
+    showErr('FEHLER: ' + (e.message || e));
+    return;
+  }
+
+  // STARTE AR Button
+  if (btnEnterAR) {
+    btnEnterAR.addEventListener('click', async () => {
+      btnEnterAR.disabled = true;
       try {
-        await audioEl.play();
-        setUiState('audio_playing', 'Audio läuft.');
+        if (startScreen) startScreen.style.display = 'none';
+        if (overlay) {
+          overlay.style.pointerEvents = 'auto';
+          overlay.style.opacity = 1;
+        }
+
+        await tryStartAudioIfPossible();
+        startRenderLoop();
       } catch (e) {
-        setUiState('audio_blocked', 'Audio blockiert. Tippe auf 🔊 zum Abspielen.');
+        console.error('AR Start fehlgeschlagen:', e);
+        showErr('AR konnte nicht gestartet werden: ' + (e.message || e));
+        btnEnterAR.disabled = false;
       }
-    }
+    });
+  }
 
-    startScreen.style.display = 'none';
-    overlay.style.pointerEvents = 'auto';
-
-    try {
-      await initCameraStream();
-      startRenderLoop();
-    } catch (err) {
-      console.error(err);
-      showErr('Kamera konnte nicht gestartet werden: ' + (err.message || err));
+  // Close-Button → zurück zum Startscreen
+  if (btnClose) {
+    btnClose.addEventListener('click', () => {
       resetARState();
-    }
-  });
-
-  document.getElementById('btn-close').addEventListener('click', () => {
-    resetARState();
-  });
-
-  const gestureLayer = document.getElementById('gesture-layer');
-  gestureLayer.addEventListener('touchstart', onTouchStart, { passive: false });
-  gestureLayer.addEventListener('touchmove', onTouchMove, { passive: false });
-  gestureLayer.addEventListener('touchend', onTouchEnd, { passive: false });
-  gestureLayer.addEventListener('touchcancel', onTouchEnd, { passive: false });
-  gestureLayer.addEventListener('mousedown', onTouchStart, { passive: false });
-  gestureLayer.addEventListener('mousemove', onTouchMove, { passive: false });
-  gestureLayer.addEventListener('mouseup', onTouchEnd, { passive: false });
-}
-
-boot();
+    });
+  }
+});
 </script>
 
 </body>
