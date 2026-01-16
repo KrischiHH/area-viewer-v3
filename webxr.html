@@ -124,7 +124,15 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import { DeviceOrientationControls } from 'three/addons/controls/DeviceOrientationControls.js';
+// DeviceOrientationControls wird nur fuer BG-Mode geladen (dynamisch), um harte Load-Fehler zu vermeiden.
+let DeviceOrientationControls = null;
+async function loadDeviceOrientationControls(){
+  if (DeviceOrientationControls) return DeviceOrientationControls;
+  const mod = await import('./js/DeviceOrientationControls.js');
+  DeviceOrientationControls = mod.DeviceOrientationControls;
+  return DeviceOrientationControls;
+}
+
 
 // Wenn das Module-Script läuft, können wir die Failsafe-CSS-Overrides entfernen,
 // damit JS wieder frei zwischen Startscreen/Overlay umschalten kann.
@@ -235,7 +243,9 @@ async function enterCameraMode() {
   // Kamera/Controls vorbereiten
   camera.position.set(0, 1.6, 0);
   camera.lookAt(0, 1.6, -1);
-  camControls = new DeviceOrientationControls(camera);
+  const DOC = await loadDeviceOrientationControls();
+  camControls = new DOC(camera);
+  camControls.enabled = true;
 
   await startCameraStream();
   startCameraModeLoop();
