@@ -10,14 +10,36 @@
 <link href="https://fonts.googleapis.com/css2?family=Bangers&display=swap" rel="stylesheet"> 
 <link rel="stylesheet" href="styles.css">
 
-<script src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
+<!-- Android/Chrome kann Importmaps nativ. Wir vermeiden externe Shims, weil sie in einigen Umgebungen geblockt werden. -->
 <script type="importmap">
 {
   "imports": {
-    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
   }
 }
+</script>
+
+<!-- Failsafe: Wenn das Module-Script gar nicht startet, soll der Startscreen trotzdem sichtbar sein. -->
+<style id="failsafe-css">
+  #start-screen{ display:flex !important; }
+  #overlay{ display:none !important; }
+</style>
+
+<script>
+  // Zeige JS/Load-Fehler sichtbar auf der Seite (hilft bei Mobiltests ohne Console)
+  window.addEventListener('error', (e) => {
+    const box = document.getElementById('err');
+    if (!box) return;
+    box.textContent = (e?.message || 'Unbekannter Fehler') + (e?.filename ? `\n${e.filename}:${e.lineno || 0}` : '');
+    box.style.display = 'block';
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    const box = document.getElementById('err');
+    if (!box) return;
+    box.textContent = 'Promise-Rejection: ' + (e?.reason?.message || String(e?.reason || 'Unbekannt'));
+    box.style.display = 'block';
+  });
 </script>
 
 </head>
@@ -103,6 +125,12 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { DeviceOrientationControls } from 'three/addons/controls/DeviceOrientationControls.js';
+
+// Wenn das Module-Script läuft, können wir die Failsafe-CSS-Overrides entfernen,
+// damit JS wieder frei zwischen Startscreen/Overlay umschalten kann.
+try {
+  document.getElementById('failsafe-css')?.remove();
+} catch(_) {}
 
 
 // --- AR Logik ---
